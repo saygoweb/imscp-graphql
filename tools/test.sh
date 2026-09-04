@@ -27,9 +27,12 @@ if [ -d /var/www/imscp ]; then
     cd "$SRC"
     sh test/lint/all.sh
 
-    # Run PHPUnit if available
+    # Run PHPUnit if available. Invoked with an explicit php7.4, not via
+    # vendor/bin/phpunit's own #!/usr/bin/env php shebang: the box's default
+    # 'php' is 7.3, which fails composer's platform check for dependencies
+    # resolved against 7.4.33.
     if [ -f vendor/bin/phpunit ] && [ -f test/phpunit.xml ]; then
-        vendor/bin/phpunit --configuration test/phpunit.xml
+        php7.4 vendor/bin/phpunit --configuration test/phpunit.xml
     else
         echo "Note: PHPUnit not yet configured; skipping unit tests"
     fi

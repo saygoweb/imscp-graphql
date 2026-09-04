@@ -42,7 +42,38 @@ class SGW_GraphQL extends AbstractPlugin
      */
     public function init()
     {
+        self::loadVendor();
         l10n_addTranslations(__DIR__ . '/l10n', 'Array', $this->getName());
+    }
+
+    /**
+     * Register the bundled Composer autoloader.
+     *
+     * The panel's own autoloader already resolves this plugin's classes, since
+     * it maps iMSCP\Plugin\ onto the plugins directory. This exists only for
+     * the two vendored libraries, and must not run more than once per request.
+     *
+     * @return void
+     */
+    public static function loadVendor()
+    {
+        static $loaded = false;
+
+        if ($loaded) {
+            return;
+        }
+
+        $autoload = __DIR__ . '/vendor/autoload.php';
+
+        if (!@is_readable($autoload)) {
+            throw new PluginException(
+                'The SGW_GraphQL plugin is missing its vendor directory. '
+                . 'It must be installed from a release archive, not from a Git checkout.'
+            );
+        }
+
+        require_once $autoload;
+        $loaded = true;
     }
 
     /**
