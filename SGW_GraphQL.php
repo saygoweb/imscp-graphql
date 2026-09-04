@@ -25,6 +25,7 @@ use iMSCP\Event\Events;
 use iMSCP\Plugin\AbstractPlugin;
 use iMSCP\Plugin\PluginException;
 use iMSCP\Plugin\PluginManager;
+use iMSCP\Plugin\SGW_GraphQL\Api\Container;
 use iMSCP\Registry;
 use PDO;
 
@@ -195,13 +196,52 @@ class SGW_GraphQL extends AbstractPlugin
     /**
      * Get routes
      *
-     * Filled in once the endpoint exists.
+     * Any URL that is not a real file already reaches the plugin router
+     * (gui/public/plugins.php), so the endpoint needs no web server change.
+     *
+     * GET is not accepted, for any operation: it is the only way a GraphQL
+     * endpoint can be driven from a link or an image tag.
+     *
+     * The route carries no 'middleware' key: PluginRoutesInjector cannot
+     * attach one, in either shape it offers (see the long note on
+     * Container::routeHandler()), so the whole TLS/CORS/authentication stack
+     * is baked into the 'handler' callable instead. Confirmed against the
+     * deployed core in Task 13 with a request replayed through the real
+     * dispatch path.
      *
      * @return array
      */
     public function getRoutes()
     {
-        return array();
+        self::loadVendor();
+
+        $container = Container::fromPlugin($this);
+        $pluginDir = $this->getPluginManager()->pluginGetRootDir() . '/' . $this->getName();
+
+        return array(
+            array(
+                'name'    => 'sgw_graphql_endpoint',
+                'pattern' => $this->getConfigParam('endpoint', '/api/graphql'),
+                'methods' => array('POST', 'OPTIONS'),
+                'handler' => $container->routeHandler()
+            ),
+            array(
+                'name'    => 'sgw_graphql_schema',
+                'pattern' => $this->getConfigParam('schema_endpoint', '/api/graphql/schema'),
+                'methods' => array('GET'),
+                // Not `static`: see the note on Container::routeHandler() —
+                // Slim\App::map() rebinds any Closure route handler, and
+                // bindTo() on a static one returns null instead.
+                'handler' => function ($request, $response) use ($container) {
+                    $response->getBody()->write(file_get_contents($container->schemaPath()));
+
+                    return $response->withHeader('Content-Type', 'text/plain; charset=utf-8');
+                }
+            ),
+            '/client/api_tokens.php'    => $pluginDir . '/frontend/client/api_tokens.php',
+            '/reseller/api_tokens.php'  => $pluginDir . '/frontend/reseller/api_tokens.php',
+            '/reseller/api_access.php'  => $pluginDir . '/frontend/reseller/api_access.php'
+        );
     }
 
     /**
