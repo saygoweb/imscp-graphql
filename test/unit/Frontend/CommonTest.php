@@ -62,7 +62,16 @@ class CommonTest extends TestCase
 
     public function testSafeAttrRemovesAPlaceholderThatWouldNeverTerminate(): void
     {
-        self::assertSame('NEW_TOKEN', safeAttr('{NEW_TOKEN}'));
+        // Unlike safeText()'s body context, the real attribute escaper
+        // (Escaper::escapeHtmlAttr(), confirmed against the box's own
+        // tohtml()) already hex-escapes '{' and '}' on its own — nothing
+        // that survives it needs str_replace() to strip a brace after the
+        // fact. The braces must still be gone from the result either way.
+        $result = safeAttr('{NEW_TOKEN}');
+
+        self::assertStringNotContainsString('{', $result);
+        self::assertStringNotContainsString('}', $result);
+        self::assertStringContainsString('NEW_TOKEN', $result);
     }
 
     public function testSafeAttrStillEscapesAttributeMetacharacters(): void
@@ -71,6 +80,23 @@ class CommonTest extends TestCase
 
         self::assertStringNotContainsString('"', $result);
         self::assertStringNotContainsString('<script>', $result);
+    }
+
+    /**
+     * Item 7 of the fix round: the stub's tohtml() used to ignore
+     * $escapeType, so this suite could never actually prove safeAttr()
+     * applies attribute escaping rather than body escaping — a safeAttr()
+     * that quietly fell back to safeText()'s behaviour would have kept every
+     * existing assertion green. '=' is exactly such a character: left alone
+     * by body escaping, but outside the attribute-safe character set.
+     */
+    public function testSafeTextAndSafeAttrEscapeTheSameValueDifferently(): void
+    {
+        $value = 'a=b';
+
+        self::assertSame('a=b', safeText($value));
+        self::assertSame('a&#x3D;b', safeAttr($value));
+        self::assertNotSame(safeText($value), safeAttr($value));
     }
 
     public function testResolveTtlDaysDefaultsAMissingValue(): void

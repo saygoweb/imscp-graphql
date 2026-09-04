@@ -28,6 +28,15 @@
                 <button type="submit" class="icon i_{TOGGLE_ICON}"
                         onclick="return confirm('{TOGGLE_CONFIRM}');">{TOGGLE_LABEL}</button>
             </form>
+            <!-- BDP: revoke_all_action -->
+            <form method="post" action="api_access.php" style="display:inline">
+                <input type="hidden" name="action" value="revoke_all">
+                <input type="hidden" name="id" value="{ADMIN_ID}">
+                <input type="hidden" name="csrf" value="{CSRF_TOKEN}">
+                <button type="submit" class="icon i_delete"
+                        onclick="return confirm('{TR_REVOKE_ALL_CONFIRM}');">{TR_REVOKE_ALL}</button>
+            </form>
+            <!-- EDP: revoke_all_action -->
         </td>
     </tr>
     <!-- EDP: customer_item -->

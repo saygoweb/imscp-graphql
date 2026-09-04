@@ -73,6 +73,14 @@ final class Container
         $pluginDir = $plugin->getPluginManager()->pluginGetRootDir()
             . '/' . $plugin->getName();
 
+        // Resolved once, here, from the $plugin already in hand — not inside
+        // the closure below. api_perm is empty in production, so every single
+        // API request takes customerHasApiAccess()'s "no row" branch; leaving
+        // that branch to read Registry itself would mean every request paid
+        // for a Registry::get('pluginManager')->pluginGet() round trip that
+        // this one line already has everything needed to avoid.
+        $allowedByDefault = (bool)$plugin->getConfigParam('allowed_by_default', true);
+
         return new self(
             $pluginDir,
             $plugin->getConfig(),
@@ -93,9 +101,12 @@ final class Container
             },
             // Called unconditionally by AuthenticateMiddleware, and denied on
             // false: see that class's own note on why this must never fail
-            // open.
-            static function (int $adminId) {
-                return SGW_GraphQL::customerHasApiAccess($adminId);
+            // open. $allowedByDefault is passed straight through to
+            // customerHasApiAccess(), whatever it is — an existing api_perm
+            // row still wins over it either way, and no exception this call
+            // can throw is caught here into a truthy result.
+            static function (int $adminId) use ($allowedByDefault) {
+                return SGW_GraphQL::customerHasApiAccess($adminId, $allowedByDefault);
             }
         );
     }

@@ -46,7 +46,14 @@ return array(
 
         CREATE TABLE IF NOT EXISTS `api_perm` (
             `admin_id` int(11) unsigned NOT NULL,
-            `allowed`  tinyint(1) NOT NULL DEFAULT '1',
+            -- No column default: every INSERT supplies this explicitly (see
+            -- Auth/AccessService::setApiAccess()), and a schema-level default
+            -- would be a fourth copy of the allowed-by-default decision,
+            -- which lives in exactly one place -
+            -- SGW_GraphQL.php::customerHasApiAccess()'s defaultAllowed
+            -- parameter, itself resolved from the plugin's allowed_by_default
+            -- config (section 6.2).
+            `allowed`  tinyint(1) NOT NULL,
             PRIMARY KEY (`admin_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
 

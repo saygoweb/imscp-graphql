@@ -19,9 +19,8 @@ namespace SGW_GraphQL\Frontend;
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+use iMSCP\Plugin\SGW_GraphQL\Auth\AccessService;
 use iMSCP\Plugin\SGW_GraphQL\Auth\TokenService;
-use iMSCP\Registry;
-use PDO;
 
 /**
  * The token service, wired to the panel's database connection.
@@ -33,6 +32,22 @@ function tokenService(): TokenService
     if ($service === null) {
         \iMSCP\Plugin\SGW_GraphQL\SGW_GraphQL::loadVendor();
         $service = TokenService::fromPanel();
+    }
+
+    return $service;
+}
+
+/**
+ * The reseller/customer access service, wired to the panel's database
+ * connection.
+ */
+function accessService(): AccessService
+{
+    static $service = null;
+
+    if ($service === null) {
+        \iMSCP\Plugin\SGW_GraphQL\SGW_GraphQL::loadVendor();
+        $service = AccessService::fromPanel();
     }
 
     return $service;
@@ -132,32 +147,28 @@ function tokenState(\iMSCP\Plugin\SGW_GraphQL\Auth\Token $token): array
  * access, so the grid never shows "Allowed" for a customer the API would
  * refuse, or vice versa.
  *
+ * A thin wrapper over AccessService, exactly as tokenService()'s callers use
+ * TokenService directly — kept as a function here because every existing
+ * caller already does `use function ... \customersOf;`.
+ *
  * @return array Rows of admin_id, admin_name, allowed, live_tokens
  */
 function customersOf(int $resellerId): array
 {
-    $plugin = Registry::get('pluginManager')->pluginGet('SGW_GraphQL');
-    $defaultAllowed = $plugin->getConfigParam('allowed_by_default', true) ? 1 : 0;
+    return accessService()->customersOf($resellerId);
+}
 
-    $stmt = exec_query(
-        '
-            SELECT a.admin_id, a.admin_name,
-                COALESCE(p.allowed, ?) AS allowed,
-                (
-                    SELECT COUNT(*) FROM api_token AS t
-                    WHERE t.admin_id = a.admin_id
-                      AND t.revoked_at IS NULL
-                      AND (t.expires_at IS NULL OR t.expires_at > UNIX_TIMESTAMP())
-                ) AS live_tokens
-            FROM admin AS a
-            LEFT JOIN api_perm AS p ON p.admin_id = a.admin_id
-            WHERE a.admin_type = \'user\' AND a.created_by = ?
-            ORDER BY a.admin_name
-        ',
-        array($defaultAllowed, $resellerId)
-    );
-
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+/**
+ * Whether $adminId is among $resellerId's own customers.
+ *
+ * The cross-tenant guard (§6.2): a reseller may act only on their own
+ * customers, and anything else must be indistinguishable from a customer
+ * that does not exist at all. See AccessServiceTest.php for the cover this
+ * used to have only as a manual box run.
+ */
+function isCustomerOf(int $resellerId, int $adminId): bool
+{
+    return accessService()->isCustomerOf($resellerId, $adminId);
 }
 
 /**
@@ -168,15 +179,5 @@ function customersOf(int $resellerId): array
  */
 function setApiAccess(int $adminId, bool $allowed): void
 {
-    exec_query(
-        '
-            INSERT INTO api_perm (admin_id, allowed) VALUES (?, ?)
-            ON DUPLICATE KEY UPDATE allowed = VALUES(allowed)
-        ',
-        array($adminId, $allowed ? 1 : 0)
-    );
-
-    if (!$allowed) {
-        tokenService()->revokeAllFor($adminId);
-    }
+    accessService()->setApiAccess($adminId, $allowed);
 }

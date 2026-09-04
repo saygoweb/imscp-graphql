@@ -149,4 +149,51 @@ namespace {
             }
         }
     }
+
+    // A concrete SGW_GraphQL, only so it satisfies Container::fromPlugin()'s
+    // type hint. Every method fromPlugin() actually calls is overridden here,
+    // so the test never needs the real panel plumbing (a PluginManager, an
+    // exec_query()-backed getConfig()) those methods rely on in production.
+    if (!class_exists('SGW_GraphQL_Test_FakeContainerPluginManager', false)) {
+        class SGW_GraphQL_Test_FakeContainerPluginManager
+        {
+            public function pluginGetRootDir()
+            {
+                return '/tmp';
+            }
+        }
+    }
+
+    if (!class_exists('SGW_GraphQL_Test_FakeContainerPlugin', false)) {
+        class SGW_GraphQL_Test_FakeContainerPlugin extends \iMSCP\Plugin\SGW_GraphQL\SGW_GraphQL
+        {
+            /** @var array */
+            private $config;
+
+            public function __construct(array $config)
+            {
+                $this->config = $config;
+            }
+
+            public function getConfigParam($param, $default = null)
+            {
+                return array_key_exists($param, $this->config) ? $this->config[$param] : $default;
+            }
+
+            public function getConfig()
+            {
+                return $this->config;
+            }
+
+            public function getName()
+            {
+                return 'SGW_GraphQL';
+            }
+
+            public function getPluginManager()
+            {
+                return new SGW_GraphQL_Test_FakeContainerPluginManager();
+            }
+        }
+    }
 }

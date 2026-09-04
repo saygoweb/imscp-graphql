@@ -282,9 +282,21 @@ class SGW_GraphQL extends AbstractPlugin
      * silently grant access regardless.
      *
      * @param int $adminId Account unique identifier
+     * @param bool|null $defaultAllowed The default to use when no row exists,
+     *                                  already resolved by the caller — see
+     *                                  Container::fromPlugin(), which bakes it
+     *                                  into the API's access-checker closure
+     *                                  so the request path never touches
+     *                                  Registry. NULL (the default) falls
+     *                                  back to reading it from Registry here,
+     *                                  which is what the panel pages rely on:
+     *                                  they have a Registry by construction,
+     *                                  and there is exactly one of them per
+     *                                  request, so there is no hot path to
+     *                                  protect.
      * @return bool
      */
-    public static function customerHasApiAccess($adminId)
+    public static function customerHasApiAccess($adminId, $defaultAllowed = null)
     {
         static $hasAccess = array();
 
@@ -293,11 +305,16 @@ class SGW_GraphQL extends AbstractPlugin
                 'SELECT allowed FROM api_perm WHERE admin_id = ?', array($adminId)
             );
             $row = $stmt->fetchRow(PDO::FETCH_ASSOC);
-            $hasAccess[$adminId] = ($row === false)
-                ? (bool)Registry::get('pluginManager')
+
+            if ($row !== false) {
+                $hasAccess[$adminId] = (bool)$row['allowed'];
+            } elseif ($defaultAllowed !== null) {
+                $hasAccess[$adminId] = (bool)$defaultAllowed;
+            } else {
+                $hasAccess[$adminId] = (bool)Registry::get('pluginManager')
                     ->pluginGet('SGW_GraphQL')
-                    ->getConfigParam('allowed_by_default', true)
-                : (bool)$row['allowed'];
+                    ->getConfigParam('allowed_by_default', true);
+            }
         }
 
         return $hasAccess[$adminId];

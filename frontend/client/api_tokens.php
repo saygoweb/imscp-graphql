@@ -54,6 +54,7 @@ function handleRevoke($adminId)
 
     if (!isset($_POST['csrf']) || !hash_equals(csrfToken(), (string)$_POST['csrf'])) {
         showBadRequestErrorPage();
+        exit;
     }
 
     if (tokenService()->revoke($adminId, intval($_POST['id']))) {
@@ -82,6 +83,7 @@ function handleCreate($adminId)
 
     if (!isset($_POST['csrf']) || !hash_equals(csrfToken(), (string)$_POST['csrf'])) {
         showBadRequestErrorPage();
+        exit;
     }
 
     $plugin = Registry::get('pluginManager')->pluginGet('SGW_GraphQL');
@@ -235,7 +237,10 @@ function generatePage(TemplateEngine $tpl, $adminId, $newToken)
 check_login('user');
 EventAggregator::getInstance()->dispatch(Events::onClientScriptStart);
 
-SGW_GraphQL::customerHasApiAccess(intval($_SESSION['user_id'])) or showBadRequestErrorPage();
+if (!SGW_GraphQL::customerHasApiAccess(intval($_SESSION['user_id']))) {
+    showBadRequestErrorPage();
+    exit;
+}
 
 $adminId = intval($_SESSION['user_id']);
 handleRevoke($adminId);

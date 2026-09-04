@@ -20,6 +20,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test;
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+use iMSCP\Plugin\SGW_GraphQL\Api\Container;
 use iMSCP\Plugin\SGW_GraphQL\SGW_GraphQL;
 use iMSCP\Registry;
 use PHPUnit\Framework\TestCase;
@@ -100,5 +101,67 @@ class SGW_GraphQLTest extends TestCase
         $this->registerPluginConfig(array('allowed_by_default' => false));
 
         self::assertTrue(SGW_GraphQL::customerHasApiAccess(90004));
+    }
+
+    /**
+     * Item 1 of the fix round: api_perm is empty in production, so the
+     * "no row" branch below used to reach Registry on *every* API request
+     * (through Container::fromPlugin()'s access-checker closure, which
+     * called customerHasApiAccess() with no default at all). These tests
+     * drive the new, explicit $defaultAllowed parameter directly and
+     * deliberately never call registerPluginConfig() — Registry holds
+     * nothing here, so a regression back to the old shape fails on a null
+     * pluginManager rather than merely asserting wrongly.
+     */
+    public function testAMissingRowIsAllowedWhenTheGivenDefaultIsTrue(): void
+    {
+        self::assertTrue(SGW_GraphQL::customerHasApiAccess(90005, true));
+    }
+
+    public function testAMissingRowIsDeniedWhenTheGivenDefaultIsFalse(): void
+    {
+        self::assertFalse(SGW_GraphQL::customerHasApiAccess(90006, false));
+    }
+
+    /**
+     * The fail-open shape this branch has already met four times: a row
+     * recording an explicit withdrawal must win regardless of what the
+     * caller passes as the default.
+     */
+    public function testAnExistingWithdrawalOverridesAGivenDefaultOfTrue(): void
+    {
+        $GLOBALS['sgw_graphql_test_api_perm_row'] = array('allowed' => 0);
+
+        self::assertFalse(SGW_GraphQL::customerHasApiAccess(90007, true));
+    }
+
+    public function testAnExistingGrantOverridesAGivenDefaultOfFalse(): void
+    {
+        $GLOBALS['sgw_graphql_test_api_perm_row'] = array('allowed' => 1);
+
+        self::assertTrue(SGW_GraphQL::customerHasApiAccess(90008, false));
+    }
+
+    /**
+     * The actual wiring change item 1 makes: Container::fromPlugin() must
+     * resolve 'allowed_by_default' from the $plugin it already holds and
+     * bake it into the access-checker closure, rather than leave the
+     * closure to call customerHasApiAccess() with no default — which is
+     * exactly what would send every API request through Registry, since
+     * api_perm is empty in production. Registry is never registered in
+     * this test either, for the same reason as above.
+     */
+    public function testContainerFromPluginBakesTheConfiguredDefaultIntoTheAccessChecker(): void
+    {
+        $plugin = new \SGW_GraphQL_Test_FakeContainerPlugin(
+            array('allowed_by_default' => false)
+        );
+        $container = Container::fromPlugin($plugin);
+
+        $property = new \ReflectionProperty(Container::class, 'apiAccessChecker');
+        $property->setAccessible(true);
+        $checker = $property->getValue($container);
+
+        self::assertFalse($checker(90009));
     }
 }
