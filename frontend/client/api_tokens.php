@@ -26,7 +26,11 @@ use iMSCP\Plugin\SGW_GraphQL\SGW_GraphQL;
 use iMSCP\Registry;
 use iMSCP\TemplateEngine;
 
+use function SGW_GraphQL\Frontend\csrfToken;
 use function SGW_GraphQL\Frontend\formatWhen;
+use function SGW_GraphQL\Frontend\resolveTtlDays;
+use function SGW_GraphQL\Frontend\safeAttr;
+use function SGW_GraphQL\Frontend\safeText;
 use function SGW_GraphQL\Frontend\tokenService;
 use function SGW_GraphQL\Frontend\tokenState;
 
@@ -35,16 +39,24 @@ require_once __DIR__ . '/../common.php';
 /**
  * Revoke a token, when asked from the list.
  *
+ * A state-changing action must never be a GET: a GET is pre-fetchable and is
+ * followed by link scanners, so this is a POST, carrying the same CSRF token
+ * the create form does.
+ *
  * @param int $adminId
  * @return void
  */
 function handleRevoke($adminId)
 {
-    if (!isset($_GET['action'], $_GET['id']) || $_GET['action'] !== 'revoke') {
+    if (!isset($_POST['action'], $_POST['id']) || $_POST['action'] !== 'revoke') {
         return;
     }
 
-    if (tokenService()->revoke($adminId, intval($_GET['id']))) {
+    if (!isset($_POST['csrf']) || !hash_equals(csrfToken(), (string)$_POST['csrf'])) {
+        showBadRequestErrorPage();
+    }
+
+    if (tokenService()->revoke($adminId, intval($_POST['id']))) {
         write_log(sprintf(
             'An API token was revoked by %s', $_SESSION['user_logged']
         ), E_USER_NOTICE);
@@ -68,9 +80,14 @@ function handleCreate($adminId)
         return NULL;
     }
 
+    if (!isset($_POST['csrf']) || !hash_equals(csrfToken(), (string)$_POST['csrf'])) {
+        showBadRequestErrorPage();
+    }
+
     $plugin = Registry::get('pluginManager')->pluginGet('SGW_GraphQL');
     $maxPerAccount = intval($plugin->getConfigParam('token_max_per_account', 10));
     $maxTtl = intval($plugin->getConfigParam('token_max_ttl_days', 730));
+    $defaultTtl = intval($plugin->getConfigParam('token_default_ttl_days', 365));
 
     $live = 0;
     foreach (tokenService()->listFor($adminId) as $token) {
@@ -92,11 +109,13 @@ function handleCreate($adminId)
     $name = isset($_POST['name']) ? clean_input($_POST['name']) : '';
     $scopes = isset($_POST['scopes']) && is_array($_POST['scopes'])
         ? array_map('clean_input', $_POST['scopes']) : array();
-    $ttlDays = isset($_POST['ttl_days']) ? intval($_POST['ttl_days']) : NULL;
+    $ttlDays = resolveTtlDays(
+        isset($_POST['ttl_days']) ? $_POST['ttl_days'] : null, $defaultTtl, $maxTtl
+    );
     $ipAllowlist = isset($_POST['ip_allowlist'])
         ? trim(clean_input($_POST['ip_allowlist'])) : '';
 
-    if ($ttlDays !== NULL && ($ttlDays < 1 || $ttlDays > $maxTtl)) {
+    if ($ttlDays === NULL) {
         set_page_message(tr('A token may live for 1 to %d days.', $maxTtl), 'error');
         return NULL;
     }
@@ -106,7 +125,7 @@ function handleCreate($adminId)
             $adminId, $name, $scopes, $ttlDays, $ipAllowlist === '' ? NULL : $ipAllowlist
         );
     } catch (\Exception $e) {
-        set_page_message(tohtml($e->getMessage()), 'error');
+        set_page_message(safeText($e->getMessage()), 'error');
         return NULL;
     }
 
@@ -126,6 +145,10 @@ function handleCreate($adminId)
 function generatePage(TemplateEngine $tpl, $adminId, $newToken)
 {
     $plugin = Registry::get('pluginManager')->pluginGet('SGW_GraphQL');
+
+    // Assigned before any block referencing it is parsed: the token list's
+    // per-row revoke form and the create form below both carry it.
+    $tpl->assign('CSRF_TOKEN', tohtml(csrfToken(), 'htmlAttr'));
 
     if ($newToken === NULL) {
         $tpl->assign('NEW_TOKEN_BLOCK', '');
@@ -149,18 +172,22 @@ function generatePage(TemplateEngine $tpl, $adminId, $newToken)
             $tpl->assign(array(
                 'STATE'      => tohtml($state['label']),
                 'STATE_ICON' => $state['icon'],
-                'NAME'       => tohtml($token->getName()),
+                // A stored name can predate the length/brace validation added
+                // in this round (rows already on the box), so this is
+                // defended at render time too, not only at issue().
+                'NAME'       => safeText($token->getName()),
                 'PREFIX'     => tohtml($token->getPrefix()),
                 'SCOPES'     => tohtml($scopes === array() ? tr('All') : implode(', ', $scopes)),
                 'CREATED'    => tohtml(formatWhen($token->getCreatedAt())),
                 'EXPIRES'    => tohtml(formatWhen($token->getExpiresAt())),
-                'LAST_USED'  => tohtml(
+                // Embeds getLastUsedIp(), so it carries the same risk as NAME.
+                'LAST_USED'  => safeText(
                     $token->getLastUsedAt() === NULL
                         ? tr('Never')
                         : formatWhen($token->getLastUsedAt())
                             . ' (' . $token->getLastUsedIp() . ')'
                 ),
-                'TOKEN_ID'   => $token->getTokenId()
+                'TOKEN_ID'   => tohtml($token->getTokenId(), 'htmlAttr')
             ));
 
             if ($token->getRevokedAt() === NULL) {
@@ -184,14 +211,24 @@ function generatePage(TemplateEngine $tpl, $adminId, $newToken)
         $tpl->parse('SCOPE_ITEM', '.scope_item');
     }
 
+    $schemaEndpoint = $plugin->getConfigParam('schema_endpoint', '/api/graphql/schema');
+
     $tpl->assign(array(
-        'NAME_VALUE'         => isset($_POST['name']) ? tohtml($_POST['name'], 'htmlAttr') : '',
+        // (string) first: safeAttr()'s type hint would otherwise turn a
+        // crafted name[]=x / ip_allowlist[]=x POST array into a fatal
+        // TypeError rather than the harmless re-stringified value tohtml()
+        // used to produce here.
+        'NAME_VALUE'         => isset($_POST['name']) ? safeAttr((string)$_POST['name']) : '',
         'TTL_VALUE'          => intval($plugin->getConfigParam('token_default_ttl_days', 365)),
         'MAX_TTL'            => intval($plugin->getConfigParam('token_max_ttl_days', 730)),
         'IP_ALLOWLIST_VALUE' => isset($_POST['ip_allowlist'])
-            ? tohtml($_POST['ip_allowlist'], 'htmlAttr') : '',
+            ? safeAttr((string)$_POST['ip_allowlist']) : '',
+        // The endpoint is POST-only (§4), so a link to it would just 405 on
+        // click; it stays plain text. The schema route accepts GET, so it is
+        // worth linking.
         'ENDPOINT'           => tohtml($plugin->getConfigParam('endpoint', '/api/graphql')),
-        'SCHEMA_ENDPOINT'    => tohtml($plugin->getConfigParam('schema_endpoint', '/api/graphql/schema'))
+        'SCHEMA_ENDPOINT'    => tohtml($schemaEndpoint),
+        'SCHEMA_LINK'        => tohtml($schemaEndpoint, 'htmlAttr')
     ));
 }
 
@@ -203,6 +240,14 @@ SGW_GraphQL::customerHasApiAccess(intval($_SESSION['user_id'])) or showBadReques
 $adminId = intval($_SESSION['user_id']);
 handleRevoke($adminId);
 $newToken = handleCreate($adminId);
+
+if ($newToken !== NULL) {
+    // A plaintext secret is shown exactly once (§11, §12): the response
+    // carrying it must never sit in a shared cache or be replayed from
+    // history, the way GraphQLHandler already refuses to cache its own
+    // responses for the same reason.
+    header('Cache-Control: no-store, private');
+}
 
 $tpl = new TemplateEngine();
 $tpl->define_dynamic(array(

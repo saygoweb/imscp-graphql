@@ -60,6 +60,50 @@ function formatWhen(?int $timestamp): string
 }
 
 /**
+ * A user-controlled string, safe to assign into a template.
+ *
+ * tohtml() escapes the HTML metacharacters but leaves braces alone, and
+ * TemplateEngine::substitute_dynamic() rescans its own output from before the
+ * text it just inserted (see its "new value may also begin with '{'" comment),
+ * so a value containing a placeholder is expanded again — and a value that
+ * substitutes to itself never terminates.
+ */
+function safeText(string $value): string
+{
+    return str_replace(array('{', '}'), '', tohtml($value));
+}
+
+/**
+ * As safeText(), for a value assigned into an HTML attribute.
+ */
+function safeAttr(string $value): string
+{
+    return str_replace(array('{', '}'), '', tohtml($value, 'htmlAttr'));
+}
+
+/**
+ * Resolve a create request's ttl_days field against the panel's configured
+ * default and cap.
+ *
+ * A missing or empty field means "use the account's configured default", not
+ * "never expires" — treating it as null would let a crafted request that
+ * simply omits the field mint a never-expiring token, bypassing the cap
+ * entirely. The bound is enforced unconditionally on the resolved value, so a
+ * default that itself exceeds a cap since lowered is also caught.
+ *
+ * @param mixed $raw The submitted value, or null/absent.
+ * @return int|null The resolved TTL in days, or NULL when it falls outside
+ *                   [1, $maxDays].
+ */
+function resolveTtlDays($raw, int $defaultDays, int $maxDays): ?int
+{
+    $raw = is_string($raw) ? trim($raw) : '';
+    $ttlDays = $raw === '' ? $defaultDays : intval($raw);
+
+    return ($ttlDays >= 1 && $ttlDays <= $maxDays) ? $ttlDays : null;
+}
+
+/**
  * Human-readable state for one token.
  *
  * @return array{label: string, icon: string}

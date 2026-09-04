@@ -84,6 +84,55 @@ class TokenServiceTest extends TestCase
         $this->service()->issue(7, '   ', ['DOMAINS_READ'], 30, null);
     }
 
+    /**
+     * A name containing '{' or '}' is rendered forever by i-MSCP's template
+     * engine: substitute_dynamic() rescans its own substituted output from
+     * before the text it just inserted, looking for a further placeholder,
+     * and tohtml() does not escape braces. A name that substitutes to itself
+     * never terminates, hanging the customer's own token page.
+     *
+     * @dataProvider namesContainingABrace
+     */
+    public function testIssueRejectsANameContainingABrace(string $name): void
+    {
+        try {
+            $this->service()->issue(7, $name, ['DOMAINS_READ'], 30, null);
+            self::fail('Expected an ApiException for name "' . $name . '".');
+        } catch (ApiException $e) {
+            self::assertSame(ErrorCode::BAD_USER_INPUT, $e->getErrorCode());
+            self::assertSame('name', $e->getExtensions()['field']);
+        }
+    }
+
+    public function namesContainingABrace(): array
+    {
+        return [
+            'opening brace' => ['my{token'],
+            'closing brace' => ['my}token'],
+            'placeholder'   => ['{NAME}'],
+        ];
+    }
+
+    public function testIssueRejectsANameLongerThan255Characters(): void
+    {
+        try {
+            $this->service()->issue(7, str_repeat('a', 256), ['DOMAINS_READ'], 30, null);
+            self::fail('Expected an ApiException for a 256-character name.');
+        } catch (ApiException $e) {
+            self::assertSame(ErrorCode::BAD_USER_INPUT, $e->getErrorCode());
+            self::assertSame('name', $e->getExtensions()['field']);
+        }
+    }
+
+    public function testIssueAcceptsANameOf255Characters(): void
+    {
+        $result = $this->service()->issue(7, str_repeat('a', 255), ['DOMAINS_READ'], 30, null);
+
+        self::assertMatchesRegularExpression(
+            '/^imscp_[a-z2-7]{8}_[A-Za-z0-9_-]{43}$/', $result['token']
+        );
+    }
+
     public function testANullTtlMeansNoExpiry(): void
     {
         self::assertNull($this->service()->issue(7, 'ci', [], null, null)['expiresAt']);

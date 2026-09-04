@@ -38,9 +38,13 @@
         <td>{LAST_USED}</td>
         <td>
             <!-- BDP: revoke_action -->
-            <a href="api_tokens.php?action=revoke&amp;id={TOKEN_ID}"
-               class="icon i_delete"
-               onclick="return confirm('{TR_REVOKE_CONFIRM}');">{TR_REVOKE}</a>
+            <form method="post" action="api_tokens.php" style="display:inline">
+                <input type="hidden" name="action" value="revoke">
+                <input type="hidden" name="id" value="{TOKEN_ID}">
+                <input type="hidden" name="csrf" value="{CSRF_TOKEN}">
+                <button type="submit" class="icon i_delete"
+                        onclick="return confirm('{TR_REVOKE_CONFIRM}');">{TR_REVOKE}</button>
+            </form>
             <!-- EDP: revoke_action -->
         </td>
     </tr>
@@ -50,6 +54,7 @@
 <!-- EDP: token_list -->
 
 <form method="post" action="api_tokens.php">
+    <input type="hidden" name="csrf" value="{CSRF_TOKEN}">
     <table class="firstColFixed">
         <thead>
         <tr><th colspan="2">{TR_CREATE}</th></tr>
@@ -95,5 +100,5 @@
 
 <div class="static_info">
     <p>{TR_ENDPOINT}: <code>{ENDPOINT}</code></p>
-    <p>{TR_SCHEMA}: <code>{SCHEMA_ENDPOINT}</code></p>
+    <p>{TR_SCHEMA}: <a href="{SCHEMA_LINK}"><code>{SCHEMA_ENDPOINT}</code></a></p>
 </div>

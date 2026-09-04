@@ -86,6 +86,33 @@ class TokenService
             );
         }
 
+        // api_token.name is varchar(255); only the panel form's maxlength
+        // enforced this before, so a longer name reached MariaDB and, under
+        // strict mode, surfaced a raw driver error to the customer.
+        if (mb_strlen($name) > 255) {
+            throw new ApiException(
+                ErrorCode::BAD_USER_INPUT,
+                'A token name may not be longer than 255 characters.',
+                array('field' => 'name')
+            );
+        }
+
+        // A name containing '{' or '}' is rendered forever: i-MSCP's template
+        // engine rescans its own substituted output looking for a further
+        // placeholder (TemplateEngine::substitute_dynamic()'s "new value may
+        // also begin with '{'"), and tohtml() does not escape braces. A name
+        // that substitutes to itself never terminates, hanging the customer's
+        // own token page. Rejecting the character here, at the only place a
+        // name is created, covers every future path that mints a token, not
+        // only this one page.
+        if (strpbrk($name, '{}') !== false) {
+            throw new ApiException(
+                ErrorCode::BAD_USER_INPUT,
+                'A token name may not contain a curly brace.',
+                array('field' => 'name')
+            );
+        }
+
         foreach ($scopes as $scope) {
             if (!Scope::isValid($scope)) {
                 throw new ApiException(
