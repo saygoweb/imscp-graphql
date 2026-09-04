@@ -53,8 +53,12 @@ class TokenServiceTest extends TestCase
         $insert = $this->statements[0];
         self::assertStringContainsString('INSERT INTO api_token', $insert['sql']);
 
-        // The plaintext must not be anywhere in what was written.
-        $secret = explode('_', $result['token'])[2];
+        // The plaintext must not be anywhere in what was written. Limit to 3
+        // parts: the secret's own base64url alphabet includes '_', so an
+        // unlimited explode() would truncate a secret that happens to
+        // contain one, at the first such split rather than the one after
+        // the prefix.
+        $secret = explode('_', $result['token'], 3)[2];
         foreach ($insert['bind'] as $bound) {
             self::assertNotSame($secret, $bound);
         }
