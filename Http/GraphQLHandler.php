@@ -87,7 +87,7 @@ final class GraphQLHandler
         if (!($request->getAttribute('identity') instanceof Identity)) {
             $this->completed = true;
 
-            return $this->json($response, 400, array('errors' => array(ErrorFactory::format(
+            return $this->json($response, 500, array('errors' => array(ErrorFactory::format(
                 new ApiException(
                     ErrorCode::INTERNAL, 'The request reached the handler with no identity.'
                 ),
@@ -136,7 +136,7 @@ final class GraphQLHandler
             $output = array(
                 'errors' => array(ErrorFactory::format($e, (bool)$this->options['debug']))
             );
-            $status = 400;
+            $status = 500;
         }
 
         $this->completed = true;
@@ -240,8 +240,12 @@ final class GraphQLHandler
     }
 
     /**
-     * 200 whenever the envelope is a GraphQL result, whatever is in it. 400
-     * only when the document itself could not be run.
+     * 200 whenever the envelope is a GraphQL result, whatever is in it; 400
+     * when the document could not be run because of what the client sent
+     * (a malformed body, a syntax error, a validation failure). A failure
+     * *before* the document runs at all — a wiring fault, an unexpected
+     * throw around executeQuery() — is a server fault, not the client's,
+     * and is answered 500 by this class's other callers rather than here.
      */
     private function statusFor(array $output): int
     {

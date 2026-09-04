@@ -290,9 +290,13 @@ class GraphQLHandlerTest extends TestCase
     {
         // Authentication is the middleware's job; if the handler is reached
         // without one, that is a wiring bug and must not leak a stack trace.
+        // It is a server fault, not the client's, so it answers 500 rather
+        // than 400 — narrowly, this test pins the status the reviewer found
+        // unpinned.
         $response = $this->post('{ apiVersion }', null, false);
         $body = json_decode((string)$response->getBody(), true);
 
+        self::assertSame(500, $response->getStatusCode());
         self::assertArrayHasKey('errors', $body);
         self::assertSame('INTERNAL', $body['errors'][0]['extensions']['code']);
     }

@@ -129,6 +129,7 @@ class AuthenticateMiddlewareTest extends TestCase
         });
 
         self::assertSame(401, $response->getStatusCode());
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
     }
 
     public function testABadTokenIsA401(): void
@@ -262,6 +263,7 @@ class AuthenticateMiddlewareTest extends TestCase
         );
 
         self::assertSame(403, $response->getStatusCode());
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
 
         $body = json_decode((string)$response->getBody(), true);
         self::assertSame('API_ACCESS_WITHDRAWN', $body['errors'][0]['extensions']['code']);

@@ -1214,7 +1214,8 @@ the compatibility contract (§18).
 | `CONFLICT` | 200 | Object not settled (§8.3), or a uniqueness clash |
 | `RATE_LIMITED` | 429 | §10.3. Carries `Retry-After` |
 | `QUERY_TOO_COMPLEX` | 400 | §10.2 |
-| `INTERNAL` | 200 | Anything else |
+| `INTERNAL` | 200 | Raised by a resolver once the document is executing — the envelope carries `data`, so a GraphQL result really was produced |
+| `INTERNAL` | 500 | Raised before the document runs at all — a wiring fault, or an unexpected throw around execution — so no GraphQL result exists |
 
 `INTERNAL` never carries a message beyond "an internal error occurred" and a
 correlation id, unless `debug = true` in `config.php`. The correlation id is

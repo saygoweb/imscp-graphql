@@ -88,7 +88,8 @@ final class AuthenticateMiddleware
         if (!call_user_func($this->apiAccessChecker, $identity->getAdminId())) {
             $response = $response
                 ->withStatus(403)
-                ->withHeader('Content-Type', 'application/json');
+                ->withHeader('Content-Type', 'application/json')
+                ->withHeader('Cache-Control', 'no-store');
             $response->getBody()->write(json_encode(array('errors' => array(array(
                 'message'    => 'API access has been withdrawn from this account.',
                 'extensions' => array('code' => 'API_ACCESS_WITHDRAWN')
@@ -188,7 +189,8 @@ final class AuthenticateMiddleware
         $response = $response
             ->withStatus(401)
             ->withHeader('Content-Type', 'application/json')
-            ->withHeader('WWW-Authenticate', 'Bearer realm="i-MSCP"');
+            ->withHeader('WWW-Authenticate', 'Bearer realm="i-MSCP"')
+            ->withHeader('Cache-Control', 'no-store');
         $response->getBody()->write(json_encode(array('errors' => array(array(
             'message'    => 'Authentication is required.',
             'extensions' => array('code' => 'UNAUTHENTICATED')
