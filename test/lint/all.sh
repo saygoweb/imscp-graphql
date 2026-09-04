@@ -51,6 +51,26 @@ else
     done
 fi
 
+# Every source file carries the project's licence header. This is checked
+# mechanically because the failure mode is contagious: a fresh pair of hands
+# copies the header from whichever file it happened to open, so one wrong
+# character propagates through every file written after it. Matching the
+# address line alone rather than the whole block keeps the check robust
+# against legitimate whitespace variation, which would otherwise produce
+# failures nobody trusts.
+echo
+echo "Licence headers:"
+address=' * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.'
+missing=0
+for f in $(find "$ROOT" -name '*.php' -not -path '*/vendor/*' -not -path '*/.git/*'); do
+    if ! grep -qF "$address" "$f"; then
+        echo "  FAIL  $(echo "$f" | sed "s|$ROOT/||") has no correct licence header"
+        missing=$((missing + 1))
+        FAILED=1
+    fi
+done
+[ "$missing" -eq 0 ] && echo "  all files carry the correct header"
+
 echo
 [ "$FAILED" -eq 0 ] && echo "PASS" || echo "FAIL"
 exit "$FAILED"
