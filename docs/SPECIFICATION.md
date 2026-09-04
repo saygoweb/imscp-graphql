@@ -414,12 +414,20 @@ whatever is in it — including field errors. `400` for a malformed request body
 or a query that fails validation. `401` when authentication is absent or bad.
 `403` when the identity is valid but API access has been withdrawn (§6.2).
 `405` for a method other than `POST`/`OPTIONS`. `429` when rate limited, with
-`Retry-After`. `503` when the plugin is disabled.
+`Retry-After`. `500` when the request fails *before* the document executes at
+all — a wiring fault, or an unexpected throw around execution (§9). `503` when
+the plugin is disabled.
 
 Note the deliberate split: authentication failures are transport-level (`401`),
 because there is no useful GraphQL result to return; authorisation failures
 *within* an authenticated request are field-level errors in a `200` (§9),
 because a query may legitimately be allowed to read some fields and not others.
+The same reasoning separates the two `INTERNAL` rows in §9: a server fault that
+happens once the document is running is folded into the result envelope and is
+a `200`, because a GraphQL result really was produced; one that happens before
+execution has no result to report and is a `500`. `400` stays reserved for what
+is genuinely the client's to fix — a malformed body, or a query that fails
+validation.
 
 **CORS.** Off by default. `allowed_origins` in `config.php` is a list, never
 `*`, and credentials are never allowed for cookie-authenticated requests from
