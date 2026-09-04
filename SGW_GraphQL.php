@@ -275,7 +275,11 @@ class SGW_GraphQL extends AbstractPlugin
      * May the given account use the API at all?
      *
      * Available to everyone unless a reseller or an administrator has
-     * explicitly withdrawn it, which is recorded as a row in api_perm.
+     * explicitly withdrawn it, which is recorded as a row in api_perm. An
+     * account with no row at all falls back to the plugin's configured
+     * 'allowed_by_default' (§6.2): an administrator who sets that to false is
+     * deliberately making the API opt-in, and a missing row must not
+     * silently grant access regardless.
      *
      * @param int $adminId Account unique identifier
      * @return bool
@@ -289,7 +293,11 @@ class SGW_GraphQL extends AbstractPlugin
                 'SELECT allowed FROM api_perm WHERE admin_id = ?', array($adminId)
             );
             $row = $stmt->fetchRow(PDO::FETCH_ASSOC);
-            $hasAccess[$adminId] = ($row === false) ? true : (bool)$row['allowed'];
+            $hasAccess[$adminId] = ($row === false)
+                ? (bool)Registry::get('pluginManager')
+                    ->pluginGet('SGW_GraphQL')
+                    ->getConfigParam('allowed_by_default', true)
+                : (bool)$row['allowed'];
         }
 
         return $hasAccess[$adminId];

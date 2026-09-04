@@ -20,6 +20,8 @@ namespace SGW_GraphQL\Frontend;
  */
 
 use iMSCP\Plugin\SGW_GraphQL\Auth\TokenService;
+use iMSCP\Registry;
+use PDO;
 
 /**
  * The token service, wired to the panel's database connection.
@@ -119,4 +121,62 @@ function tokenState(\iMSCP\Plugin\SGW_GraphQL\Auth\Token $token): array
     }
 
     return array('label' => tr('Active'), 'icon' => 'ok');
+}
+
+/**
+ * Every customer of a reseller, with their API access and live token count.
+ *
+ * A customer with no api_perm row falls back to the plugin's configured
+ * 'allowed_by_default' (§6.2) — the same default
+ * SGW_GraphQL::customerHasApiAccess() applies when actually enforcing
+ * access, so the grid never shows "Allowed" for a customer the API would
+ * refuse, or vice versa.
+ *
+ * @return array Rows of admin_id, admin_name, allowed, live_tokens
+ */
+function customersOf(int $resellerId): array
+{
+    $plugin = Registry::get('pluginManager')->pluginGet('SGW_GraphQL');
+    $defaultAllowed = $plugin->getConfigParam('allowed_by_default', true) ? 1 : 0;
+
+    $stmt = exec_query(
+        '
+            SELECT a.admin_id, a.admin_name,
+                COALESCE(p.allowed, ?) AS allowed,
+                (
+                    SELECT COUNT(*) FROM api_token AS t
+                    WHERE t.admin_id = a.admin_id
+                      AND t.revoked_at IS NULL
+                      AND (t.expires_at IS NULL OR t.expires_at > UNIX_TIMESTAMP())
+                ) AS live_tokens
+            FROM admin AS a
+            LEFT JOIN api_perm AS p ON p.admin_id = a.admin_id
+            WHERE a.admin_type = \'user\' AND a.created_by = ?
+            ORDER BY a.admin_name
+        ',
+        array($defaultAllowed, $resellerId)
+    );
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Grant or withdraw API access for an account.
+ *
+ * Withdrawing revokes that account's tokens too: a feature and its effects
+ * should go away together.
+ */
+function setApiAccess(int $adminId, bool $allowed): void
+{
+    exec_query(
+        '
+            INSERT INTO api_perm (admin_id, allowed) VALUES (?, ?)
+            ON DUPLICATE KEY UPDATE allowed = VALUES(allowed)
+        ',
+        array($adminId, $allowed ? 1 : 0)
+    );
+
+    if (!$allowed) {
+        tokenService()->revokeAllFor($adminId);
+    }
 }
