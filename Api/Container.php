@@ -101,21 +101,21 @@ final class Container
     }
 
     /**
-     * @param callable|null $apiAccessChecker fn(int $adminId): bool. Defaults
-     *                                        to a stub that always grants, so
-     *                                        a test that does not care about
-     *                                        the access check need not supply
-     *                                        one.
+     * @param callable $apiAccessChecker fn(int $adminId): bool. Required, not
+     *                                   defaulted: a production factory that
+     *                                   silently grants access when nobody
+     *                                   asked it to is exactly the fail-open
+     *                                   shape this plugin keeps having to
+     *                                   close. A test that does not care about
+     *                                   the access check must say so itself,
+     *                                   at the call site.
      */
     public static function forTesting(
         string $pluginDir, array $config, callable $query, callable $accountLoader,
-        ?callable $apiAccessChecker = null
+        callable $apiAccessChecker
     ): self {
         return new self(
-            $pluginDir, $config, $query, $accountLoader,
-            $apiAccessChecker ?? static function (int $adminId) {
-                return true;
-            }
+            $pluginDir, $config, $query, $accountLoader, $apiAccessChecker
         );
     }
 
@@ -150,8 +150,16 @@ final class Container
     }
 
     /**
-     * Outermost first. Slim applies route middleware in reverse order of
-     * addition, so this array is passed to the route in reverse.
+     * Outermost first: TLS, then CORS, then authentication.
+     *
+     * This is not handed to Slim as route middleware — PluginRoutesInjector
+     * cannot attach it in either shape it offers, see the note on
+     * routeHandler() — it is the ordering that routeHandler() folds into one
+     * callable. array_reverse() there walks this list from the innermost
+     * (last) element outward, wrapping each one around what came before, so
+     * the first element here ends up as the outermost wrapper of the composed
+     * pipeline: still ordering as described, for a different reason than
+     * "passed to the route".
      *
      * @return callable[]
      */
@@ -221,6 +229,33 @@ final class Container
         }
 
         return $pipeline;
+    }
+
+    /**
+     * The schema route's handler: serves the raw SDL as plain text.
+     *
+     * Wrapped here, rather than left as a closure literal inline in
+     * SGW_GraphQL::getRoutes(), for the same reason as routeHandler(): so
+     * that the identical bindTo() hazard on this closure — see
+     * routeHandler()'s docblock — has a production callable a test can
+     * replay Slim's rebinding against directly, since getRoutes() itself
+     * cannot be exercised in the unit suite (it lives on a class that
+     * extends the panel's own AbstractPlugin, not present outside a running
+     * panel).
+     *
+     * @return callable
+     */
+    public function schemaRouteHandler(): callable
+    {
+        $schemaPath = $this->schemaPath();
+
+        // Not `static`: see routeHandler()'s docblock. This closure does not
+        // use $this either, so the rebinding Slim performs is harmless.
+        return function ($request, $response) use ($schemaPath) {
+            $response->getBody()->write(file_get_contents($schemaPath));
+
+            return $response->withHeader('Content-Type', 'text/plain; charset=utf-8');
+        };
     }
 
     public function schemaPath(): string

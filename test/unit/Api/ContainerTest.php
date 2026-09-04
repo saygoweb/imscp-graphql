@@ -40,8 +40,20 @@ class ContainerTest extends TestCase
         IdentityShim::reset();
     }
 
-    private function container(array $configOverrides = [], ?callable $accountLoader = null): Container
-    {
+    /**
+     * @param callable|null $apiAccessChecker fn(int $adminId): bool. Defaults
+     *                                        to a stub that always grants —
+     *                                        fine here, because a test file
+     *                                        choosing to assume access for
+     *                                        tests that are not about the
+     *                                        access check is a local, visible
+     *                                        choice, unlike defaulting to
+     *                                        grant inside Container itself.
+     */
+    private function container(
+        array $configOverrides = [], ?callable $accountLoader = null,
+        ?callable $apiAccessChecker = null
+    ): Container {
         return Container::forTesting(
             dirname(__DIR__, 3),
             array_merge([
@@ -51,8 +63,31 @@ class ContainerTest extends TestCase
                 'allow_session_auth' => true,
             ], $configOverrides),
             function (string $sql, array $bind = []) { return null; },
-            $accountLoader ?? function (int $adminId) { return null; }
+            $accountLoader ?? function (int $adminId) { return null; },
+            $apiAccessChecker ?? function (int $adminId) { return true; }
         );
+    }
+
+    private function customerRow(int $adminId): array
+    {
+        return [
+            'admin_id' => $adminId, 'admin_name' => 'wpcache.test', 'admin_type' => 'user',
+            'created_by' => 3, 'email' => 'c@example.com', 'admin_status' => 'ok',
+        ];
+    }
+
+    private function authenticatedSessionRequest(): Request
+    {
+        $env = Environment::mock([
+            'REQUEST_METHOD'    => 'POST', 'REQUEST_URI' => '/api/graphql',
+            'CONTENT_TYPE'      => 'application/json',
+            'HTTP_X_IMSCP_CSRF' => 'sekrit',
+        ]);
+        $stream = fopen('php://temp', 'r+');
+        fwrite($stream, json_encode(['query' => '{ apiVersion }']));
+        rewind($stream);
+
+        return Request::createFromEnvironment($env)->withBody(new Stream($stream));
     }
 
     public function testItBuildsAHandler(): void
@@ -93,6 +128,28 @@ class ContainerTest extends TestCase
     public function testTheRouteHandlerSurvivesTheRebindingSlimPerformsOnEveryRouteClosure(): void
     {
         $handler = $this->container()->routeHandler();
+        self::assertInstanceOf(\Closure::class, $handler);
+
+        $rebound = @$handler->bindTo(new \stdClass());
+
+        self::assertNotNull(
+            $rebound,
+            'a static closure here would silently be nulled out by Slim\App::map()'
+        );
+    }
+
+    /**
+     * The schema route's handler (SGW_GraphQL::getRoutes(), via
+     * Container::schemaRouteHandler()) has the identical bindTo() hazard as
+     * routeHandler() above, and no guard before this round: a `static`
+     * slipping back in there registers a null-handler route that only a
+     * request against the box would reveal. This replays the exact same
+     * Slim call rather than inspecting the closure, for the same reason as
+     * the test above.
+     */
+    public function testTheSchemaRouteHandlerSurvivesTheRebindingSlimPerformsOnEveryRouteClosure(): void
+    {
+        $handler = $this->container()->schemaRouteHandler();
         self::assertInstanceOf(\Closure::class, $handler);
 
         $rebound = @$handler->bindTo(new \stdClass());
@@ -163,5 +220,69 @@ class ContainerTest extends TestCase
 
         self::assertSame(200, $response->getStatusCode(), (string)$response->getBody());
         self::assertSame('1.0.0', $body['data']['apiVersion']);
+    }
+
+    /**
+     * Drives a denying access checker through the whole composed pipeline —
+     * routeHandler(), not AuthenticateMiddleware in isolation, which is
+     * already covered by AuthenticateMiddlewareTest. What is uncovered there
+     * is the *wiring*: whether Container actually threads its access checker
+     * into the position AuthenticateMiddleware calls unconditionally.
+     *
+     * The request otherwise clears every earlier check (TLS off, valid
+     * session, correct CSRF header) and carries a query the GraphQL handler
+     * could resolve, so the absence of a "data" key is meaningful: it is only
+     * absent because the pipeline never reached the handler, not because the
+     * query would have failed anyway.
+     */
+    public function testRouteHandlerDeniesWithdrawnAccessThroughTheWholeComposedPipeline(): void
+    {
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $container = $this->container(
+            ['require_tls' => false, 'allow_session_auth' => true],
+            function (int $adminId) { return $this->customerRow(7); },
+            function (int $adminId) { return false; }
+        );
+
+        $response = ($container->routeHandler())($this->authenticatedSessionRequest(), new Response(), []);
+        $body = json_decode((string)$response->getBody(), true);
+
+        self::assertSame(403, $response->getStatusCode());
+        self::assertSame('API_ACCESS_WITHDRAWN', $body['errors'][0]['extensions']['code']);
+        self::assertArrayNotHasKey('data', $body, 'the GraphQL handler must not have run');
+    }
+
+    /**
+     * The mis-wire this guards against type-checks fine and fails open in
+     * production: passing $this->accountLoader instead of
+     * $this->apiAccessChecker into AuthenticateMiddleware's fourth
+     * constructor argument is a callable either way, and the account loader
+     * returns a non-empty row for a real account, which is truthy. A test
+     * that only checks the *outcome* of a grant wouldn't catch that swap,
+     * because both callables would grant here. Recording which callable was
+     * actually invoked, and with what argument, does: only the real access
+     * checker calls the recorder, so a mis-wire leaves it untouched and this
+     * assertion fails.
+     */
+    public function testRouteHandlerCallsTheContainersOwnAccessCheckerWithTheAuthenticatedAdminId(): void
+    {
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $seen = [];
+        $container = $this->container(
+            ['require_tls' => false, 'allow_session_auth' => true],
+            function (int $adminId) { return $this->customerRow(7); },
+            function (int $adminId) use (&$seen) {
+                $seen[] = $adminId;
+                return false;
+            }
+        );
+
+        ($container->routeHandler())($this->authenticatedSessionRequest(), new Response(), []);
+
+        self::assertSame([7], $seen, 'the access checker the container was given must be the one called, exactly once, with the real admin id');
     }
 }

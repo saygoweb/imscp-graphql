@@ -209,13 +209,31 @@ class SGW_GraphQL extends AbstractPlugin
      * deployed core in Task 13 with a request replayed through the real
      * dispatch path.
      *
+     * The vendor load and the Container construction happen inside the route
+     * closures below, not here. PluginRoutesInjector::injectRoutes()
+     * (gui/src/Plugin/PluginRoutesInjector.php) calls every loaded plugin's
+     * getRoutes() in a foreach with no try/catch, on every plugins.php
+     * request — including a request for a completely different plugin's URL.
+     * loadVendor() throws when vendor/ is absent, which is exactly the state
+     * of a deploy from a Git checkout rather than a release archive; thrown
+     * from here, that takes down route injection for every plugin on the
+     * panel, not just this one's endpoint. Building the Container eagerly is
+     * wasted work for the same reason: this method runs on every such
+     * request whether or not it is for one of these two routes. Deferring
+     * both means a vendor-less deploy instead fails where it belongs — a 500
+     * on /api/graphql itself — and the Container is only ever built for a
+     * request that actually reaches one of these two closures.
+     *
      * @return array
      */
     public function getRoutes()
     {
-        self::loadVendor();
-
-        $container = Container::fromPlugin($this);
+        // Captured instead of relying on $this inside the closures below:
+        // Slim\App::map() unconditionally calls
+        // $callable->bindTo($this->container) on any Closure route handler
+        // (see the long note on Container::routeHandler()), so inside a route
+        // closure $this is the Slim container, not the plugin.
+        $plugin = $this;
         $pluginDir = $this->getPluginManager()->pluginGetRootDir() . '/' . $this->getName();
 
         return array(
@@ -223,19 +241,28 @@ class SGW_GraphQL extends AbstractPlugin
                 'name'    => 'sgw_graphql_endpoint',
                 'pattern' => $this->getConfigParam('endpoint', '/api/graphql'),
                 'methods' => array('POST', 'OPTIONS'),
-                'handler' => $container->routeHandler()
+                // Not `static`: bindTo() on a static closure does not rebind
+                // it — it emits a warning and returns null, silently
+                // registering a route with no handler at all. Confirmed
+                // against the deployed core in Task 13. This closure does not
+                // use $this (it uses $plugin instead), so the rebinding Slim
+                // performs is harmless; it only has to be legal to perform.
+                'handler' => function ($request, $response, array $args) use ($plugin) {
+                    self::loadVendor();
+
+                    return (Container::fromPlugin($plugin)->routeHandler())($request, $response, $args);
+                }
             ),
             array(
                 'name'    => 'sgw_graphql_schema',
                 'pattern' => $this->getConfigParam('schema_endpoint', '/api/graphql/schema'),
                 'methods' => array('GET'),
-                // Not `static`: see the note on Container::routeHandler() —
-                // Slim\App::map() rebinds any Closure route handler, and
-                // bindTo() on a static one returns null instead.
-                'handler' => function ($request, $response) use ($container) {
-                    $response->getBody()->write(file_get_contents($container->schemaPath()));
+                // Not `static`: see the note on the endpoint route's handler
+                // above and on Container::routeHandler().
+                'handler' => function ($request, $response) use ($plugin) {
+                    self::loadVendor();
 
-                    return $response->withHeader('Content-Type', 'text/plain; charset=utf-8');
+                    return (Container::fromPlugin($plugin)->schemaRouteHandler())($request, $response);
                 }
             ),
             '/client/api_tokens.php'    => $pluginDir . '/frontend/client/api_tokens.php',
