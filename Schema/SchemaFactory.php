@@ -108,7 +108,15 @@ final class SchemaFactory
         $cacheFile = rtrim($this->cacheDir, '/') . '/' . self::CACHE_FILE;
 
         if (@is_readable($cacheFile)) {
-            $cached = @include $cacheFile;
+            // @include only suppresses warnings; a syntactically broken cache
+            // file raises a ParseError, which would otherwise be an uncaught
+            // fatal. A corrupt cache must be a cache miss, not an outage — the
+            // fallthrough below re-parses the SDL and overwrites the file.
+            try {
+                $cached = @include $cacheFile;
+            } catch (\Throwable $e) {
+                $cached = null;
+            }
 
             if (is_array($cached)
                 && isset($cached['mtime'], $cached['ast'])

@@ -41,9 +41,9 @@ class SchemaFactoryTest extends TestCase
         return dirname(__DIR__, 3) . '/schema/schema.graphql';
     }
 
-    private function factory(?string $cacheDir = null): SchemaFactory
+    private function factory(?string $cacheDir = null, ?string $sdlPath = null): SchemaFactory
     {
-        return new SchemaFactory($this->sdlPath(), $cacheDir, new ResolverMap([
+        return new SchemaFactory($sdlPath ?? $this->sdlPath(), $cacheDir, new ResolverMap([
             'Query.apiVersion' => static function () { return '1.0.0'; },
             'Query.viewer'     => static function () {
                 return [
@@ -99,19 +99,53 @@ class SchemaFactoryTest extends TestCase
 
     public function testTheCacheIsInvalidatedWhenTheSdlChanges(): void
     {
+        // Warm the cache from the real, unmodified SDL.
         $this->factory($this->cacheDir)->create();
-        $before = file_get_contents($this->cacheDir . '/sgw_graphql_schema.php');
+
+        // Work on a copy so a failing assertion can never leave the
+        // repository's own schema.graphql dirty.
+        $modifiedSdl = $this->cacheDir . '/modified-schema.graphql';
+        file_put_contents(
+            $modifiedSdl,
+            str_replace(
+                'type Query {', "type Query {\n  spare: String",
+                file_get_contents($this->sdlPath())
+            )
+        );
+        touch($modifiedSdl, filemtime($this->sdlPath()) + 10);
+        clearstatcache();
 
         // A stale cache after an upgrade would serve the previous schema
-        // silently, which is the worst possible failure for this cache.
-        touch($this->sdlPath(), time() + 10);
-        clearstatcache();
-        $this->factory($this->cacheDir)->create();
-        $after = file_get_contents($this->cacheDir . '/sgw_graphql_schema.php');
+        // silently, which is the worst possible failure for this cache: the
+        // served schema must track the SDL's content, not merely carry
+        // whichever mtime was stamped on the last write.
+        $modifiedSchema = $this->factory($this->cacheDir, $modifiedSdl)->create();
+        self::assertTrue(
+            $modifiedSchema->getQueryType()->hasField('spare'),
+            'a schema built from the modified SDL must carry the field it added'
+        );
 
-        touch($this->sdlPath(), time() - 10);
+        // Pointed back at the original SDL with the same cache directory,
+        // the factory must not serve the modified schema back. A bug that
+        // merely re-stamped the new mtime onto the old cached AST, without
+        // really re-parsing, would fail this assertion.
+        $originalSchema = $this->factory($this->cacheDir)->create();
+        self::assertFalse(
+            $originalSchema->getQueryType()->hasField('spare'),
+            'the original SDL must still build without the field the copy added'
+        );
+    }
 
-        self::assertNotSame($before, $after, 'the cache must carry the SDL mtime');
+    public function testACorruptCacheFileIsTreatedAsAMissAndRebuilt(): void
+    {
+        // @include only suppresses warnings; a syntactically broken file
+        // raises a ParseError, which must not become an uncaught fatal. A
+        // corrupt cache — disk corruption, a manual edit, an incompatible
+        // cache left behind by a downgrade — is a cache miss, not an outage.
+        file_put_contents($this->cacheDir . '/sgw_graphql_schema.php', '<?php this is not php');
+
+        $this->factory($this->cacheDir)->create()->assertValid();
+        $this->addToAssertionCount(1);
     }
 
     public function testItWorksWithNoCacheDirectory(): void
