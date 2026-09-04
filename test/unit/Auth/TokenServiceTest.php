@@ -22,6 +22,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Auth;
 
 use iMSCP\Plugin\SGW_GraphQL\Auth\TokenService;
 use iMSCP\Plugin\SGW_GraphQL\Support\ApiException;
+use iMSCP\Plugin\SGW_GraphQL\Support\ErrorCode;
 use PHPUnit\Framework\TestCase;
 
 class TokenServiceTest extends TestCase
@@ -59,9 +60,13 @@ class TokenServiceTest extends TestCase
         // contain one, at the first such split rather than the one after
         // the prefix.
         $secret = explode('_', $result['token'], 3)[2];
-        foreach ($insert['bind'] as $bound) {
-            self::assertNotSame($secret, $bound);
-        }
+
+        // Not just "no bound value equals the secret exactly" — the secret
+        // must not appear anywhere, including as a substring of another
+        // bound field, which exact-equality per value would not catch.
+        self::assertStringNotContainsString(
+            $secret, implode('|', array_map('strval', $insert['bind']))
+        );
         self::assertContains(hash('sha256', $secret), $insert['bind']);
     }
 
@@ -176,6 +181,74 @@ class TokenServiceTest extends TestCase
         self::assertNotNull($token);
         self::assertSame(7, $token->getAdminId());
         self::assertSame(['DOMAINS_READ'], $token->getScopes());
+    }
+
+    public function testVerifyAcceptsAnExactBareAddress(): void
+    {
+        $secret = str_repeat('a', 43);
+        $this->rows = [$this->row($secret, ['ip_allowlist' => '127.0.0.1'])];
+
+        self::assertNotNull($this->service()->verify('imscp_abcdefgh_' . $secret, '127.0.0.1'));
+    }
+
+    public function testVerifyAcceptsASlashZeroAllowlist(): void
+    {
+        // /0 is well-formed and means "any address" — only malformed
+        // suffixes must reject, not this one.
+        $secret = str_repeat('a', 43);
+        $this->rows = [$this->row($secret, ['ip_allowlist' => '10.0.0.0/0'])];
+
+        self::assertNotNull($this->service()->verify('imscp_abcdefgh_' . $secret, '8.8.8.8'));
+    }
+
+    /**
+     * A malformed CIDR must fail closed, not open. The naive (int) cast this
+     * replaces turned '-1', '', 'abc' and '1e2' into 0 — an unrestricted /0
+     * that admitted every address, which is worse than no allow-list at all.
+     *
+     * @dataProvider malformedAllowlistEntries
+     */
+    public function testVerifyRejectsEveryAddressWhenTheAllowlistEntryIsMalformed(string $entry): void
+    {
+        $secret = str_repeat('a', 43);
+        $this->rows = [$this->row($secret, ['ip_allowlist' => $entry])];
+
+        // 10.0.0.0 is the literal subnet address these entries name, so any
+        // correctly parsed CIDR built on it — even /32 — would also match
+        // it. That is deliberate: it is the address a fail-open bug is most
+        // likely to admit by accident (the naive (int) cast in the code this
+        // replaces made several of these evaluate to an unrestricted /0, and
+        // the /33 and /40 cases matched at exactly this address through an
+        // out-of-bounds string offset), so a null here proves the fix closes
+        // the hole rather than merely failing to match an unrelated address.
+        self::assertNull($this->service()->verify('imscp_abcdefgh_' . $secret, '10.0.0.0'));
+    }
+
+    /**
+     * @dataProvider malformedAllowlistEntries
+     */
+    public function testIssueRejectsAMalformedAllowlistEntry(string $entry): void
+    {
+        try {
+            $this->service()->issue(7, 'ci', ['DOMAINS_READ'], 30, $entry);
+            self::fail('Expected an ApiException for allow-list entry "' . $entry . '".');
+        } catch (ApiException $e) {
+            self::assertSame(ErrorCode::BAD_USER_INPUT, $e->getErrorCode());
+        }
+    }
+
+    public function malformedAllowlistEntries(): array
+    {
+        return [
+            'negative prefix length'    => ['10.0.0.0/-1'],
+            'trailing slash, no digits' => ['10.0.0.0/'],
+            'non-numeric prefix'        => ['10.0.0.0/abc'],
+            'out of range for IPv4'     => ['10.0.0.0/33'],
+            'far out of range for IPv4' => ['10.0.0.0/40'],
+            'exponent form'             => ['10.0.0.0/1e2'],
+            'leading space'             => ['10.0.0.0/ 8'],
+            'not an address at all'     => ['not-an-ip'],
+        ];
     }
 
     private function row(string $secret, array $overrides = []): array

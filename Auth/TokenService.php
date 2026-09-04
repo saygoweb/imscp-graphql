@@ -96,6 +96,23 @@ class TokenService
             }
         }
 
+        // A malformed entry must never reach the database: verify()'s CIDR
+        // check fails closed, but a restriction that was never stored
+        // correctly in the first place is not a restriction at all.
+        if ($ipAllowlist !== null && trim($ipAllowlist) !== '') {
+            foreach (explode(',', $ipAllowlist) as $entry) {
+                $entry = trim($entry);
+
+                if (!self::isValidAllowlistEntry($entry)) {
+                    throw new ApiException(
+                        ErrorCode::BAD_USER_INPUT,
+                        sprintf('"%s" is not an address or CIDR range.', $entry),
+                        array('field' => 'ipAllowlist')
+                    );
+                }
+            }
+        }
+
         $prefix = self::randomPrefix();
         $secret = self::randomSecret();
         $now = time();
@@ -297,13 +314,18 @@ class TokenService
             return $cidr === $clientIp;
         }
 
-        list($subnet, $bits) = explode('/', $cidr, 2);
-        $bits = (int)$bits;
+        list($subnet, $bitsRaw) = explode('/', $cidr, 2);
 
         $ip = inet_pton($clientIp);
         $net = inet_pton($subnet);
 
         if ($ip === false || $net === false || strlen($ip) !== strlen($net)) {
+            return false;
+        }
+
+        $bits = self::parsePrefixLength($bitsRaw, strlen($ip) * 8);
+
+        if ($bits === null) {
             return false;
         }
 
@@ -321,5 +343,49 @@ class TokenService
         $mask = ~((1 << (8 - $remainder)) - 1) & 0xFF;
 
         return (ord($ip[$wholeBytes]) & $mask) === (ord($net[$wholeBytes]) & $mask);
+    }
+
+    /**
+     * Whether one comma-separated allow-list entry is a bare address or a
+     * well-formed CIDR range. The single implementation issue() validates
+     * against, so a malformed entry is rejected the same way it would fail
+     * to match in verify() — there is one definition of "well-formed" here,
+     * not two that could drift apart.
+     */
+    public static function isValidAllowlistEntry(string $entry): bool
+    {
+        if ($entry === '') {
+            return false;
+        }
+
+        if (strpos($entry, '/') === false) {
+            return inet_pton($entry) !== false;
+        }
+
+        list($subnet, $bitsRaw) = explode('/', $entry, 2);
+        $net = inet_pton($subnet);
+
+        if ($net === false) {
+            return false;
+        }
+
+        return self::parsePrefixLength($bitsRaw, strlen($net) * 8) !== null;
+    }
+
+    /**
+     * Fails closed: only a bare non-negative integer string, in range for the
+     * address family, is a valid prefix length. A cast such as (int) would
+     * silently turn '-1', '', 'abc' or '1e2' into 0 — an unrestricted /0 that
+     * admits every address, which is worse than no allow-list at all.
+     */
+    private static function parsePrefixLength(string $raw, int $maxBits): ?int
+    {
+        if (!ctype_digit($raw)) {
+            return null;
+        }
+
+        $bits = (int)$raw;
+
+        return $bits <= $maxBits ? $bits : null;
     }
 }
