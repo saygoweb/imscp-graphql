@@ -76,12 +76,31 @@ class AuthenticateMiddlewareTest extends TestCase
         ]);
     }
 
+    /** An access checker that always grants, for tests exercising other paths. */
+    private function alwaysAllowed(): callable
+    {
+        return function () { return true; };
+    }
+
+    /**
+     * An access checker that fails the test if it runs at all. Authentication
+     * must fail before this check is ever reached, so a call to it means the
+     * ordering has regressed.
+     */
+    private function accessCheckerMustNotBeCalled(): callable
+    {
+        return function () {
+            self::fail('the API access check must not run before authentication succeeds');
+        };
+    }
+
     public function testAValidBearerTokenYieldsAnIdentity(): void
     {
         $mw = new AuthenticateMiddleware(
             $this->tokenServiceReturning($this->token()),
             function () { return $this->customerRow(); },
-            false
+            false,
+            $this->alwaysAllowed()
         );
 
         $seen = null;
@@ -101,7 +120,8 @@ class AuthenticateMiddlewareTest extends TestCase
     public function testNoCredentialIsA401(): void
     {
         $mw = new AuthenticateMiddleware(
-            $this->tokenServiceReturning(null), function () { return null; }, false
+            $this->tokenServiceReturning(null), function () { return null; }, false,
+            $this->accessCheckerMustNotBeCalled()
         );
 
         $response = $mw($this->request(), new Response(), function ($rq, $rs) {
@@ -116,7 +136,8 @@ class AuthenticateMiddlewareTest extends TestCase
         $mw = new AuthenticateMiddleware(
             $this->tokenServiceReturning(null),
             function () { return $this->customerRow(); },
-            false
+            false,
+            $this->accessCheckerMustNotBeCalled()
         );
 
         $response = $mw(
@@ -133,7 +154,8 @@ class AuthenticateMiddlewareTest extends TestCase
         $mw = new AuthenticateMiddleware(
             $this->tokenServiceReturning($this->token()),
             function () { return ['admin_status' => 'todelete'] + $this->customerRow(); },
-            false
+            false,
+            $this->accessCheckerMustNotBeCalled()
         );
 
         $response = $mw(
@@ -145,25 +167,72 @@ class AuthenticateMiddlewareTest extends TestCase
         self::assertSame(401, $response->getStatusCode());
     }
 
+    /**
+     * Every failure funnels through one unauthenticated() call site, which is
+     * why the bodies are identical. This drives four distinct reasons a
+     * caller might fail — no credential, a malformed one, one that simply
+     * does not verify, and a verified token whose account is not "ok" — and
+     * proves the bodies are byte-for-byte the same, not merely free of a
+     * fixed word-list. A future edit that added a second call site with a
+     * different message would fail this even if it happened to avoid every
+     * word on the leak list below.
+     */
     public function testTheFailureBodySaysNothingAboutWhichCheckFailed(): void
     {
-        $mw = new AuthenticateMiddleware(
-            $this->tokenServiceReturning(null), function () { return null; }, false
+        $checker = $this->accessCheckerMustNotBeCalled();
+
+        $noCredential = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null), function () { return null; }, false, $checker
+        );
+        $bodyNoCredential = (string)$noCredential(
+            $this->request(), new Response(), function ($rq, $rs) { return $rs; }
+        )->getBody();
+
+        $rejected = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            false,
+            $checker
         );
 
-        $body = (string)$mw($this->request(), new Response(), function ($rq, $rs) {
-            return $rs;
-        })->getBody();
+        $bodyMalformed = (string)$rejected(
+            $this->request(['HTTP_AUTHORIZATION' => 'Bearer not-even-the-right-shape']),
+            new Response(),
+            function ($rq, $rs) { return $rs; }
+        )->getBody();
+
+        $bodyDoesNotVerify = (string)$rejected(
+            $this->request(['HTTP_AUTHORIZATION' => 'Bearer imscp_abcdefgh_' . str_repeat('a', 43)]),
+            new Response(),
+            function ($rq, $rs) { return $rs; }
+        )->getBody();
+
+        $statusNotOk = new AuthenticateMiddleware(
+            $this->tokenServiceReturning($this->token()),
+            function () { return ['admin_status' => 'todelete'] + $this->customerRow(); },
+            false,
+            $checker
+        );
+        $bodyStatusNotOk = (string)$statusNotOk(
+            $this->request(['HTTP_AUTHORIZATION' => 'Bearer imscp_abcdefgh_' . str_repeat('a', 43)]),
+            new Response(),
+            function ($rq, $rs) { return $rs; }
+        )->getBody();
+
+        self::assertSame($bodyNoCredential, $bodyMalformed);
+        self::assertSame($bodyNoCredential, $bodyDoesNotVerify);
+        self::assertSame($bodyNoCredential, $bodyStatusNotOk);
 
         foreach (['expired', 'revoked', 'prefix', 'hash', 'allowlist', 'status'] as $leak) {
-            self::assertStringNotContainsStringIgnoringCase($leak, $body);
+            self::assertStringNotContainsStringIgnoringCase($leak, $bodyNoCredential);
         }
     }
 
     public function testAnOptionsRequestPassesStraightThrough(): void
     {
         $mw = new AuthenticateMiddleware(
-            $this->tokenServiceReturning(null), function () { return null; }, false
+            $this->tokenServiceReturning(null), function () { return null; }, false,
+            $this->accessCheckerMustNotBeCalled()
         );
 
         $env = Environment::mock([
@@ -175,5 +244,146 @@ class AuthenticateMiddlewareTest extends TestCase
             function ($rq, $rs) use (&$reached) { $reached = true; return $rs; });
 
         self::assertTrue($reached, 'CORS preflight must not need a credential');
+    }
+
+    public function testAccessWithdrawnIsA403AndTheHandlerIsNotCalled(): void
+    {
+        $mw = new AuthenticateMiddleware(
+            $this->tokenServiceReturning($this->token()),
+            function () { return $this->customerRow(); },
+            false,
+            function () { return false; }
+        );
+
+        $response = $mw(
+            $this->request(['HTTP_AUTHORIZATION' => 'Bearer imscp_abcdefgh_' . str_repeat('a', 43)]),
+            new Response(),
+            function ($rq, $rs) { self::fail('the handler must not run'); }
+        );
+
+        self::assertSame(403, $response->getStatusCode());
+
+        $body = json_decode((string)$response->getBody(), true);
+        self::assertSame('API_ACCESS_WITHDRAWN', $body['errors'][0]['extensions']['code']);
+    }
+
+    public function testSessionAuthSucceedsWithMatchingCsrfAndJsonContentType(): void
+    {
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $mw = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            true,
+            $this->alwaysAllowed()
+        );
+
+        $seen = null;
+        $mw(
+            $this->request([
+                'CONTENT_TYPE'       => 'application/json',
+                'HTTP_X_IMSCP_CSRF' => 'sekrit',
+            ]),
+            new Response(),
+            function ($req, $res) use (&$seen) { $seen = $req->getAttribute('identity'); return $res; }
+        );
+
+        self::assertInstanceOf(Identity::class, $seen);
+        self::assertSame(7, $seen->getAdminId());
+        self::assertSame([], $seen->getScopes(), 'a session records no scopes: bounded by role alone');
+    }
+
+    public function testSessionAuthIsRefusedWithTheWrongContentType(): void
+    {
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $mw = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            true,
+            $this->accessCheckerMustNotBeCalled()
+        );
+
+        $response = $mw(
+            $this->request([
+                'CONTENT_TYPE'       => 'text/plain',
+                'HTTP_X_IMSCP_CSRF' => 'sekrit',
+            ]),
+            new Response(),
+            function ($rq, $rs) { self::fail('the handler must not run'); }
+        );
+
+        self::assertSame(401, $response->getStatusCode());
+    }
+
+    public function testSessionAuthIsRefusedWithNoCsrfHeader(): void
+    {
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $mw = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            true,
+            $this->accessCheckerMustNotBeCalled()
+        );
+
+        $response = $mw(
+            $this->request(['CONTENT_TYPE' => 'application/json']),
+            new Response(),
+            function ($rq, $rs) { self::fail('the handler must not run'); }
+        );
+
+        self::assertSame(401, $response->getStatusCode());
+    }
+
+    public function testSessionAuthIsRefusedWithTheWrongCsrfValue(): void
+    {
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $mw = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            true,
+            $this->accessCheckerMustNotBeCalled()
+        );
+
+        $response = $mw(
+            $this->request([
+                'CONTENT_TYPE'       => 'application/json',
+                'HTTP_X_IMSCP_CSRF' => 'not-the-right-value',
+            ]),
+            new Response(),
+            function ($rq, $rs) { self::fail('the handler must not run'); }
+        );
+
+        self::assertSame(401, $response->getStatusCode());
+    }
+
+    public function testSessionAuthIsRefusedWhenNotAllowedEvenIfEverythingElseIsCorrect(): void
+    {
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $mw = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            false,
+            $this->accessCheckerMustNotBeCalled()
+        );
+
+        $response = $mw(
+            $this->request([
+                'CONTENT_TYPE'       => 'application/json',
+                'HTTP_X_IMSCP_CSRF' => 'sekrit',
+            ]),
+            new Response(),
+            function ($rq, $rs) { self::fail('the handler must not run'); }
+        );
+
+        self::assertSame(401, $response->getStatusCode());
     }
 }

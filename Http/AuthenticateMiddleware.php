@@ -23,7 +23,6 @@ namespace iMSCP\Plugin\SGW_GraphQL\Http;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Identity;
 use iMSCP\Plugin\SGW_GraphQL\Auth\IdentityShim;
 use iMSCP\Plugin\SGW_GraphQL\Auth\TokenService;
-use iMSCP\Plugin\SGW_GraphQL\SGW_GraphQL;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -45,12 +44,27 @@ final class AuthenticateMiddleware
     /** @var bool */
     private $allowSessionAuth;
 
+    /** @var callable fn(int $adminId): bool */
+    private $apiAccessChecker;
+
+    /**
+     * @param callable $accountLoader    fn(int $adminId): ?array, the admin row.
+     * @param callable $apiAccessChecker fn(int $adminId): bool. Called
+     *                                   unconditionally and denied on false: a
+     *                                   security decision must never have a
+     *                                   code path that fails open because a
+     *                                   dependency happened not to be wired up.
+     */
     public function __construct(
-        TokenService $tokens, callable $accountLoader, bool $allowSessionAuth
+        TokenService $tokens,
+        callable $accountLoader,
+        bool $allowSessionAuth,
+        callable $apiAccessChecker
     ) {
         $this->tokens = $tokens;
         $this->accountLoader = $accountLoader;
         $this->allowSessionAuth = $allowSessionAuth;
+        $this->apiAccessChecker = $apiAccessChecker;
     }
 
     public function __invoke(
@@ -67,14 +81,11 @@ final class AuthenticateMiddleware
             return $this->unauthenticated($response);
         }
 
-        // The unit suite runs without the panel bootstrapped (see
-        // test/bootstrap.php), so exec_query() does not exist there. Skipping
-        // the check in that environment costs nothing real: the panel always
-        // defines exec_query(), so production behaviour is unaffected, and no
-        // test in this suite depends on API access having been withdrawn.
-        if (function_exists('exec_query')
-            && !SGW_GraphQL::customerHasApiAccess($identity->getAdminId())
-        ) {
+        // Called unconditionally: a security control whose failure mode is
+        // "allow everything" is worse than no control. In production this is
+        // wired to SGW_GraphQL::customerHasApiAccess(); in tests it is a
+        // controllable stub, so this branch is exercised, not merely assumed.
+        if (!call_user_func($this->apiAccessChecker, $identity->getAdminId())) {
             $response = $response
                 ->withStatus(403)
                 ->withHeader('Content-Type', 'application/json');
