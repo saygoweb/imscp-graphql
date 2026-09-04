@@ -1,0 +1,9 @@
+.vagrant
+SGW_*.tgz
+SGW_*.zip
+*.tgz
+*.zip
+log/
+vendor/
+composer.phar
+.ssh-config

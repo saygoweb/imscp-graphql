@@ -1,0 +1,1189 @@
+<title>GraphQL Inside i-MSCP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* --------------------------------------------------------------------------
+   SGW_GraphQL specification
+   Palette: violet-biased neutrals around a single GraphQL magenta accent.
+   Type:    the IBM Plex superfamily - Sans for structure, Serif for prose,
+            Mono for schema and configuration. Plex was cut for technical
+            documentation, which is what this is.
+   -------------------------------------------------------------------------- */
+:root {
+  --ground:      #FAF8FB;
+  --surface:     #FFFFFF;
+  --surface-alt: #F3EFF6;
+  --ink:         #1A1520;
+  --ink-soft:    #453D52;
+  --muted:       #6B6478;
+  --rule:        #E4DEEB;
+  --rule-strong: #CFC5DA;
+  --accent:      #A8006A;
+  --accent-soft: #F7E9F2;
+  --warn:        #8A5100;
+  --warn-soft:   #FBF0E0;
+  --ok:          #1E6A4B;
+
+  --code-key:    #A8006A;
+  --code-str:    #1E6A4B;
+  --code-com:    #8B839A;
+  --code-num:    #8A5100;
+  --code-type:   #4A3A8F;
+
+  --measure: 42rem;
+  --wide:    52rem;
+
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+:root:not([data-theme="light"]) {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground:      #141017;
+    --surface:     #1B1622;
+    --surface-alt: #221C2C;
+    --ink:         #EDE7F2;
+    --ink-soft:    #C9C0D4;
+    --muted:       #968CA5;
+    --rule:        #2E2738;
+    --rule-strong: #453C52;
+    --accent:      #FF7CC6;
+    --accent-soft: #2C1626;
+    --warn:        #E8A860;
+    --warn-soft:   #2B2016;
+    --ok:          #6FCFA0;
+
+    --code-key:    #FF7CC6;
+    --code-str:    #8ED8B0;
+    --code-com:    #7E7590;
+    --code-num:    #E8A860;
+    --code-type:   #AFA0F0;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground:      #141017;
+  --surface:     #1B1622;
+  --surface-alt: #221C2C;
+  --ink:         #EDE7F2;
+  --ink-soft:    #C9C0D4;
+  --muted:       #968CA5;
+  --rule:        #2E2738;
+  --rule-strong: #453C52;
+  --accent:      #FF7CC6;
+  --accent-soft: #2C1626;
+  --warn:        #E8A860;
+  --warn-soft:   #2B2016;
+  --ok:          #6FCFA0;
+
+  --code-key:    #FF7CC6;
+  --code-str:    #8ED8B0;
+  --code-com:    #7E7590;
+  --code-num:    #E8A860;
+  --code-type:   #AFA0F0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 16.5px;
+  line-height: 1.68;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--accent-soft); color: var(--ink); }
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px;
+}
+
+/* ---------------------------------------------------------------- masthead */
+
+.masthead {
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+.masthead-inner {
+  max-width: 70rem;
+  margin: 0 auto;
+  padding: 3.25rem 1.75rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.masthead h1 {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: clamp(2.1rem, 5vw, 3.1rem);
+  line-height: 1.06;
+  letter-spacing: -0.022em;
+  margin: 0;
+  text-wrap: balance;
+}
+.masthead h1 .tld { color: var(--accent); }
+.standfirst {
+  font-size: 1.12rem;
+  color: var(--ink-soft);
+  max-width: 38rem;
+  margin: 0;
+}
+.stamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--muted);
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--rule);
+}
+.stamp b { color: var(--ink-soft); font-weight: 500; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--rule-strong);
+  border-radius: 100px;
+  padding: 0.2rem 0.7rem;
+}
+.chip::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.page {
+  max-width: 70rem;
+  margin: 0 auto;
+  padding: 0 1.75rem 6rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2.5rem;
+}
+@media (min-width: 62rem) {
+  .page {
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: 3.5rem;
+  }
+}
+
+/* -------------------------------------------------------------------- index */
+
+.index-mobile { display: block; margin-top: 2rem; }
+.index-mobile > summary {
+  cursor: pointer;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rule);
+  list-style: none;
+}
+.index-mobile > summary::after { content: " ▾"; }
+.index-mobile[open] > summary::after { content: " ▴"; }
+.index-desktop { display: none; }
+@media (min-width: 62rem) {
+  .index-mobile { display: none; }
+  .index-desktop {
+    display: block;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding: 2.75rem 0 3rem;
+    /* the scrollbar sits off the text */
+    margin-right: -0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+.index h2 {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.9rem;
+}
+.index ol { list-style: none; margin: 0; padding: 0; }
+.index li { margin: 0; }
+.index a {
+  display: grid;
+  grid-template-columns: 1.9rem minmax(0, 1fr);
+  gap: 0.35rem;
+  font-family: var(--sans);
+  font-size: 0.855rem;
+  line-height: 1.35;
+  color: var(--ink-soft);
+  text-decoration: none;
+  padding: 0.28rem 0.5rem 0.28rem 0;
+  border-left: 2px solid transparent;
+  padding-left: 0.6rem;
+  transition: color .12s, border-color .12s;
+}
+.index a .n {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.index a:hover { color: var(--accent); }
+.index a:hover .n { color: var(--accent); }
+.index .sub a {
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding-top: 0.16rem;
+  padding-bottom: 0.16rem;
+}
+.index a.current {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+.index a.current .n { color: var(--accent); }
+.index .grp { margin-top: 0.15rem; }
+.index .sub { margin-bottom: 0.35rem; }
+
+/* ------------------------------------------------------------------ article */
+
+.doc { padding-top: 2.5rem; min-width: 0; }
+
+.startpanel {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  padding: 1.15rem 1.35rem;
+  margin-bottom: 3rem;
+  max-width: var(--measure);
+}
+.startpanel p {
+  margin: 0 0 0.7rem;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+.startpanel ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; }
+.startpanel li { font-family: var(--sans); font-size: 0.9rem; }
+.startpanel .n { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); margin-right: 0.5rem; }
+
+.doc h2 {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 1.6rem;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  margin: 4rem 0 1.25rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule-strong);
+  max-width: var(--measure);
+  text-wrap: balance;
+  scroll-margin-top: 1rem;
+}
+.doc > h2:first-child { margin-top: 0; border-top: none; padding-top: 0; }
+.doc h3 {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 1.09rem;
+  line-height: 1.3;
+  letter-spacing: -0.004em;
+  color: var(--ink);
+  margin: 2.75rem 0 0.85rem;
+  max-width: var(--measure);
+  text-wrap: balance;
+  scroll-margin-top: 1rem;
+}
+.doc p, .doc ul, .doc ol, .doc blockquote {
+  max-width: var(--measure);
+  margin: 0 0 1.15rem;
+}
+.doc li { margin-bottom: 0.4rem; }
+.doc li > p { margin-bottom: 0.5rem; }
+.doc ul, .doc ol { padding-left: 1.35rem; }
+.doc ul { list-style: none; padding-left: 1.15rem; }
+.doc ul > li { position: relative; }
+.doc ul > li::before {
+  content: "";
+  position: absolute;
+  left: -0.95rem;
+  top: 0.72em;
+  width: 5px; height: 1px;
+  background: var(--rule-strong);
+}
+.doc ol > li::marker { font-family: var(--mono); font-size: 0.85em; color: var(--muted); }
+.doc strong { font-weight: 600; color: var(--ink); }
+.doc em { font-style: italic; }
+.doc hr { border: none; border-top: 1px solid var(--rule); margin: 3rem 0; max-width: var(--measure); }
+
+/* inline code: set on the surface so it reads as an object, not a colour */
+.doc :not(pre) > code {
+  font-family: var(--mono);
+  font-size: 0.845em;
+  background: var(--surface-alt);
+  border-radius: 3px;
+  padding: 0.1em 0.34em;
+  color: var(--ink);
+  word-break: break-word;
+}
+.doc a code { color: inherit; }
+
+/* --------------------------------------------------- code and table blocks */
+
+/* These break out to the right of the reading measure on wide screens: the
+   schema is the point of the document and deserves the room. */
+.doc pre, .doc table { max-width: var(--measure); }
+@media (min-width: 78rem) {
+  .doc pre, .doc table { max-width: var(--wide); }
+}
+
+.doc pre {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1rem 1.15rem;
+  overflow-x: auto;
+  margin: 0 0 1.5rem;
+  line-height: 1.55;
+}
+.doc pre code {
+  font-family: var(--mono);
+  font-size: 0.795rem;
+  color: var(--ink-soft);
+  background: none;
+  padding: 0;
+  white-space: pre;
+}
+
+.doc table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 1.75rem;
+  font-family: var(--sans);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  display: block;
+  overflow-x: auto;
+}
+.doc thead th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--rule-strong);
+  padding: 0 0.9rem 0.5rem 0;
+  white-space: nowrap;
+}
+.doc tbody td {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.6rem 0.9rem 0.6rem 0;
+  vertical-align: top;
+  color: var(--ink-soft);
+}
+.doc tbody tr:last-child td { border-bottom: none; }
+.doc td:first-child { color: var(--ink); font-weight: 500; }
+.doc td code, .doc th code { font-size: 0.82em; }
+
+/* syntax colours, driven by the same tokens as everything else */
+.hljs-keyword, .hljs-literal, .hljs-selector-tag { color: var(--code-key); }
+.hljs-string, .hljs-meta .hljs-string { color: var(--code-str); }
+.hljs-comment, .hljs-quote { color: var(--code-com); font-style: italic; }
+.hljs-number, .hljs-symbol { color: var(--code-num); }
+.hljs-type, .hljs-title, .hljs-title.class_, .hljs-class .hljs-title,
+.hljs-built_in, .hljs-name { color: var(--code-type); }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-params { color: var(--ink); }
+.hljs-punctuation, .hljs-operator { color: var(--muted); }
+
+/* ---------------------------------------------------------------- footer */
+
+.colophon {
+  max-width: var(--measure);
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule-strong);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+html { scroll-behavior: smooth; }
+</style>
+<style>
+.chip.variant { color: var(--warn); background: var(--warn-soft); }
+.chip.variant::before { background: var(--warn); }
+.crosslink {
+  font-family: var(--sans); font-size: 0.86rem; color: var(--muted);
+  border-top: 1px solid var(--rule); padding-top: 0.8rem; margin-top: 0.3rem;
+}
+.crosslink a { font-weight: 600; }
+</style>
+<style>
+.chip.dropped { color: var(--muted); background: var(--surface-alt); }
+.chip.dropped::before { background: var(--muted); }
+</style>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">i-MSCP &middot; design specification &middot; variant B</div>
+    <h1>GraphQL inside <span class="tld">i-MSCP</span></h1>
+    <p class="standfirst">The same API, built into <code>saygoweb/imscp</code> rather than as a
+      plugin &mdash; which would let the business logic be <em>extracted</em> from the panel's
+      page scripts and shared, instead of reimplemented beside them.</p>
+    <div class="stamps">
+      <span class="chip dropped">Not adopted</span>
+      <span class="stamp">Retained for the reasoning</span>
+      <span class="stamp">Read against i&#8209;MSCP <b>7d8788400</b></span>
+    </div>
+    <div class="crosslink">
+      <a href="https://claude.ai/code/artifact/7ba25528-1dbe-4662-870f-32d264df79dc">Variant A</a> was chosen. Its &sect;21 is this document's argument,
+      rebuilt as a backlog against i&#8209;MSCP rather than a fork of it.
+    </div>
+  </div>
+</header>
+<details class="index index-mobile"><summary>Contents</summary><nav class="index-inner"><h2>Contents</h2><ol><li class="grp"><a href="#1-why-this-variant-exists" data-nav="1-why-this-variant-exists"><span class="n">1</span><span>Why this variant exists</span></a><ol class="sub"></ol></li><li class="grp"><a href="#2-the-decision" data-nav="2-the-decision"><span class="n">2</span><span>The decision</span></a><ol class="sub"><li><a href="#21-what-it-costs-assessed-honestly" data-nav="21-what-it-costs-assessed-honestly"><span class="n">2.1</span><span>What it costs, assessed honestly</span></a></li><li><a href="#22-what-it-buys" data-nav="22-what-it-buys"><span class="n">2.2</span><span>What it buys</span></a></li></ol></li><li class="grp"><a href="#3-what-is-unchanged-from-variant-a" data-nav="3-what-is-unchanged-from-variant-a"><span class="n">3</span><span>What is unchanged from variant A</span></a><ol class="sub"></ol></li><li class="grp"><a href="#4-extract-and-share" data-nav="4-extract-and-share"><span class="n">4</span><span>Extract and share</span></a><ol class="sub"><li><a href="#41-the-shape" data-nav="41-the-shape"><span class="n">4.1</span><span>The shape</span></a></li><li><a href="#42-what-a-service-looks-like" data-nav="42-what-a-service-looks-like"><span class="n">4.2</span><span>What a service looks like</span></a></li><li><a href="#43-how-the-extraction-is-kept-safe" data-nav="43-how-the-extraction-is-kept-safe"><span class="n">4.3</span><span>How the extraction is kept safe</span></a></li><li><a href="#44-which-pages-in-which-order" data-nav="44-which-pages-in-which-order"><span class="n">4.4</span><span>Which pages, in which order</span></a></li><li><a href="#45-what-is-not-extracted" data-nav="45-what-is-not-extracted"><span class="n">4.5</span><span>What is not extracted</span></a></li></ol></li><li class="grp"><a href="#5-identity-without-a-shim" data-nav="5-identity-without-a-shim"><span class="n">5</span><span>Identity without a shim</span></a><ol class="sub"></ol></li><li class="grp"><a href="#6-errors-without-the-exit-hazard" data-nav="6-errors-without-the-exit-hazard"><span class="n">6</span><span>Errors without the exit hazard</span></a><ol class="sub"></ol></li><li class="grp"><a href="#7-dependencies-on-php-83" data-nav="7-dependencies-on-php-83"><span class="n">7</span><span>Dependencies, on PHP 8.3</span></a><ol class="sub"><li><a href="#71-the-php-version-this-assumes" data-nav="71-the-php-version-this-assumes"><span class="n">7.1</span><span>The PHP version this assumes</span></a></li><li><a href="#72-what-the-api-depends-on" data-nav="72-what-the-api-depends-on"><span class="n">7.2</span><span>What the API depends on</span></a></li><li><a href="#73-anorm-on-the-read-side-only" data-nav="73-anorm-on-the-read-side-only"><span class="n">7.3</span><span>Anorm, on the read side only</span></a></li></ol></li><li class="grp"><a href="#8-where-the-code-lives" data-nav="8-where-the-code-lives"><span class="n">8</span><span>Where the code lives</span></a><ol class="sub"><li><a href="#81-the-front-controller" data-nav="81-the-front-controller"><span class="n">8.1</span><span>The front controller</span></a></li></ol></li><li class="grp"><a href="#9-configuration-and-database" data-nav="9-configuration-and-database"><span class="n">9</span><span>Configuration and database</span></a><ol class="sub"></ol></li><li class="grp"><a href="#10-testing" data-nav="10-testing"><span class="n">10</span><span>Testing</span></a><ol class="sub"></ol></li><li class="grp"><a href="#11-delivery" data-nav="11-delivery"><span class="n">11</span><span>Delivery</span></a><ol class="sub"></ol></li><li class="grp"><a href="#12-risks" data-nav="12-risks"><span class="n">12</span><span>Risks</span></a><ol class="sub"></ol></li><li class="grp"><a href="#13-open-questions" data-nav="13-open-questions"><span class="n">13</span><span>Open questions</span></a><ol class="sub"></ol></li><li class="grp"><a href="#appendix-b--what-was-measured-for-this-variant" data-nav="appendix-b--what-was-measured-for-this-variant"><span class="n">&nbsp;</span><span>Appendix B — what was measured for this variant</span></a><ol class="sub"></ol></li></ol></nav></details><div class="page"><aside class="index index-desktop"><nav class="index-inner"><h2>Contents</h2><ol><li class="grp"><a href="#1-why-this-variant-exists" data-nav="1-why-this-variant-exists"><span class="n">1</span><span>Why this variant exists</span></a><ol class="sub"></ol></li><li class="grp"><a href="#2-the-decision" data-nav="2-the-decision"><span class="n">2</span><span>The decision</span></a><ol class="sub"><li><a href="#21-what-it-costs-assessed-honestly" data-nav="21-what-it-costs-assessed-honestly"><span class="n">2.1</span><span>What it costs, assessed honestly</span></a></li><li><a href="#22-what-it-buys" data-nav="22-what-it-buys"><span class="n">2.2</span><span>What it buys</span></a></li></ol></li><li class="grp"><a href="#3-what-is-unchanged-from-variant-a" data-nav="3-what-is-unchanged-from-variant-a"><span class="n">3</span><span>What is unchanged from variant A</span></a><ol class="sub"></ol></li><li class="grp"><a href="#4-extract-and-share" data-nav="4-extract-and-share"><span class="n">4</span><span>Extract and share</span></a><ol class="sub"><li><a href="#41-the-shape" data-nav="41-the-shape"><span class="n">4.1</span><span>The shape</span></a></li><li><a href="#42-what-a-service-looks-like" data-nav="42-what-a-service-looks-like"><span class="n">4.2</span><span>What a service looks like</span></a></li><li><a href="#43-how-the-extraction-is-kept-safe" data-nav="43-how-the-extraction-is-kept-safe"><span class="n">4.3</span><span>How the extraction is kept safe</span></a></li><li><a href="#44-which-pages-in-which-order" data-nav="44-which-pages-in-which-order"><span class="n">4.4</span><span>Which pages, in which order</span></a></li><li><a href="#45-what-is-not-extracted" data-nav="45-what-is-not-extracted"><span class="n">4.5</span><span>What is not extracted</span></a></li></ol></li><li class="grp"><a href="#5-identity-without-a-shim" data-nav="5-identity-without-a-shim"><span class="n">5</span><span>Identity without a shim</span></a><ol class="sub"></ol></li><li class="grp"><a href="#6-errors-without-the-exit-hazard" data-nav="6-errors-without-the-exit-hazard"><span class="n">6</span><span>Errors without the exit hazard</span></a><ol class="sub"></ol></li><li class="grp"><a href="#7-dependencies-on-php-83" data-nav="7-dependencies-on-php-83"><span class="n">7</span><span>Dependencies, on PHP 8.3</span></a><ol class="sub"><li><a href="#71-the-php-version-this-assumes" data-nav="71-the-php-version-this-assumes"><span class="n">7.1</span><span>The PHP version this assumes</span></a></li><li><a href="#72-what-the-api-depends-on" data-nav="72-what-the-api-depends-on"><span class="n">7.2</span><span>What the API depends on</span></a></li><li><a href="#73-anorm-on-the-read-side-only" data-nav="73-anorm-on-the-read-side-only"><span class="n">7.3</span><span>Anorm, on the read side only</span></a></li></ol></li><li class="grp"><a href="#8-where-the-code-lives" data-nav="8-where-the-code-lives"><span class="n">8</span><span>Where the code lives</span></a><ol class="sub"><li><a href="#81-the-front-controller" data-nav="81-the-front-controller"><span class="n">8.1</span><span>The front controller</span></a></li></ol></li><li class="grp"><a href="#9-configuration-and-database" data-nav="9-configuration-and-database"><span class="n">9</span><span>Configuration and database</span></a><ol class="sub"></ol></li><li class="grp"><a href="#10-testing" data-nav="10-testing"><span class="n">10</span><span>Testing</span></a><ol class="sub"></ol></li><li class="grp"><a href="#11-delivery" data-nav="11-delivery"><span class="n">11</span><span>Delivery</span></a><ol class="sub"></ol></li><li class="grp"><a href="#12-risks" data-nav="12-risks"><span class="n">12</span><span>Risks</span></a><ol class="sub"></ol></li><li class="grp"><a href="#13-open-questions" data-nav="13-open-questions"><span class="n">13</span><span>Open questions</span></a><ol class="sub"></ol></li><li class="grp"><a href="#appendix-b--what-was-measured-for-this-variant" data-nav="appendix-b--what-was-measured-for-this-variant"><span class="n">&nbsp;</span><span>Appendix B — what was measured for this variant</span></a><ol class="sub"></ol></li></ol></nav></aside><article class="doc">
+<div class="startpanel">
+  <p>This variant was not adopted. Its case rested on a premise that turned out to be
+     half true: a plugin cannot change core, but it can change core <em>separately</em>.</p>
+  <ul>
+    <li><span class="n">&sect;1</span><a href="#1-why-this-variant-exists">Why this variant exists</a> &mdash; the two compromises it was built to remove</li>
+    <li><span class="n">&sect;4</span><a href="#4-extract-and-share">Extract and share</a> &mdash; the method, and the ancestor of variant A's &sect;21</li>
+    <li><span class="n">&sect;2.1</span><a href="#21-what-it-costs-assessed-honestly">What it costs</a> &mdash; including the one-way door that decided it</li>
+  </ul>
+</div>
+<h2 id="1-why-this-variant-exists">1. Why this variant exists</h2>
+<p>Variant A is a competent plugin design, and two things in it are ugly. Both are
+ugly for exactly one reason: <strong>a plugin cannot change core.</strong></p>
+<p><strong>A §3.2 — the business logic is reimplemented.</strong> The rules for adding a
+subdomain live in 250 lines of <code>gui/public/client/subdomain_add.php</code>, written
+against <code>$_POST</code> and <code>$_SESSION</code>. A plugin cannot call them, so variant A
+transcribes them, and A's risk #2 is the consequence: two copies of the same
+rules, drifting apart, with a comment citing a line number as the only thread
+between them.</p>
+<p><strong>A §6.4 — the identity shim.</strong> Core helpers such as <code>customerHasFeature()</code>
+read <code>$_SESSION['user_id']</code> directly. A plugin cannot change that signature, so
+variant A fakes a session for a request that has none, and then has to forbid
+changing identity mid-request because <code>customerHasFeature()</code> caches its answer
+in a <code>static</code> that is not keyed by user (<code>gui/include/Client.php:84</code>).</p>
+<p>Neither is a design choice. Both are the shape a plugin has to fold itself into.
+Inside the codebase, the first becomes <em>extraction</em> rather than duplication, and
+the second becomes a parameter. That is the whole argument for this variant, and
+everything below is its consequences.</p>
+<hr />
+<h2 id="2-the-decision">2. The decision</h2>
+<p><strong>Build the API inside <code>saygoweb/imscp</code>, and extract the business logic out of
+the page scripts into a service layer that both the pages and the API call.</strong></p>
+<h3 id="21-what-it-costs-assessed-honestly">2.1 What it costs, assessed honestly</h3>
+<p>The standard objection is fork divergence: patch core and you own the merges
+forever. That objection is real, and here it is <strong>mostly already paid</strong>:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>upstream</code> remote</td>
+<td><code>https://github.com/i-MSCP/imscp.git</code>, configured but dormant</td>
+</tr>
+<tr>
+<td>Commits on <code>saygoweb/imscp</code> <code>main</code></td>
+<td>11,054</td>
+</tr>
+<tr>
+<td>Recent work already in core</td>
+<td>Debian 13 (Trixie) port, the Dovecot 2.4 port, three Courier authentication fixes, a CustomDNS module fix — all in the last fortnight</td>
+</tr>
+<tr>
+<td>Existing core-touching plugins in the family</td>
+<td><code>SGW_ApacheCache</code>, <code>SGW_LetsEncrypt</code>, <code>SGW_DnsExternal</code>, <code>SGW_PostfixAuth</code>, <code>SGW_PhpVersion</code></td>
+</tr>
+</tbody>
+</table>
+<p>You are already the de-facto maintainer of this codebase, already carrying
+distribution ports that upstream will never take, and about to carry a PHP 8.3
+migration that upstream will never take either. The marginal cost of one more
+subsystem in core is low, and lower than the cost of the two compromises in §1.</p>
+<p>Two costs do <em>not</em> go away, and should be weighed:</p>
+<ol>
+<li><strong>It is a one-way door for distribution.</strong> A plugin can be handed to another
+   i-MSCP operator as a <code>.tgz</code>. An in-core API cannot, without extracting it
+   again. If there is any intention of publishing this the way
+   <code>SGW_ApacheCache</code> is published, variant A is the right answer and this
+   document is the wrong one. <strong>This is open question 1.</strong></li>
+<li><strong>Blast radius.</strong> Refactoring <code>subdomain_add.php</code> can break the panel's own
+   subdomain creation, which a plugin never could. §4.3 is how that is
+   contained.</li>
+</ol>
+<h3 id="22-what-it-buys">2.2 What it buys</h3>
+<table>
+<thead>
+<tr>
+<th>Variant A problem</th>
+<th>In-core</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A §3.2 — logic reimplemented, two copies drifting</td>
+<td>Extracted once, called twice (§4)</td>
+</tr>
+<tr>
+<td>A §6.4 — the <code>$_SESSION</code> identity shim</td>
+<td>Identity becomes a parameter (§5)</td>
+</tr>
+<tr>
+<td>A §6.5 — <code>showErrorPage()</code> exits mid-request with a non-GraphQL body</td>
+<td>The helpers are changed to throw (§6)</td>
+</tr>
+<tr>
+<td>A §3.3 — dependencies vendored into a <code>.tgz</code>, pinned to the panel's PHP</td>
+<td>Ordinary entries in <code>gui/composer.json</code> (§7)</td>
+</tr>
+<tr>
+<td>A §15 — plugin-owned tables, <code>migrateDb()</code></td>
+<td><code>database.sql</code> and the core update mechanism (§9)</td>
+</tr>
+<tr>
+<td>A §17 — services only reachable through HTTP and a plugin manager</td>
+<td>Extracted services are directly unit-testable (§10)</td>
+</tr>
+<tr>
+<td>A §13 — packaging, versioning, <code>info.php</code>, a release archive</td>
+<td>None of it exists (§8)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-what-is-unchanged-from-variant-a">3. What is unchanged from variant A</h2>
+<p>Most of the <em>API</em> is unaffected by where the code lives. These sections of
+variant A stand as written and are not restated here:</p>
+<ul>
+<li><strong>§1 Scope</strong> — same actors, same entities, same exclusions.</li>
+<li><strong>§2.1–2.3, §2.6</strong> — the ground it stands on. Asynchronous provisioning, the
+  ownership chain, the three separate rights questions, the router fall-through.
+  §2.4 and §2.5 are superseded (by §4 and §7 here).</li>
+<li><strong>§3.4 Schema-first (SDL)</strong> — see the note in §7.3 below; the decision holds
+  but one of its three arguments changes.</li>
+<li><strong>§3.5 Opaque global identifiers</strong>, <strong>§3.6 errors as GraphQL errors</strong>.</li>
+<li><strong>§4 Transport</strong>, <strong>§5 Authentication</strong>, <strong>§7 The schema</strong> in full,
+  <strong>§8 Mutation semantics</strong>, <strong>§9 Errors</strong>, <strong>§10 Performance and abuse limits</strong>,
+  <strong>§11 Observability</strong>, <strong>§12 Security</strong>, <strong>§16 Panel pages</strong>,
+  <strong>§18 Compatibility</strong>.</li>
+</ul>
+<p>Read those there. What follows is only what changes.</p>
+<hr />
+<h2 id="4-extract-and-share">4. Extract and share</h2>
+<p>This replaces variant A §3.2, and it is the heart of this variant.</p>
+<h3 id="41-the-shape">4.1 The shape</h3>
+<p>For each entity, the rules currently embedded in a page script are moved into a
+service, and the page is re-pointed at it:</p>
+<pre><code>Before                                    After
+
+client/subdomain_add.php                  client/subdomain_add.php
+  ├── read $_POST                           ├── read $_POST
+  ├── 250 lines of rules                    ├── build SubdomainCreateInput
+  ├── INSERT ... 'toadd'                    ├── SubdomainService::create($identity, $input)
+  ├── phpini row                            ├── set_page_message / redirectTo
+  ├── default mail accounts                 └── render the form
+  ├── send_request()
+  ├── set_page_message                    iMSCP\Service\SubdomainService
+  └── render the form                       ├── validate
+                                            ├── check feature, quota, settled
+                                            ├── transaction + events
+                                            ├── INSERT ... 'toadd'
+                                            ├── phpini row
+                                            ├── default mail accounts
+                                            ├── send_request()
+                                            └── return the entity
+
+                                          GraphQL Mutation.subdomainCreate
+                                            └── SubdomainService::create($identity, $input)
+</code></pre>
+<p>The service takes an explicit identity and a typed input object, returns an
+entity or throws a typed exception. It knows nothing about HTTP, <code>$_POST</code>,
+<code>$_SESSION</code>, page messages or redirects. Those stay in the page.</p>
+<h3 id="42-what-a-service-looks-like">4.2 What a service looks like</h3>
+<pre><code class="language-php">namespace iMSCP\Service;
+
+final class SubdomainService
+{
+    /**
+     * @throws ValidationException   input the caller can fix
+     * @throws QuotaException        a limit reached
+     * @throws FeatureException      the feature is withheld from the account
+     * @throws ConflictException     the parent is not settled, or the name is taken
+     * @throws AuthorizationException the identity may not reach the parent
+     */
+    public function create(Identity $identity, SubdomainCreateInput $input): Subdomain;
+
+    public function update(Identity $identity, int $id, SubdomainUpdateInput $input): Subdomain;
+
+    public function delete(Identity $identity, int $id): Subdomain;
+}
+</code></pre>
+<p>The exception types are the same set as the API's error codes (A §9), so the
+mapping from service to GraphQL error is a lookup table and not a judgement.
+The page maps them to <code>set_page_message()</code> instead. Neither surface invents its
+own vocabulary of failure.</p>
+<h3 id="43-how-the-extraction-is-kept-safe">4.3 How the extraction is kept safe</h3>
+<p>The rule is: <strong>the page's observable behaviour does not change.</strong> Extraction is
+mechanical — move the code, thread the identity, replace <code>set_page_message</code> +
+<code>return false</code> with a thrown exception, replace <code>$_POST['x']</code> with <code>$input-&gt;x</code>.
+Nothing is redesigned on the way through. Any improvement is a separate commit,
+after the extraction has landed and the page still works.</p>
+<p>That gives three layers of safety:</p>
+<ol>
+<li><strong>The page is the regression test.</strong> It exercised these rules before the
+   extraction and must exercise them identically afterwards. A behaviour change
+   in the panel UI is the loudest possible signal that the extraction was not
+   faithful.</li>
+<li><strong>One entity per pull request.</strong> Page, service and API mutation land
+   together, so a bisect lands on one entity's extraction and not on a
+   twelve-entity refactor.</li>
+<li><strong>The integration suite (§10) drives both surfaces</strong> — the panel page and the
+   GraphQL mutation — against the same fixtures, and asserts the same database
+   and filesystem end state from each.</li>
+</ol>
+<h3 id="44-which-pages-in-which-order">4.4 Which pages, in which order</h3>
+<p>Ordered by how much the API needs them against how tangled the page is, so the
+cheap ones establish the pattern before the hard ones test it.</p>
+<table>
+<thead>
+<tr>
+<th>Order</th>
+<th>Service</th>
+<th>Extracted from</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>SqlDatabaseService</code>, <code>SqlUserService</code></td>
+<td><code>client/sql_database_add.php</code>, <code>sql_user_add.php</code>, <code>sql_delete_user.php</code>, <code>sql_database_delete.php</code></td>
+<td>Smallest, and synchronous — no daemon involved. The pattern-setter.</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>FtpUserService</code></td>
+<td><code>client/ftp_add.php</code>, <code>ftp_edit.php</code>, <code>ftp_delete.php</code></td>
+<td>Watch the <code>VirtualFileSystem</code> home-directory check (A §3.2).</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>MailService</code></td>
+<td><code>client/mail_add.php</code>, <code>mail_edit.php</code>, <code>mail_delete.php</code>, <code>mail_catchall*.php</code>, <code>mail_autoresponder_*.php</code></td>
+<td>The twelve <code>mail_type</code> values (A §7.6) get one mapping, here.</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>SubdomainService</code></td>
+<td><code>client/subdomain_add.php</code>, <code>subdomain_edit.php</code>, <code>subdomain_delete.php</code>, <code>alssub_delete.php</code></td>
+<td>582 lines; the reference case. <code>deleteSubdomain()</code> and <code>deleteSubdomainAlias()</code> in <code>include/Client.php</code> fold in here.</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>DomainAliasService</code></td>
+<td><code>client/alias_add.php</code>, <code>alias_edit.php</code>, <code>alias_delete.php</code>, <code>reseller/alias.php</code></td>
+<td>Carries the ordering/approval flow.</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>DnsRecordService</code></td>
+<td><code>client/dns_add.php</code>, <code>dns_edit.php</code>, <code>dns_delete.php</code></td>
+<td></td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>DomainService</code></td>
+<td><code>client/domain_edit.php</code></td>
+<td>Forwarding and document root only.</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>CustomerService</code></td>
+<td><code>reseller/user_add1.php</code>, <code>user_add2.php</code>, <code>user_add3.php</code>, <code>user_edit.php</code>, <code>user_delete.php</code>, <code>domain_status_change.php</code></td>
+<td>The three-step wizard collapses into one call; <code>$_SESSION</code>-carried wizard state disappears. <code>deleteCustomer()</code> and <code>change_domain_status()</code> in <code>include/Shared.php</code> fold in here.</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>HostingPlanService</code></td>
+<td><code>reseller/hosting_plan*.php</code></td>
+<td>Owns the 25-field <code>props</code> codec (A §7.8).</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>ResellerService</code></td>
+<td><code>admin/user_add*.php</code>, <code>admin/user_edit.php</code>, <code>admin/user_delete.php</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Ten services, roughly 4,500 lines of page script to read and about 2,000 lines
+of rules to move. This is the bulk of the work in this variant, and it is work
+that improves the panel whether or not the API ships.</p>
+<h3 id="45-what-is-not-extracted">4.5 What is <em>not</em> extracted</h3>
+<p>The read side. Page scripts build template variables; the API builds a schema.
+There is nothing shared to extract, and forcing one would produce a data
+structure that suits neither. The API's read model is its own (§7.2).</p>
+<hr />
+<h2 id="5-identity-without-a-shim">5. Identity without a shim</h2>
+<p>Replaces variant A §6.4, which disappears entirely.</p>
+<p>An <code>Identity</code> value object — admin id, username, type, <code>created_by</code> — is
+constructed once per request, from a bearer token (A §5.1), from the panel
+session, or from the CLI. It is passed explicitly into every service call.</p>
+<p>The core helpers that currently read <code>$_SESSION</code> gain an explicit first
+parameter, defaulting to the session so every existing caller keeps working:</p>
+<pre><code class="language-php">// gui/include/Client.php
+function customerHasFeature($featureNames, $forceReload = false, $adminId = NULL)
+{
+    $adminId = $adminId ?? $_SESSION['user_id'];
+    static $availableFeatures = [];               // now keyed by $adminId
+    ...
+}
+</code></pre>
+<p>Two things worth noticing. The <code>static</code> cache becomes <strong>keyed by admin id</strong>,
+which removes A §6.4's one-identity-per-request rule and the class of bug it was
+guarding against — a reseller acting on two of their customers in one request
+now works correctly, where in variant A it was forbidden. And the change is
+additive: every one of the ~90 existing call sites is untouched.</p>
+<p>The same treatment applies to <code>customerSqlDbLimitIsReached()</code>,
+<code>resellerHasFeature()</code>, <code>deleteSubdomain()</code>, <code>deleteSubdomainAlias()</code>,
+<code>deleteDomainAlias()</code>, <code>deleteCustomer()</code>, <code>delete_sql_database()</code> and
+<code>sql_delete_user()</code> — though most of the last group are absorbed into services
+by §4.4 anyway.</p>
+<hr />
+<h2 id="6-errors-without-the-exit-hazard">6. Errors without the exit hazard</h2>
+<p>Replaces variant A §6.5.</p>
+<p><code>showErrorPage()</code> (<code>gui/include/View.php:932</code>) terminates the request with
+<code>exit(json_encode(...))</code> when <code>Accept</code> contains <code>application/json</code> — which is
+what a GraphQL client sends. Variant A had to build three layers of defence
+around a function it could not change.</p>
+<p>In-core, it is changed. <code>showBadRequestErrorPage()</code> and its siblings become
+thin wrappers that throw a typed exception; a handler registered by the page
+front controller catches it and renders exactly the response it renders today,
+so the panel's behaviour is unchanged. The API's handler catches the same
+exception and turns it into a GraphQL error.</p>
+<p>The shutdown guard from A §6.5 layer 2 is still worth keeping — cheap, and it
+catches the unknown unknowns — but layers 1 and 3 stop being necessary, and the
+"comment naming the pre-check that makes this reachable" convention goes away.</p>
+<hr />
+<h2 id="7-dependencies-on-php-83">7. Dependencies, on PHP 8.3</h2>
+<p>Replaces variant A §3.3, which existed almost entirely to work around PHP 7.3.</p>
+<h3 id="71-the-php-version-this-assumes">7.1 The PHP version this assumes</h3>
+<p><strong>PHP 8.3.</strong> The measurements behind that decision are in Appendix B: the panel
+runs on 8.3 after a bounded set of changes — three dependency swaps, 25
+<code>#[\ReturnTypeWillChange]</code> attributes, three <code>#[\AllowDynamicProperties]</code>, and
+four small code fixes — with 20 of 21 pages rendering and no deprecations left.</p>
+<p><strong>PHP 7.4 is also, separately, free.</strong> The unmodified panel and its unmodified
+7.3-era dependencies run on 7.4 with <em>zero</em> changes: 21 of 21 pages render,
+no deprecations, nothing to patch. If the 8.3 work slips, 7.4 can be taken
+today as a one-line change to <code>PHP_FPM_BIN_PATH</code>, and it already unblocks
+<code>webonyx/graphql-php</code> v15, <code>lcobucci/jwt</code> v4 and Anorm unpatched. It buys the
+panel nothing else — 7.4 is as end-of-life as 7.3, and Roundcube 1.7 needs 8.1
+— so it is an interim, not a destination.</p>
+<h3 id="72-what-the-api-depends-on">7.2 What the API depends on</h3>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>webonyx/graphql-php ^15</code></td>
+<td>The schema engine. v15 requires PHP 7.4+, so it was unavailable in variant A.</td>
+</tr>
+<tr>
+<td><code>saygoweb/anorm ^3.1</code></td>
+<td>The API's <strong>read</strong> models. See §7.3. Runs unmodified on 7.4 and 8.3; measured.</td>
+</tr>
+</tbody>
+</table>
+<p>That is the whole list. No JWT library (A §5.1's opaque tokens are still the
+right answer, and for the same reason: a token that can create system users has
+to be revocable now, which means a database lookup anyway). No
+<code>simpod/graphql-utils</code> (A §3.4 removes the need, and on 8.0+ it would at least
+be <em>available</em>, unlike in variant A).</p>
+<h3 id="73-anorm-on-the-read-side-only">7.3 Anorm, on the read side only</h3>
+<p>Variant A recommended against Anorm, for a reason that had nothing to do with
+its PHP 7.4 requirement: a write in i-MSCP is never "persist a model", it is
+validate → quota → transaction → before-event → INSERT with a <code>toadd</code> status →
+<code>php_ini</code> row → default mail accounts → after-event → commit → poke the daemon
+→ log. An ORM helps with one step in ten. <strong>That reasoning is unchanged, and
+the write side stays on <code>exec_query()</code> inside the services of §4.</strong></p>
+<p>The read side is a different problem, and Anorm turns out to fit it unusually
+well. A §10.1 requires DataLoader-style batching so that "list my customers,
+and for each their domain and its subdomains" is not an N+1. Anorm v3 already
+ships that: <code>Relationship\BatchLoadingOrchestrator</code> with
+<code>ManyHasOneBatchLoader</code>, <code>OneHasManyBatchLoader</code> and <code>ManyHasManyBatchLoader</code>
+behind it, and — the part that matters — it takes a <strong>field selection</strong>
+specification, <code>['posts', 'company:name,address']</code>, which is precisely the
+shape of a GraphQL <code>ResolveInfo</code>. Wiring a resolver's requested fields into
+Anorm's batch loader is a mapping, not an implementation.</p>
+<p>So: Anorm for the read models and their batching, hand-written <code>exec_query()</code>
+for the writes. The split is not arbitrary — each side uses the tool that
+matches its actual problem — but it is two idioms in one codebase, and that has
+a cost. <strong>This is open question 2.</strong></p>
+<p>One knock-on: A §3.4 gave three arguments for SDL-first over code-first, and one
+of them was that it avoided the PHP 7.4 requirement of <code>simpod/graphql-utils</code>.
+On 8.3 that argument evaporates. The other two — that a 400-line SDL file is
+reviewable in a way that 60 PHP classes are not, and that the SDL is the
+artefact clients generate from — still stand, and the decision stands with them.</p>
+<hr />
+<h2 id="8-where-the-code-lives">8. Where the code lives</h2>
+<p>Replaces variant A §13. There is no plugin, no <code>info.php</code>, no <code>config.php</code>, no
+<code>makefile.json</code>, no <code>upload-exclude.txt</code>, no release archive and no version
+number of its own.</p>
+<pre><code>gui/
+  composer.json                    +webonyx/graphql-php, +saygoweb/anorm
+
+  public/
+    api.php                        API front controller (§8.1)
+    client/…, reseller/…, admin/…  existing pages, re-pointed at the services
+
+  schema/
+    schema.graphql                 the schema (A §7). Served at GET /api/schema
+
+  src/
+    Service/                       §4 — the shared business logic. Called by the
+                                   pages and by the API. The centre of gravity
+                                   of this variant.
+      SubdomainService.php  MailService.php  FtpUserService.php
+      SqlDatabaseService.php  SqlUserService.php  DnsRecordService.php
+      DomainService.php  DomainAliasService.php
+      CustomerService.php  ResellerService.php  HostingPlanService.php
+      Input/                       typed input objects
+      Exception/                   ValidationException, QuotaException, …
+
+    Api/
+      Http/                        PSR-15 middleware: Tls, Cors, Authenticate,
+                                   RateLimit, Audit; and the endpoint handler
+      Auth/                        TokenService, Identity, Scope
+      Security/                    OwnershipResolver, Guard
+      Schema/                      SchemaFactory (SDL + AST cache), ResolverMap,
+                                   GlobalId, scalars
+      Resolver/                    thin; reads via Model/, writes via Service/
+      Model/                       Anorm models and the batch-loading wiring
+
+    Config/, Event/, …             unchanged core
+
+  include/
+    Client.php, Shared.php, …      §5 — helpers gain an explicit $adminId
+    View.php                       §6 — error pages throw rather than exit
+
+configs/debian/default/database/database.sql    +3 tables (§9)
+engine/PerlLib/iMSCP/Update/                    +one update step (§9)
+test/                                            §10
+</code></pre>
+<h3 id="81-the-front-controller">8.1 The front controller</h3>
+<p>Variant A registered <code>/api/graphql</code> through the plugin router, which meant every
+API request paid for the panel's full bootstrap — Slim application, Zend
+translator, navigation tree, plugin manager — before reaching a resolver.</p>
+<p>In-core, <code>public/api.php</code> is its own entry point with its own nginx <code>location</code>,
+and it bootstraps only what the API needs: configuration, database, event
+manager, plugin manager (still needed — the other plugins' event listeners must
+fire, which was variant A §3.1's whole argument and is no less true here). It
+does not build the translator, the navigation or the template engine.</p>
+<pre><code class="language-nginx">location = /api/graphql {
+    include imscp_fastcgi.conf;
+    fastcgi_param SCRIPT_FILENAME {WEB_DIR}/public/api.php;
+    fastcgi_param SCRIPT_NAME /api.php;
+}
+</code></pre>
+<p>One line of <code>00_master.nginx</code> and <code>00_master_ssl.nginx</code>, which a plugin could
+not have touched.</p>
+<hr />
+<h2 id="9-configuration-and-database">9. Configuration and database</h2>
+<p>Replaces variant A §14 and §15.</p>
+<p><strong>Configuration</strong> moves from a plugin <code>config.php</code> into <code>imscp.conf</code>, with the
+same keys, prefixed <code>API_</code>. They are then visible to the Perl engine as well as
+the frontEnd, and settable through preseeding — which matters for anyone
+provisioning a server unattended:</p>
+<pre><code>API_ENABLED               = 1
+API_ENDPOINT              = /api/graphql
+API_REQUIRE_TLS           = 1
+API_ALLOW_SESSION_AUTH    = 1
+API_ALLOW_PASSWORD_GRANT  = 1
+API_INTROSPECTION         = 1
+API_MAX_QUERY_DEPTH       = 15
+API_MAX_QUERY_COMPLEXITY  = 1000
+API_RATE_LIMIT_QUERIES    = 120
+API_RATE_LIMIT_MUTATIONS  = 30
+API_AUDIT                 = mutations
+API_AUDIT_RETENTION_DAYS  = 90
+</code></pre>
+<p><strong>The three tables</strong> of A §15 — <code>api_token</code>, <code>api_perm</code>, <code>api_audit</code>, renamed
+from <code>graphql_*</code> since they are no longer plugin-scoped — are added to
+<code>configs/debian/default/database/database.sql</code> for fresh installs and to the
+engine's database update mechanism for existing ones. <code>AbstractPlugin::migrateDb()</code>
+and the plugin <code>sql/</code> directory are not involved.</p>
+<p>This is strictly better than the plugin arrangement in one respect worth
+naming: a plugin's tables vanish on uninstall, which is correct for a plugin and
+wrong for an audit log.</p>
+<hr />
+<h2 id="10-testing">10. Testing</h2>
+<p>Replaces variant A §17, and this is where the variant pays off most visibly.</p>
+<p><strong>Unit tests, of the services, without HTTP.</strong> In variant A the business logic
+was reachable only through a Slim route, behind authentication, behind a plugin
+manager, with a faked session. Here <code>SubdomainService::create()</code> takes an
+<code>Identity</code> and an input object and is called directly from PHPUnit against a
+seeded database. Every rule transcribed in A §4.4's page scripts becomes a test
+case where it previously became a comment.</p>
+<p><strong>Extraction fidelity.</strong> For each entity, a test that drives the <em>page</em> (POST to
+<code>client/subdomain_add.php</code>) and a test that drives the <em>API</em>
+(<code>mutation { subdomainCreate }</code>) with equivalent inputs, asserting the same rows,
+the same statuses, the same events dispatched and the same daemon request. This
+is the test that makes §4.3's "the page is the regression test" a fact rather
+than a hope, and it is the reason the extraction can be done safely at all.</p>
+<p><strong>Unchanged from A:</strong> the schema tests, the authorisation matrix, the
+integration suite against a live box, and the query-count assertion.</p>
+<p><strong>One addition, specific to this variant:</strong> a test that the panel still works.
+The 21-page sweep used in Appendix B — log in as admin, reseller and customer,
+render every significant page, assert no fatal and no deprecation — becomes a
+committed test. It is what caught every problem in the PHP 8.3 migration, and
+it is exactly the tripwire a codebase being refactored under itself needs.</p>
+<hr />
+<h2 id="11-delivery">11. Delivery</h2>
+<p>Replaces variant A §19. The phases are differently shaped: extraction is the
+spine, and the API follows it entity by entity rather than arriving all at once.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Phase</th>
+<th>Ends when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td><strong>PHP 8.3</strong></td>
+<td>The panel runs on 8.3 in the box and in staging: the dependency swaps, the attributes, the four code fixes, <code>PHP_FPM_BIN_PATH</code>, <code>Requirements.pm</code>. The 21-page sweep is a committed test and is green. Nothing GraphQL happens until this is done — building on 7.3 and migrating later would mean doing §7 twice.</td>
+</tr>
+<tr>
+<td>1</td>
+<td><strong>Seams</strong></td>
+<td>§5 (identity as a parameter) and §6 (error pages throw) land, with every existing call site untouched and the panel unchanged. Pure refactor, no new behaviour, fully covered by the page sweep.</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Walking skeleton</strong></td>
+<td><code>public/api.php</code> answers <code>{ viewer { username role } }</code> for a bearer token: front controller, nginx location, middleware stack, <code>api_token</code> table, token UI, SDL cache. Every integration unknown resolved on one field.</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Read model</strong></td>
+<td>The customer graph reads, with Anorm models and batch loading and the query-count test. Touches no page script — safe to run in parallel with phase 4.</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Extraction, entities 1–7</strong></td>
+<td><code>SqlDatabase</code>, <code>SqlUser</code>, <code>FtpUser</code>, <code>Mail</code>, <code>Subdomain</code>, <code>DomainAlias</code>, <code>DnsRecord</code>, <code>Domain</code>. One entity per pull request: service extracted, page re-pointed, mutation added, fidelity test green.</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Extraction, entities 8–10</strong></td>
+<td><code>Customer</code>, <code>HostingPlan</code>, <code>Reseller</code>. The reseller wizard and the 25-field <code>props</code> codec are here, which is why they are last.</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>Hardening</strong></td>
+<td>Rate limits, audit, complexity limits, the explorer, the client-facing API guide.</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>Release</strong></td>
+<td>i-MSCP release notes, upgrade path for the three tables, documentation.</td>
+</tr>
+</tbody>
+</table>
+<p>Phase 4 is the one that runs long, and it is also the one that can be stopped
+at any entity boundary with everything shipped so far still working. That is
+the property to protect.</p>
+<hr />
+<h2 id="12-risks">12. Risks</h2>
+<p>Variant A's risk #2 (reimplemented logic drifts) and risk #3 (the identity shim)
+are designed out. Its risk #1 (PHP 7.3 end of life) is resolved by phase 0.
+Risks #4 (<code>hosting_plans.props</code>) and #5 (the FTP home-directory check) carry
+over unchanged. Three are new or newly shaped:</p>
+<ol>
+<li><strong>The extraction breaks the panel.</strong> Refactoring ten pages that create system
+   users, mailboxes and databases is the real risk in this variant, and it is
+   larger than anything in variant A. Mitigations are §4.3's three layers, and
+   the ordering in §4.4 which puts the smallest and most self-contained entity
+   first so the pattern is proven before <code>subdomain_add.php</code> is touched.</li>
+<li><strong>Divergence becomes a one-way door.</strong> §2.1 argues the merge cost is already
+   paid; it does not argue the distribution cost is. If this should ever be
+   shippable to other i-MSCP operators, decide that before phase 4, not after.</li>
+<li><strong>The two-idiom read/write split</strong> (§7.3). Anorm on one side and
+   <code>exec_query()</code> on the other is defensible per side and awkward as a whole.
+   The cheapest reversal is to drop Anorm and hand-write the batch loaders;
+   the decision point is the start of phase 3.</li>
+</ol>
+<hr />
+<h2 id="13-open-questions">13. Open questions</h2>
+<p>Variant A's open questions 3 (scope granularity), 4 (reseller acting <em>as</em> a
+customer — now cheap to allow, because §5 removes the one-identity-per-request
+rule that forbade it), 5 (alias ordering), 6 (traffic history) and 7 (rate limit
+defaults) carry over. Its questions 1 (SDL vs code-first) and 2 (Anorm) are
+answered here, in §7.3.</p>
+<p>New, and in the order they need answering:</p>
+<ol>
+<li><strong>Is this ever to be distributed?</strong> If another i-MSCP operator should be able
+   to install this, variant A is correct and this document is not. §2.1. This
+   question gates everything else and should be settled first.</li>
+<li><strong>Anorm on the read side, or hand-written?</strong> §7.3. Two idioms in one
+   codebase, against a batch loader that already does what the GraphQL read
+   layer needs. Decide at the start of phase 3.</li>
+<li><strong>How far does the extraction go?</strong> §4.4 lists ten services covering the
+   entities the API needs. The same treatment would benefit pages the API does
+   not touch — protected areas, custom error pages, backups, the PHP editor.
+   Extract only what the API needs, or take the opportunity while the pattern is
+   fresh? The first is disciplined; the second leaves the codebase in one style
+   rather than two.</li>
+<li><strong>Does the panel UI get rebuilt on the API?</strong> Not proposed here and not
+   costed, but it becomes possible for the first time once §4 is done, and it is
+   the reason someone might argue for going further than question 3 suggests.
+   Worth an explicit "not now" rather than a silence.</li>
+</ol>
+<hr />
+<h2 id="appendix-b--what-was-measured-for-this-variant">Appendix B — what was measured for this variant</h2>
+<p>Everything below was measured in the <code>imscp_debian_trixie</code> box on 2026-09-04.
+Appendix A of variant A still applies for the PHP 7.3 measurements.</p>
+<table>
+<thead>
+<tr>
+<th>Claim</th>
+<th>Method</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The panel's own code is PHP 8.3-clean syntactically</td>
+<td><code>php8.3 -l</code>, one invocation per file, over <code>src include public plugins</code></td>
+<td>264 files, 0 failures</td>
+</tr>
+<tr>
+<td>The panel runs on 8.3 after a bounded set of fixes</td>
+<td>Built <code>/tmp/gui83</code>: dependency swaps, 25 <code>#[\ReturnTypeWillChange]</code>, 3 <code>#[\AllowDynamicProperties]</code>, <code>Serializable</code> → <code>__serialize</code>, 2 <code>(string)</code> casts, escaper and IDNA API changes. Served under <code>php8.3</code> with a real session; swept 21 pages as admin, reseller and customer</td>
+<td>20 of 21 render; 0 deprecations; the one failure is <code>src/SystemInfo.php:501</code> (<code>list()</code> off a short <code>preg_split</code>), an admin-only diagnostics page</td>
+</tr>
+<tr>
+<td><code>shardj/zf1-future</code> covers the panel's Zend surface</td>
+<td>22 component checks — Acl, Form, Navigation, Translate, Locale, Cache, Session, Validate, Filter, File_Transfer, Date, View, FlashMessenger, Json, Config, Registry, Uri — on 8.3, 8.4 and 8.5</td>
+<td>All pass on all three; zero deprecations from ZF1</td>
+</tr>
+<tr>
+<td>Both <code>#[...]</code> attribute fixes are 7.3-safe</td>
+<td><code>php7.3 -l</code> and <code>php8.3 -l</code> on all six touched files</td>
+<td>Clean on both — <code>#[...]</code> is an attribute on PHP 8 and a comment on PHP 7, so one source tree serves both</td>
+</tr>
+<tr>
+<td><strong>PHP 7.4 needs no changes at all</strong></td>
+<td>Unmodified <code>gui/</code> and unmodified 7.3-era <code>vendor/</code>, served under <code>php7.4</code>, same 21-page sweep</td>
+<td>21 of 21 render; 0 deprecations; 0 syntax failures in panel code or in ZF1, idna-convert, Slim or Flysystem</td>
+</tr>
+<tr>
+<td><code>webonyx/graphql-php</code> v15 and <code>lcobucci/jwt</code> v4 are available from 7.4</td>
+<td><code>composer update</code> with <code>platform.php = 7.4.33</code></td>
+<td>graphql-php v15.37.2, lcobucci/jwt 4.3.0</td>
+</tr>
+<tr>
+<td><code>simpod/graphql-utils</code> is <em>not</em> available with v15 on 7.4</td>
+<td>Same</td>
+<td>0.5.0–0.5.3 pin graphql-php <code>^14</code>; 0.5.4 requires PHP <code>^8.0</code>. On 7.4 you may have v15 or simpod, not both</td>
+</tr>
+<tr>
+<td>Anorm v3.1.1 runs unmodified from 7.4</td>
+<td><code>php7.4 -l</code> and <code>php8.3 -l</code>, one invocation per file</td>
+<td>31 files, 0 failures on both. The three typed-property files that fail on 7.3 are fine from 7.4</td>
+</tr>
+<tr>
+<td>Anorm has DataLoader-shaped batching</td>
+<td>Read <code>src/Relationship/BatchLoadingOrchestrator.php</code> and <code>BatchLoader/*</code></td>
+<td><code>loadRelationshipsForModels(array $models, array $relationshipSpecs)</code> takes field-selection specs of the form <code>['posts', 'company:name,address']</code> — the shape of a GraphQL <code>ResolveInfo</code></td>
+</tr>
+<tr>
+<td>Upstream i-MSCP is dormant; the fork is already substantial</td>
+<td><code>git remote -v</code>, <code>git log</code>, <code>git for-each-ref</code></td>
+<td><code>upstream</code> = <code>i-MSCP/imscp</code>, not fetched; 11,054 commits on <code>saygoweb/imscp</code> <code>main</code>; the last fortnight added the Trixie port, the Dovecot 2.4 port and three Courier fixes</td>
+</tr>
+</tbody>
+</table>
+<div class="colophon">
+  Not adopted. The design being built is
+  <a href="https://claude.ai/code/artifact/7ba25528-1dbe-4662-870f-32d264df79dc">variant A</a>.<br>
+  Measurements were taken inside the running imscp_debian_trixie box on
+  2026-09-04 &mdash; see Appendix B; they stand regardless of the decision.<br>
+  Source: <code>docs/SPECIFICATION-IN-CORE.md</code> in <code>saygoweb/imscp-graphql</code>.
+</div>
+</article></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/graphql.min.js"></script>
+<script>
+(function () {
+  if (window.hljs) {
+    document.querySelectorAll('pre code[class*="language-"]').forEach(function (el) {
+      try { hljs.highlightElement(el); } catch (e) {}
+    });
+  }
+  var links = {};
+  document.querySelectorAll('[data-nav]').forEach(function (a) {
+    (links[a.dataset.nav] = links[a.dataset.nav] || []).push(a);
+  });
+  var heads = document.querySelectorAll('.doc h2[id], .doc h3[id]');
+  if (!('IntersectionObserver' in window) || !heads.length) return;
+  var seen = new Set();
+  function paint() {
+    var first = null;
+    heads.forEach(function (h) { if (!first && seen.has(h.id)) first = h.id; });
+    Object.keys(links).forEach(function (k) {
+      links[k].forEach(function (a) { a.classList.toggle('current', k === first); });
+    });
+  }
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) { if (e.isIntersecting) seen.add(e.target.id); else seen.delete(e.target.id); });
+    paint();
+  }, { rootMargin: '0px 0px -70% 0px' });
+  heads.forEach(function (h) { io.observe(h); });
+})();
+</script>

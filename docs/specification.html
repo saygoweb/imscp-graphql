@@ -1,0 +1,2510 @@
+<title>SGW_GraphQL Specification</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* --------------------------------------------------------------------------
+   SGW_GraphQL specification
+   Palette: violet-biased neutrals around a single GraphQL magenta accent.
+   Type:    the IBM Plex superfamily - Sans for structure, Serif for prose,
+            Mono for schema and configuration. Plex was cut for technical
+            documentation, which is what this is.
+   -------------------------------------------------------------------------- */
+:root {
+  --ground:      #FAF8FB;
+  --surface:     #FFFFFF;
+  --surface-alt: #F3EFF6;
+  --ink:         #1A1520;
+  --ink-soft:    #453D52;
+  --muted:       #6B6478;
+  --rule:        #E4DEEB;
+  --rule-strong: #CFC5DA;
+  --accent:      #A8006A;
+  --accent-soft: #F7E9F2;
+  --warn:        #8A5100;
+  --warn-soft:   #FBF0E0;
+  --ok:          #1E6A4B;
+
+  --code-key:    #A8006A;
+  --code-str:    #1E6A4B;
+  --code-com:    #8B839A;
+  --code-num:    #8A5100;
+  --code-type:   #4A3A8F;
+
+  --measure: 42rem;
+  --wide:    52rem;
+
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+:root:not([data-theme="light"]) {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground:      #141017;
+    --surface:     #1B1622;
+    --surface-alt: #221C2C;
+    --ink:         #EDE7F2;
+    --ink-soft:    #C9C0D4;
+    --muted:       #968CA5;
+    --rule:        #2E2738;
+    --rule-strong: #453C52;
+    --accent:      #FF7CC6;
+    --accent-soft: #2C1626;
+    --warn:        #E8A860;
+    --warn-soft:   #2B2016;
+    --ok:          #6FCFA0;
+
+    --code-key:    #FF7CC6;
+    --code-str:    #8ED8B0;
+    --code-com:    #7E7590;
+    --code-num:    #E8A860;
+    --code-type:   #AFA0F0;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground:      #141017;
+  --surface:     #1B1622;
+  --surface-alt: #221C2C;
+  --ink:         #EDE7F2;
+  --ink-soft:    #C9C0D4;
+  --muted:       #968CA5;
+  --rule:        #2E2738;
+  --rule-strong: #453C52;
+  --accent:      #FF7CC6;
+  --accent-soft: #2C1626;
+  --warn:        #E8A860;
+  --warn-soft:   #2B2016;
+  --ok:          #6FCFA0;
+
+  --code-key:    #FF7CC6;
+  --code-str:    #8ED8B0;
+  --code-com:    #7E7590;
+  --code-num:    #E8A860;
+  --code-type:   #AFA0F0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 16.5px;
+  line-height: 1.68;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: var(--accent-soft); color: var(--ink); }
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px;
+}
+
+/* ---------------------------------------------------------------- masthead */
+
+.masthead {
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+.masthead-inner {
+  max-width: 70rem;
+  margin: 0 auto;
+  padding: 3.25rem 1.75rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.masthead h1 {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: clamp(2.1rem, 5vw, 3.1rem);
+  line-height: 1.06;
+  letter-spacing: -0.022em;
+  margin: 0;
+  text-wrap: balance;
+}
+.masthead h1 .tld { color: var(--accent); }
+.standfirst {
+  font-size: 1.12rem;
+  color: var(--ink-soft);
+  max-width: 38rem;
+  margin: 0;
+}
+.stamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--muted);
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--rule);
+}
+.stamp b { color: var(--ink-soft); font-weight: 500; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--rule-strong);
+  border-radius: 100px;
+  padding: 0.2rem 0.7rem;
+}
+.chip::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.page {
+  max-width: 70rem;
+  margin: 0 auto;
+  padding: 0 1.75rem 6rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2.5rem;
+}
+@media (min-width: 62rem) {
+  .page {
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: 3.5rem;
+  }
+}
+
+/* -------------------------------------------------------------------- index */
+
+.index-mobile { display: block; margin-top: 2rem; }
+.index-mobile > summary {
+  cursor: pointer;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rule);
+  list-style: none;
+}
+.index-mobile > summary::after { content: " ▾"; }
+.index-mobile[open] > summary::after { content: " ▴"; }
+.index-desktop { display: none; }
+@media (min-width: 62rem) {
+  .index-mobile { display: none; }
+  .index-desktop {
+    display: block;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding: 2.75rem 0 3rem;
+    /* the scrollbar sits off the text */
+    margin-right: -0.75rem;
+    padding-right: 0.75rem;
+  }
+}
+.index h2 {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.9rem;
+}
+.index ol { list-style: none; margin: 0; padding: 0; }
+.index li { margin: 0; }
+.index a {
+  display: grid;
+  grid-template-columns: 1.9rem minmax(0, 1fr);
+  gap: 0.35rem;
+  font-family: var(--sans);
+  font-size: 0.855rem;
+  line-height: 1.35;
+  color: var(--ink-soft);
+  text-decoration: none;
+  padding: 0.28rem 0.5rem 0.28rem 0;
+  border-left: 2px solid transparent;
+  padding-left: 0.6rem;
+  transition: color .12s, border-color .12s;
+}
+.index a .n {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.index a:hover { color: var(--accent); }
+.index a:hover .n { color: var(--accent); }
+.index .sub a {
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding-top: 0.16rem;
+  padding-bottom: 0.16rem;
+}
+.index a.current {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+.index a.current .n { color: var(--accent); }
+.index .grp { margin-top: 0.15rem; }
+.index .sub { margin-bottom: 0.35rem; }
+
+/* ------------------------------------------------------------------ article */
+
+.doc { padding-top: 2.5rem; min-width: 0; }
+
+.startpanel {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  padding: 1.15rem 1.35rem;
+  margin-bottom: 3rem;
+  max-width: var(--measure);
+}
+.startpanel p {
+  margin: 0 0 0.7rem;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+.startpanel ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; }
+.startpanel li { font-family: var(--sans); font-size: 0.9rem; }
+.startpanel .n { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); margin-right: 0.5rem; }
+
+.doc h2 {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 1.6rem;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  margin: 4rem 0 1.25rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule-strong);
+  max-width: var(--measure);
+  text-wrap: balance;
+  scroll-margin-top: 1rem;
+}
+.doc > h2:first-child { margin-top: 0; border-top: none; padding-top: 0; }
+.doc h3 {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 1.09rem;
+  line-height: 1.3;
+  letter-spacing: -0.004em;
+  color: var(--ink);
+  margin: 2.75rem 0 0.85rem;
+  max-width: var(--measure);
+  text-wrap: balance;
+  scroll-margin-top: 1rem;
+}
+.doc p, .doc ul, .doc ol, .doc blockquote {
+  max-width: var(--measure);
+  margin: 0 0 1.15rem;
+}
+.doc li { margin-bottom: 0.4rem; }
+.doc li > p { margin-bottom: 0.5rem; }
+.doc ul, .doc ol { padding-left: 1.35rem; }
+.doc ul { list-style: none; padding-left: 1.15rem; }
+.doc ul > li { position: relative; }
+.doc ul > li::before {
+  content: "";
+  position: absolute;
+  left: -0.95rem;
+  top: 0.72em;
+  width: 5px; height: 1px;
+  background: var(--rule-strong);
+}
+.doc ol > li::marker { font-family: var(--mono); font-size: 0.85em; color: var(--muted); }
+.doc strong { font-weight: 600; color: var(--ink); }
+.doc em { font-style: italic; }
+.doc hr { border: none; border-top: 1px solid var(--rule); margin: 3rem 0; max-width: var(--measure); }
+
+/* inline code: set on the surface so it reads as an object, not a colour */
+.doc :not(pre) > code {
+  font-family: var(--mono);
+  font-size: 0.845em;
+  background: var(--surface-alt);
+  border-radius: 3px;
+  padding: 0.1em 0.34em;
+  color: var(--ink);
+  word-break: break-word;
+}
+.doc a code { color: inherit; }
+
+/* --------------------------------------------------- code and table blocks */
+
+/* These break out to the right of the reading measure on wide screens: the
+   schema is the point of the document and deserves the room. */
+.doc pre, .doc table { max-width: var(--measure); }
+@media (min-width: 78rem) {
+  .doc pre, .doc table { max-width: var(--wide); }
+}
+
+.doc pre {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1rem 1.15rem;
+  overflow-x: auto;
+  margin: 0 0 1.5rem;
+  line-height: 1.55;
+}
+.doc pre code {
+  font-family: var(--mono);
+  font-size: 0.795rem;
+  color: var(--ink-soft);
+  background: none;
+  padding: 0;
+  white-space: pre;
+}
+
+.doc table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 1.75rem;
+  font-family: var(--sans);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  display: block;
+  overflow-x: auto;
+}
+.doc thead th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--rule-strong);
+  padding: 0 0.9rem 0.5rem 0;
+  white-space: nowrap;
+}
+.doc tbody td {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.6rem 0.9rem 0.6rem 0;
+  vertical-align: top;
+  color: var(--ink-soft);
+}
+.doc tbody tr:last-child td { border-bottom: none; }
+.doc td:first-child { color: var(--ink); font-weight: 500; }
+.doc td code, .doc th code { font-size: 0.82em; }
+
+/* syntax colours, driven by the same tokens as everything else */
+.hljs-keyword, .hljs-literal, .hljs-selector-tag { color: var(--code-key); }
+.hljs-string, .hljs-meta .hljs-string { color: var(--code-str); }
+.hljs-comment, .hljs-quote { color: var(--code-com); font-style: italic; }
+.hljs-number, .hljs-symbol { color: var(--code-num); }
+.hljs-type, .hljs-title, .hljs-title.class_, .hljs-class .hljs-title,
+.hljs-built_in, .hljs-name { color: var(--code-type); }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-params { color: var(--ink); }
+.hljs-punctuation, .hljs-operator { color: var(--muted); }
+
+/* ---------------------------------------------------------------- footer */
+
+.colophon {
+  max-width: var(--measure);
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule-strong);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+html { scroll-behavior: smooth; }
+</style>
+<style>
+.crosslink { font-family: var(--sans); font-size: 0.86rem; color: var(--muted);
+  border-top: 1px solid var(--rule); padding-top: 0.8rem; margin-top: 0.3rem; }
+.crosslink a { font-weight: 600; }
+</style>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">i-MSCP plugin &middot; design specification</div>
+    <h1>SGW_<span class="tld">GraphQL</span></h1>
+    <p class="standfirst">A GraphQL API for i-MSCP. A customer, reseller or administrator
+      authenticates as themselves and performs, over HTTP, the operations the panel would
+      let them perform in its web interface &mdash; and only those.</p>
+    <div class="stamps">
+      <span class="chip">Accepted &mdash; building this</span>
+      <span class="stamp">Read against i&#8209;MSCP <b>7d8788400</b></span>
+      <span class="stamp">Measured on <b>imscp_debian_trixie</b></span>
+      <span class="stamp">Targets <b>PHP 7.4</b></span>
+      <span class="stamp"><b>21</b> sections</span>
+    </div>
+    <div class="crosslink">
+      Variant B &mdash; the same API built into the i&#8209;MSCP codebase rather than as a
+      plugin &mdash; is <a href="https://claude.ai/code/artifact/67c172f6-9833-4228-9a49-d817c2c5a1c0">a separate document</a>.
+    </div>
+  </div>
+</header>
+<details class="index index-mobile"><summary>Contents</summary><nav class="index-inner"><h2>Contents</h2><ol><li class="grp"><a href="#1-scope" data-nav="1-scope"><span class="n">1</span><span>Scope</span></a><ol class="sub"><li><a href="#11-in-scope" data-nav="11-in-scope"><span class="n">1.1</span><span>In scope</span></a></li><li><a href="#12-out-of-scope" data-nav="12-out-of-scope"><span class="n">1.2</span><span>Out of scope</span></a></li></ol></li><li class="grp"><a href="#2-the-ground-this-stands-on" data-nav="2-the-ground-this-stands-on"><span class="n">2</span><span>The ground this stands on</span></a><ol class="sub"><li><a href="#21-provisioning-is-asynchronous-and-the-panel-is-only-half-of-it" data-nav="21-provisioning-is-asynchronous-and-the-panel-is-only-half-of-it"><span class="n">2.1</span><span>Provisioning is asynchronous, and the panel is only half of it</span></a></li><li><a href="#22-ownership-is-a-chain-and-every-authorisation-question-is-a-walk-up-it" data-nav="22-ownership-is-a-chain-and-every-authorisation-question-is-a-walk-up-it"><span class="n">2.2</span><span>Ownership is a chain, and every authorisation question is a walk up it</span></a></li><li><a href="#23-a-customers-rights-are-three-separate-things" data-nav="23-a-customers-rights-are-three-separate-things"><span class="n">2.3</span><span>A customer&#x27;s rights are three separate things</span></a></li><li><a href="#24-the-business-logic-lives-in-the-page-scripts-and-is-not-callable" data-nav="24-the-business-logic-lives-in-the-page-scripts-and-is-not-callable"><span class="n">2.4</span><span>The business logic lives in the page scripts, and is not callable</span></a></li><li><a href="#25-the-frontend-runs-on-php-73-today-and-moves-to-74-first" data-nav="25-the-frontend-runs-on-php-73-today-and-moves-to-74-first"><span class="n">2.5</span><span>The frontEnd runs on PHP 7.3 today, and moves to 7.4 first</span></a></li><li><a href="#26-any-url-that-is-not-a-file-already-reaches-the-plugin-router" data-nav="26-any-url-that-is-not-a-file-already-reaches-the-plugin-router"><span class="n">2.6</span><span>Any URL that is not a file already reaches the plugin router</span></a></li></ol></li><li class="grp"><a href="#3-decisions" data-nav="3-decisions"><span class="n">3</span><span>Decisions</span></a><ol class="sub"><li><a href="#31-the-api-runs-inside-the-panel-as-a-plugin" data-nav="31-the-api-runs-inside-the-panel-as-a-plugin"><span class="n">3.1</span><span>The API runs inside the panel, as a plugin</span></a></li><li><a href="#32-business-logic-is-reimplemented-in-a-service-layer-not-scraped-from-the-pages" data-nav="32-business-logic-is-reimplemented-in-a-service-layer-not-scraped-from-the-pages"><span class="n">3.2</span><span>Business logic is reimplemented in a service layer, not scraped from the pages</span></a></li><li><a href="#33-dependencies-webonyxgraphql-php-v15-and-anorm-and-nothing-else" data-nav="33-dependencies-webonyxgraphql-php-v15-and-anorm-and-nothing-else"><span class="n">3.3</span><span>Dependencies: webonyx/graphql-php v15 and Anorm, and nothing else</span></a></li><li><a href="#34-schema-first-sdl-not-code-first" data-nav="34-schema-first-sdl-not-code-first"><span class="n">3.4</span><span>Schema-first (SDL), not code-first</span></a></li><li><a href="#35-identifiers-are-opaque-and-globally-unique" data-nav="35-identifiers-are-opaque-and-globally-unique"><span class="n">3.5</span><span>Identifiers are opaque and globally unique</span></a></li><li><a href="#36-errors-are-graphql-errors-with-structured-extensions" data-nav="36-errors-are-graphql-errors-with-structured-extensions"><span class="n">3.6</span><span>Errors are GraphQL errors with structured extensions</span></a></li></ol></li><li class="grp"><a href="#4-transport" data-nav="4-transport"><span class="n">4</span><span>Transport</span></a><ol class="sub"></ol></li><li class="grp"><a href="#5-authentication" data-nav="5-authentication"><span class="n">5</span><span>Authentication</span></a><ol class="sub"><li><a href="#51-bearer-tokens-primary" data-nav="51-bearer-tokens-primary"><span class="n">5.1</span><span>Bearer tokens (primary)</span></a></li><li><a href="#52-panel-session-secondary" data-nav="52-panel-session-secondary"><span class="n">5.2</span><span>Panel session (secondary)</span></a></li><li><a href="#53-obtaining-a-token-from-credentials" data-nav="53-obtaining-a-token-from-credentials"><span class="n">5.3</span><span>Obtaining a token from credentials</span></a></li><li><a href="#54-what-is-deliberately-absent" data-nav="54-what-is-deliberately-absent"><span class="n">5.4</span><span>What is deliberately absent</span></a></li></ol></li><li class="grp"><a href="#6-authorisation" data-nav="6-authorisation"><span class="n">6</span><span>Authorisation</span></a><ol class="sub"><li><a href="#61-roles" data-nav="61-roles"><span class="n">6.1</span><span>Roles</span></a></li><li><a href="#62-whether-the-account-may-use-the-api-at-all" data-nav="62-whether-the-account-may-use-the-api-at-all"><span class="n">6.2</span><span>Whether the account may use the API at all</span></a></li><li><a href="#63-ownership" data-nav="63-ownership"><span class="n">6.3</span><span>Ownership</span></a></li><li><a href="#64-the-identity-shim" data-nav="64-the-identity-shim"><span class="n">6.4</span><span>The identity shim</span></a></li><li><a href="#65-the-showerrorpage-hazard" data-nav="65-the-showerrorpage-hazard"><span class="n">6.5</span><span>The showErrorPage() hazard</span></a></li></ol></li><li class="grp"><a href="#7-the-schema" data-nav="7-the-schema"><span class="n">7</span><span>The schema</span></a><ol class="sub"><li><a href="#71-scalars-and-provisioning" data-nav="71-scalars-and-provisioning"><span class="n">7.1</span><span>Scalars and provisioning</span></a></li><li><a href="#72-identity" data-nav="72-identity"><span class="n">7.2</span><span>Identity</span></a></li><li><a href="#73-virtual-hosts" data-nav="73-virtual-hosts"><span class="n">7.3</span><span>Virtual hosts</span></a></li><li><a href="#74-quotas" data-nav="74-quotas"><span class="n">7.4</span><span>Quotas</span></a></li><li><a href="#75-customer" data-nav="75-customer"><span class="n">7.5</span><span>Customer</span></a></li><li><a href="#76-mail" data-nav="76-mail"><span class="n">7.6</span><span>Mail</span></a></li><li><a href="#77-ftp-and-sql" data-nav="77-ftp-and-sql"><span class="n">7.7</span><span>FTP and SQL</span></a></li><li><a href="#78-dns-ip-addresses-hosting-plans-resellers" data-nav="78-dns-ip-addresses-hosting-plans-resellers"><span class="n">7.8</span><span>DNS, IP addresses, hosting plans, resellers</span></a></li><li><a href="#79-pagination" data-nav="79-pagination"><span class="n">7.9</span><span>Pagination</span></a></li><li><a href="#710-query" data-nav="710-query"><span class="n">7.10</span><span>Query</span></a></li><li><a href="#711-mutations" data-nav="711-mutations"><span class="n">7.11</span><span>Mutations</span></a></li></ol></li><li class="grp"><a href="#8-mutation-semantics" data-nav="8-mutation-semantics"><span class="n">8</span><span>Mutation semantics</span></a><ol class="sub"><li><a href="#81-the-shape-of-every-write" data-nav="81-the-shape-of-every-write"><span class="n">8.1</span><span>The shape of every write</span></a></li><li><a href="#82-mutations-return-intent-not-completion" data-nav="82-mutations-return-intent-not-completion"><span class="n">8.2</span><span>Mutations return intent, not completion</span></a></li><li><a href="#83-an-unsettled-object-may-not-be-changed" data-nav="83-an-unsettled-object-may-not-be-changed"><span class="n">8.3</span><span>An unsettled object may not be changed</span></a></li><li><a href="#84-idempotency" data-nav="84-idempotency"><span class="n">8.4</span><span>Idempotency</span></a></li><li><a href="#85-multiple-mutations-in-one-document" data-nav="85-multiple-mutations-in-one-document"><span class="n">8.5</span><span>Multiple mutations in one document</span></a></li></ol></li><li class="grp"><a href="#9-errors" data-nav="9-errors"><span class="n">9</span><span>Errors</span></a><ol class="sub"></ol></li><li class="grp"><a href="#10-performance-and-abuse-limits" data-nav="10-performance-and-abuse-limits"><span class="n">10</span><span>Performance and abuse limits</span></a><ol class="sub"><li><a href="#101-batching" data-nav="101-batching"><span class="n">10.1</span><span>Batching</span></a></li><li><a href="#102-query-cost" data-nav="102-query-cost"><span class="n">10.2</span><span>Query cost</span></a></li><li><a href="#103-rate-limits" data-nav="103-rate-limits"><span class="n">10.3</span><span>Rate limits</span></a></li><li><a href="#104-cost-of-the-request-itself" data-nav="104-cost-of-the-request-itself"><span class="n">10.4</span><span>Cost of the request itself</span></a></li></ol></li><li class="grp"><a href="#11-observability" data-nav="11-observability"><span class="n">11</span><span>Observability</span></a><ol class="sub"></ol></li><li class="grp"><a href="#12-security" data-nav="12-security"><span class="n">12</span><span>Security</span></a><ol class="sub"></ol></li><li class="grp"><a href="#13-plugin-layout" data-nav="13-plugin-layout"><span class="n">13</span><span>Plugin layout</span></a><ol class="sub"></ol></li><li class="grp"><a href="#14-configuration" data-nav="14-configuration"><span class="n">14</span><span>Configuration</span></a><ol class="sub"></ol></li><li class="grp"><a href="#15-database" data-nav="15-database"><span class="n">15</span><span>Database</span></a><ol class="sub"></ol></li><li class="grp"><a href="#16-panel-pages" data-nav="16-panel-pages"><span class="n">16</span><span>Panel pages</span></a><ol class="sub"></ol></li><li class="grp"><a href="#17-testing" data-nav="17-testing"><span class="n">17</span><span>Testing</span></a><ol class="sub"></ol></li><li class="grp"><a href="#18-compatibility" data-nav="18-compatibility"><span class="n">18</span><span>Compatibility</span></a><ol class="sub"></ol></li><li class="grp"><a href="#19-delivery" data-nav="19-delivery"><span class="n">19</span><span>Delivery</span></a><ol class="sub"></ol></li><li class="grp"><a href="#20-risks-and-open-questions" data-nav="20-risks-and-open-questions"><span class="n">20</span><span>Risks and open questions</span></a><ol class="sub"></ol></li><li class="grp"><a href="#21-the-core-improvement-backlog" data-nav="21-the-core-improvement-backlog"><span class="n">21</span><span>The core-improvement backlog</span></a><ol class="sub"><li><a href="#211-the-list" data-nav="211-the-list"><span class="n">21.1</span><span>The list</span></a></li><li><a href="#212-keeping-the-debt-visible" data-nav="212-keeping-the-debt-visible"><span class="n">21.2</span><span>Keeping the debt visible</span></a></li><li><a href="#213-what-this-is-not" data-nav="213-what-this-is-not"><span class="n">21.3</span><span>What this is not</span></a></li></ol></li><li class="grp"><a href="#appendix-a--what-was-measured" data-nav="appendix-a--what-was-measured"><span class="n">&nbsp;</span><span>Appendix A — what was measured</span></a><ol class="sub"></ol></li></ol></nav></details><div class="page"><aside class="index index-desktop"><nav class="index-inner"><h2>Contents</h2><ol><li class="grp"><a href="#1-scope" data-nav="1-scope"><span class="n">1</span><span>Scope</span></a><ol class="sub"><li><a href="#11-in-scope" data-nav="11-in-scope"><span class="n">1.1</span><span>In scope</span></a></li><li><a href="#12-out-of-scope" data-nav="12-out-of-scope"><span class="n">1.2</span><span>Out of scope</span></a></li></ol></li><li class="grp"><a href="#2-the-ground-this-stands-on" data-nav="2-the-ground-this-stands-on"><span class="n">2</span><span>The ground this stands on</span></a><ol class="sub"><li><a href="#21-provisioning-is-asynchronous-and-the-panel-is-only-half-of-it" data-nav="21-provisioning-is-asynchronous-and-the-panel-is-only-half-of-it"><span class="n">2.1</span><span>Provisioning is asynchronous, and the panel is only half of it</span></a></li><li><a href="#22-ownership-is-a-chain-and-every-authorisation-question-is-a-walk-up-it" data-nav="22-ownership-is-a-chain-and-every-authorisation-question-is-a-walk-up-it"><span class="n">2.2</span><span>Ownership is a chain, and every authorisation question is a walk up it</span></a></li><li><a href="#23-a-customers-rights-are-three-separate-things" data-nav="23-a-customers-rights-are-three-separate-things"><span class="n">2.3</span><span>A customer&#x27;s rights are three separate things</span></a></li><li><a href="#24-the-business-logic-lives-in-the-page-scripts-and-is-not-callable" data-nav="24-the-business-logic-lives-in-the-page-scripts-and-is-not-callable"><span class="n">2.4</span><span>The business logic lives in the page scripts, and is not callable</span></a></li><li><a href="#25-the-frontend-runs-on-php-73-today-and-moves-to-74-first" data-nav="25-the-frontend-runs-on-php-73-today-and-moves-to-74-first"><span class="n">2.5</span><span>The frontEnd runs on PHP 7.3 today, and moves to 7.4 first</span></a></li><li><a href="#26-any-url-that-is-not-a-file-already-reaches-the-plugin-router" data-nav="26-any-url-that-is-not-a-file-already-reaches-the-plugin-router"><span class="n">2.6</span><span>Any URL that is not a file already reaches the plugin router</span></a></li></ol></li><li class="grp"><a href="#3-decisions" data-nav="3-decisions"><span class="n">3</span><span>Decisions</span></a><ol class="sub"><li><a href="#31-the-api-runs-inside-the-panel-as-a-plugin" data-nav="31-the-api-runs-inside-the-panel-as-a-plugin"><span class="n">3.1</span><span>The API runs inside the panel, as a plugin</span></a></li><li><a href="#32-business-logic-is-reimplemented-in-a-service-layer-not-scraped-from-the-pages" data-nav="32-business-logic-is-reimplemented-in-a-service-layer-not-scraped-from-the-pages"><span class="n">3.2</span><span>Business logic is reimplemented in a service layer, not scraped from the pages</span></a></li><li><a href="#33-dependencies-webonyxgraphql-php-v15-and-anorm-and-nothing-else" data-nav="33-dependencies-webonyxgraphql-php-v15-and-anorm-and-nothing-else"><span class="n">3.3</span><span>Dependencies: webonyx/graphql-php v15 and Anorm, and nothing else</span></a></li><li><a href="#34-schema-first-sdl-not-code-first" data-nav="34-schema-first-sdl-not-code-first"><span class="n">3.4</span><span>Schema-first (SDL), not code-first</span></a></li><li><a href="#35-identifiers-are-opaque-and-globally-unique" data-nav="35-identifiers-are-opaque-and-globally-unique"><span class="n">3.5</span><span>Identifiers are opaque and globally unique</span></a></li><li><a href="#36-errors-are-graphql-errors-with-structured-extensions" data-nav="36-errors-are-graphql-errors-with-structured-extensions"><span class="n">3.6</span><span>Errors are GraphQL errors with structured extensions</span></a></li></ol></li><li class="grp"><a href="#4-transport" data-nav="4-transport"><span class="n">4</span><span>Transport</span></a><ol class="sub"></ol></li><li class="grp"><a href="#5-authentication" data-nav="5-authentication"><span class="n">5</span><span>Authentication</span></a><ol class="sub"><li><a href="#51-bearer-tokens-primary" data-nav="51-bearer-tokens-primary"><span class="n">5.1</span><span>Bearer tokens (primary)</span></a></li><li><a href="#52-panel-session-secondary" data-nav="52-panel-session-secondary"><span class="n">5.2</span><span>Panel session (secondary)</span></a></li><li><a href="#53-obtaining-a-token-from-credentials" data-nav="53-obtaining-a-token-from-credentials"><span class="n">5.3</span><span>Obtaining a token from credentials</span></a></li><li><a href="#54-what-is-deliberately-absent" data-nav="54-what-is-deliberately-absent"><span class="n">5.4</span><span>What is deliberately absent</span></a></li></ol></li><li class="grp"><a href="#6-authorisation" data-nav="6-authorisation"><span class="n">6</span><span>Authorisation</span></a><ol class="sub"><li><a href="#61-roles" data-nav="61-roles"><span class="n">6.1</span><span>Roles</span></a></li><li><a href="#62-whether-the-account-may-use-the-api-at-all" data-nav="62-whether-the-account-may-use-the-api-at-all"><span class="n">6.2</span><span>Whether the account may use the API at all</span></a></li><li><a href="#63-ownership" data-nav="63-ownership"><span class="n">6.3</span><span>Ownership</span></a></li><li><a href="#64-the-identity-shim" data-nav="64-the-identity-shim"><span class="n">6.4</span><span>The identity shim</span></a></li><li><a href="#65-the-showerrorpage-hazard" data-nav="65-the-showerrorpage-hazard"><span class="n">6.5</span><span>The showErrorPage() hazard</span></a></li></ol></li><li class="grp"><a href="#7-the-schema" data-nav="7-the-schema"><span class="n">7</span><span>The schema</span></a><ol class="sub"><li><a href="#71-scalars-and-provisioning" data-nav="71-scalars-and-provisioning"><span class="n">7.1</span><span>Scalars and provisioning</span></a></li><li><a href="#72-identity" data-nav="72-identity"><span class="n">7.2</span><span>Identity</span></a></li><li><a href="#73-virtual-hosts" data-nav="73-virtual-hosts"><span class="n">7.3</span><span>Virtual hosts</span></a></li><li><a href="#74-quotas" data-nav="74-quotas"><span class="n">7.4</span><span>Quotas</span></a></li><li><a href="#75-customer" data-nav="75-customer"><span class="n">7.5</span><span>Customer</span></a></li><li><a href="#76-mail" data-nav="76-mail"><span class="n">7.6</span><span>Mail</span></a></li><li><a href="#77-ftp-and-sql" data-nav="77-ftp-and-sql"><span class="n">7.7</span><span>FTP and SQL</span></a></li><li><a href="#78-dns-ip-addresses-hosting-plans-resellers" data-nav="78-dns-ip-addresses-hosting-plans-resellers"><span class="n">7.8</span><span>DNS, IP addresses, hosting plans, resellers</span></a></li><li><a href="#79-pagination" data-nav="79-pagination"><span class="n">7.9</span><span>Pagination</span></a></li><li><a href="#710-query" data-nav="710-query"><span class="n">7.10</span><span>Query</span></a></li><li><a href="#711-mutations" data-nav="711-mutations"><span class="n">7.11</span><span>Mutations</span></a></li></ol></li><li class="grp"><a href="#8-mutation-semantics" data-nav="8-mutation-semantics"><span class="n">8</span><span>Mutation semantics</span></a><ol class="sub"><li><a href="#81-the-shape-of-every-write" data-nav="81-the-shape-of-every-write"><span class="n">8.1</span><span>The shape of every write</span></a></li><li><a href="#82-mutations-return-intent-not-completion" data-nav="82-mutations-return-intent-not-completion"><span class="n">8.2</span><span>Mutations return intent, not completion</span></a></li><li><a href="#83-an-unsettled-object-may-not-be-changed" data-nav="83-an-unsettled-object-may-not-be-changed"><span class="n">8.3</span><span>An unsettled object may not be changed</span></a></li><li><a href="#84-idempotency" data-nav="84-idempotency"><span class="n">8.4</span><span>Idempotency</span></a></li><li><a href="#85-multiple-mutations-in-one-document" data-nav="85-multiple-mutations-in-one-document"><span class="n">8.5</span><span>Multiple mutations in one document</span></a></li></ol></li><li class="grp"><a href="#9-errors" data-nav="9-errors"><span class="n">9</span><span>Errors</span></a><ol class="sub"></ol></li><li class="grp"><a href="#10-performance-and-abuse-limits" data-nav="10-performance-and-abuse-limits"><span class="n">10</span><span>Performance and abuse limits</span></a><ol class="sub"><li><a href="#101-batching" data-nav="101-batching"><span class="n">10.1</span><span>Batching</span></a></li><li><a href="#102-query-cost" data-nav="102-query-cost"><span class="n">10.2</span><span>Query cost</span></a></li><li><a href="#103-rate-limits" data-nav="103-rate-limits"><span class="n">10.3</span><span>Rate limits</span></a></li><li><a href="#104-cost-of-the-request-itself" data-nav="104-cost-of-the-request-itself"><span class="n">10.4</span><span>Cost of the request itself</span></a></li></ol></li><li class="grp"><a href="#11-observability" data-nav="11-observability"><span class="n">11</span><span>Observability</span></a><ol class="sub"></ol></li><li class="grp"><a href="#12-security" data-nav="12-security"><span class="n">12</span><span>Security</span></a><ol class="sub"></ol></li><li class="grp"><a href="#13-plugin-layout" data-nav="13-plugin-layout"><span class="n">13</span><span>Plugin layout</span></a><ol class="sub"></ol></li><li class="grp"><a href="#14-configuration" data-nav="14-configuration"><span class="n">14</span><span>Configuration</span></a><ol class="sub"></ol></li><li class="grp"><a href="#15-database" data-nav="15-database"><span class="n">15</span><span>Database</span></a><ol class="sub"></ol></li><li class="grp"><a href="#16-panel-pages" data-nav="16-panel-pages"><span class="n">16</span><span>Panel pages</span></a><ol class="sub"></ol></li><li class="grp"><a href="#17-testing" data-nav="17-testing"><span class="n">17</span><span>Testing</span></a><ol class="sub"></ol></li><li class="grp"><a href="#18-compatibility" data-nav="18-compatibility"><span class="n">18</span><span>Compatibility</span></a><ol class="sub"></ol></li><li class="grp"><a href="#19-delivery" data-nav="19-delivery"><span class="n">19</span><span>Delivery</span></a><ol class="sub"></ol></li><li class="grp"><a href="#20-risks-and-open-questions" data-nav="20-risks-and-open-questions"><span class="n">20</span><span>Risks and open questions</span></a><ol class="sub"></ol></li><li class="grp"><a href="#21-the-core-improvement-backlog" data-nav="21-the-core-improvement-backlog"><span class="n">21</span><span>The core-improvement backlog</span></a><ol class="sub"><li><a href="#211-the-list" data-nav="211-the-list"><span class="n">21.1</span><span>The list</span></a></li><li><a href="#212-keeping-the-debt-visible" data-nav="212-keeping-the-debt-visible"><span class="n">21.2</span><span>Keeping the debt visible</span></a></li><li><a href="#213-what-this-is-not" data-nav="213-what-this-is-not"><span class="n">21.3</span><span>What this is not</span></a></li></ol></li><li class="grp"><a href="#appendix-a--what-was-measured" data-nav="appendix-a--what-was-measured"><span class="n">&nbsp;</span><span>Appendix A — what was measured</span></a><ol class="sub"></ol></li></ol></nav></aside><article class="doc">
+<div class="startpanel">
+  <p>Reviewed against the in-core alternative and adopted. The duplication a plugin
+     forces is treated as a backlog against i&#8209;MSCP rather than a permanent cost.</p>
+  <ul>
+    <li><span class="n">&sect;21</span><a href="#21-the-core-improvement-backlog">The core-improvement backlog</a> &mdash; six changes to <code>saygoweb/imscp</code>, each worth making on its own merits</li>
+    <li><span class="n">&sect;3</span><a href="#3-decisions">Decisions</a> &mdash; each one names what was rejected, and why</li>
+    <li><span class="n">&sect;7</span><a href="#7-the-schema">The schema</a> &mdash; the SDL as it stands</li>
+  </ul>
+</div>
+<h2 id="1-scope">1. Scope</h2>
+<h3 id="11-in-scope">1.1 In scope</h3>
+<table>
+<thead>
+<tr>
+<th>Actor</th>
+<th>May create, update and delete</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Customer</td>
+<td>Subdomains, alias subdomains, domain aliases (subject to the ordering rules), mail accounts, mail catch-alls, mail autoresponders, FTP users, SQL databases, SQL users, custom DNS records; and may edit their own main domain's forwarding and document root</td>
+</tr>
+<tr>
+<td>Reseller</td>
+<td>Customers (which is to say: accounts, their main domain, their limits and their features), hosting plans, and the approval of alias orders; plus everything a customer may do, on their own customers</td>
+</tr>
+<tr>
+<td>Administrator</td>
+<td>Resellers; plus everything a reseller may do</td>
+</tr>
+</tbody>
+</table>
+<p>Reads are available for every entity that is writable, plus the account graph,
+quotas, disk and traffic usage, server IP addresses, and the provisioning state
+of anything in flight.</p>
+<h3 id="12-out-of-scope">1.2 Out of scope</h3>
+<p>Deliberately, and for the first major version:</p>
+<ul>
+<li>Administrator-level system operations — server settings, service
+  configuration, IP address management, plugin management, the update
+  mechanism, database maintenance. The user asked for none of it, and each is a
+  way to break a server from a stolen token.</li>
+<li>Creating or deleting administrator accounts.</li>
+<li>The ticket/support system, the software installer (APS), backups,
+  protected areas (<code>.htaccess</code>), custom error pages, and the PHP editor's
+  per-directive settings. These are candidates for a later version;
+  §18 says how they would be added without breaking clients.</li>
+<li>Subscriptions. There is no long-lived process in the panel to hold them
+  open. §8.2 says what clients do instead.</li>
+</ul>
+<hr />
+<h2 id="2-the-ground-this-stands-on">2. The ground this stands on</h2>
+<p>Six properties of i-MSCP shape every decision that follows. They are not
+incidental; a design that ignores any of them produces an API that lies to its
+callers.</p>
+<h3 id="21-provisioning-is-asynchronous-and-the-panel-is-only-half-of-it">2.1 Provisioning is asynchronous, and the panel is only half of it</h3>
+<p>The panel never provisions anything. A write sets a row's status column to a
+verb — <code>toadd</code>, <code>tochange</code>, <code>todelete</code>, <code>toenable</code>, <code>todisable</code> — and then
+opens a socket to the i-MSCP daemon on <code>127.0.0.1:9876</code> and says
+<code>execute query</code> (<code>gui/include/Shared.php:2251</code>, <code>send_request()</code>). The daemon
+runs the Perl backend, which does the real work — writes the vhost, creates
+the system user, provisions the maildir — and then sets the status to <code>ok</code>, or
+to the text of whatever went wrong.</p>
+<p>So a mutation cannot return a finished resource. It returns an intent. <strong>This
+is the single most important thing the schema has to get right</strong>, and §8.2 is
+where it is dealt with.</p>
+<p>There is one exception, and it is an instructive one: SQL databases and SQL
+users are created <em>synchronously</em>, by the frontEnd itself, with <code>CREATE
+DATABASE</code> and <code>GRANT</code> issued inline (<code>gui/public/client/sql_database_add.php</code>).
+The <code>sql_database</code> and <code>sql_user</code> tables have no status column at all. The
+schema reflects that asymmetry rather than papering over it — see §7.7.</p>
+<h3 id="22-ownership-is-a-chain-and-every-authorisation-question-is-a-walk-up-it">2.2 Ownership is a chain, and every authorisation question is a walk up it</h3>
+<pre><code>admin (admin_type='admin')
+  └── admin (admin_type='reseller')        admin.created_by = the administrator
+        └── admin (admin_type='user')      admin.created_by = the reseller
+              └── domain                   domain.domain_admin_id = the customer
+                    ├── subdomain                subdomain.domain_id
+                    ├── domain_aliasses          domain_aliasses.domain_id
+                    │     └── subdomain_alias    subdomain_alias.alias_id
+                    ├── mail_users               mail_users.domain_id
+                    ├── sql_database             sql_database.domain_id
+                    │     └── sql_user           sql_user.sqld_id
+                    └── domain_dns               domain_dns.domain_id / alias_id
+              └── ftp_users                ftp_users.admin_id (the customer, not the domain)
+</code></pre>
+<p>Every object in the API resolves to exactly one owning customer, and every
+customer to exactly one reseller. Authorisation is: resolve the object's owner,
+and check the caller is that owner, or that owner's reseller, or an
+administrator. §6.3.</p>
+<h3 id="23-a-customers-rights-are-three-separate-things">2.3 A customer's rights are three separate things</h3>
+<p>The panel asks three different questions before it lets a customer do
+anything, and they are easy to conflate:</p>
+<ol>
+<li><strong>Is the feature available at all?</strong> <code>customerHasFeature('subdomains')</code>
+   (<code>gui/include/Client.php:82</code>), which is derived from the customer's own
+   limit columns and from server configuration.</li>
+<li><strong>Is the limit reached?</strong> <code>get_customer_subdomains_count()</code> and its
+   siblings in <code>gui/include/Counting.php</code>, compared against
+   <code>domain.domain_subd_limit</code>.</li>
+<li><strong>Is the object in a state that may be changed?</strong> An object whose status is
+   not settled is mid-flight in the backend, and a second write would leave
+   the backend acting on half of one change and half of the next.</li>
+</ol>
+<p>All three produce different API errors (§9), and all three must be asked
+before a write. The limit encoding is a trap worth naming: on a customer,
+<code>-1</code> means <em>the feature is withheld</em>, <code>0</code> means <em>unlimited</em>, and <code>n &gt; 0</code> means
+<em>n</em>. On a reseller (<code>reseller_props.max_*_cnt</code>), <code>0</code> means unlimited and there
+is no withheld state. §7.4 normalises both into one <code>Quota</code> type so no client
+ever has to know this.</p>
+<h3 id="24-the-business-logic-lives-in-the-page-scripts-and-is-not-callable">2.4 The business logic lives in the page scripts, and is not callable</h3>
+<p><code>gui/public/client/subdomain_add.php</code> is 582 lines. About 250 of them are the
+actual rules for adding a subdomain — reserved labels, mount point derivation,
+shared mount points, forward URL validation, the <code>php_ini</code> row, the default
+mail accounts — and they are written directly against <code>$_POST</code>, <code>$_SESSION</code>,
+<code>set_page_message()</code> and <code>redirectTo()</code>. They are not a function. They cannot
+be called.</p>
+<p>A handful of genuinely reusable functions <em>do</em> exist — <code>deleteSubdomain()</code>,
+<code>deleteDomainAlias()</code>, <code>deleteCustomer()</code>, <code>delete_sql_database()</code>,
+<code>sql_delete_user()</code>, <code>change_domain_status()</code>, <code>createDefaultMailAccounts()</code>,
+<code>reseller_limits_check()</code>, all of <code>Counting.php</code>, and the validators in
+<code>Input.php</code>. But most of <em>those</em> read <code>$_SESSION['user_id']</code> directly and, on
+a failure they do not like, call <code>showBadRequestErrorPage()</code>.</p>
+<p>Which does something that matters a great deal here. <code>showErrorPage()</code>
+(<code>gui/include/View.php:932</code>) checks the request's <code>Accept</code> header, and if it
+contains <code>application/json</code>:</p>
+<pre><code class="language-php">header(&quot;Content-type: application/json&quot;);
+exit(json_encode(['code' =&gt; $code, 'message' =&gt; $message]));
+</code></pre>
+<p>A GraphQL client sends <code>Accept: application/json</code>. So any core helper that
+takes exception to its input will not raise — it will terminate the request
+with a non-GraphQL body and an HTTP status the client did not expect. §6.5
+says what the plugin does about that.</p>
+<h3 id="25-the-frontend-runs-on-php-73-today-and-moves-to-74-first">2.5 The frontEnd runs on PHP 7.3 today, and moves to 7.4 first</h3>
+<p>As shipped, the panel runs PHP 7.3 even on Debian 13. <code>gui/composer.json</code>
+requires <code>&gt;=7.3 &lt;7.4</code>; <code>engine/PerlLib/iMSCP/Requirements.pm:129</code> enforces
+<code>7.3.0</code>–<code>7.3.999</code>; <code>configs/debian/trixie/imscp.conf</code> pins Composer to the 2.2
+LTS branch precisely because of it.</p>
+<p><strong>The decision is to move the panel to PHP 7.4.x before this plugin is built,
+and to 8.3 later as a separate piece of work.</strong></p>
+<p>7.4 is free, and that is why it goes first. Measured in the box: the
+<em>unmodified</em> panel, with its <em>unmodified</em> 7.3-era dependency tree, runs on 7.4
+with 21 of 21 pages rendering, zero deprecations and zero syntax failures —
+across the panel's own code and across ZF1, idna-convert, Slim and Flysystem.
+There is nothing to patch. The move is two values:
+<code>PHP_FPM_BIN_PATH</code> in <code>configs/debian/default/frontend/frontend.data.dist:26</code>,
+and the version gate in <code>Requirements.pm:129</code>.</p>
+<p>And 7.4 is enough for everything this plugin wants. <code>webonyx/graphql-php</code> v15
+and Anorm v3.1.1 both need 7.4 and neither needs anything beyond it; on 7.3
+the first was unavailable and the second required a patch. §3.3.</p>
+<p>8.3 is the destination, not the starting point. It costs roughly a week: three
+dependency replacements (ZF1 → <code>shardj/zf1-future</code>, zend-escaper →
+<code>laminas/laminas-escaper</code>, idna-convert v2 → v3), 25 <code>#[\ReturnTypeWillChange]</code>
+attributes, three <code>#[\AllowDynamicProperties]</code>, and four small code fixes —
+measured, with 20 of 21 pages rendering and no deprecations left. It buys
+things 7.4 does not: a PHP with actual security support, Roundcube 1.7 (which
+needs 8.1 and replaces the unsupported 1.3.15 currently shipped), and
+phpMyAdmin 6. None of that is on this plugin's critical path, which is why it
+is sequenced after.</p>
+<p><strong>What this means for the plugin's own code.</strong> It is written to PHP 7.4 —
+typed properties, arrow functions and <code>??=</code> are available; constructor
+promotion, <code>match</code>, enums, named arguments and nullsafe calls are not. It is
+also written to <em>parse and run unchanged on 8.3</em>, so that the later panel
+migration costs the plugin nothing: nothing removed in 8.0, and
+<code>#[\ReturnTypeWillChange]</code> / <code>#[\AllowDynamicProperties]</code> carried from day one
+where they will be needed. Both are comments on 7.4 and attributes on 8.x.
+§17 requires the test suite to lint on both.</p>
+<h3 id="26-any-url-that-is-not-a-file-already-reaches-the-plugin-router">2.6 Any URL that is not a file already reaches the plugin router</h3>
+<p>The panel's nginx vhost (<code>configs/debian/default/frontend/00_master.nginx</code>)
+ends every <code>location</code> in a fall-through to <code>@plugin</code>, which is
+<code>public/plugins.php</code>, which builds a Slim 3 application and hands it to
+<code>PluginRoutesInjector</code>. That injector reads each loaded plugin's <code>getRoutes()</code>
+and accepts full route specifications — pattern, methods, PSR-7 handler,
+per-route and per-group middleware (<code>gui/src/Plugin/PluginRoutesInjector.php</code>).</p>
+<p>So <code>POST /api/graphql</code> needs no web server change, no core patch, and no
+<code>.php</code> in its path. A plugin can also register services into the Slim
+container via <code>getServiceProvider()</code>.</p>
+<hr />
+<h2 id="3-decisions">3. Decisions</h2>
+<p>Each of these is the answer to a real fork in the road. The rationale is the
+point; the decision on its own is not reviewable.</p>
+<h3 id="31-the-api-runs-inside-the-panel-as-a-plugin">3.1 The API runs inside the panel, as a plugin</h3>
+<p><strong>Decision.</strong> <code>SGW_GraphQL</code> is an ordinary i-MSCP plugin. It registers
+<code>POST /api/graphql</code> through <code>getRoutes()</code> and runs inside the panel's own
+PHP-FPM pool, bootstrap, database connection and event manager.</p>
+<p><strong>Rejected: a standalone PHP service</strong> beside the panel, talking to the same
+database, on a modern PHP. It is tempting — it would lift the PHP 7.3
+constraint entirely and let Anorm and any current library in unmodified. It
+was rejected because it would sit <em>outside</em> the event manager. Every write the
+panel makes dispatches <code>onBeforeAddSubdomain</code>, <code>onAfterDeleteCustomer</code> and
+about 125 other events, and the other plugins on this box — <code>SGW_ApacheCache</code>,
+<code>SGW_LetsEncrypt</code>, <code>SGW_DnsExternal</code>, <code>SGW_PostfixAuth</code> — listen to them. An
+API that wrote rows without dispatching would silently desynchronise every one
+of them: a domain deleted through the API would leave its cache configuration
+and its certificate behind. Re-creating the event system outside the panel is
+not a smaller problem than living with PHP 7.3.</p>
+<p><strong>Cost accepted.</strong> PHP 7.3, and the library consequences in §3.3.</p>
+<h3 id="32-business-logic-is-reimplemented-in-a-service-layer-not-scraped-from-the-pages">3.2 Business logic is reimplemented in a service layer, not scraped from the pages</h3>
+<p><strong>Decision.</strong> The plugin owns a <code>Service\</code> layer: one class per entity, with
+methods that take typed input and a caller identity, and that perform
+validation, authorisation, the transaction, the event dispatch, the
+<code>send_request()</code> and the audit log. The page scripts are read as the
+<em>specification</em> of each operation, and the rules are transcribed, with a
+comment pointing at the page and line the rule came from.</p>
+<p><strong>And the transcription is provisional.</strong> Every rule copied here is a rule that
+exists twice, and each of those is an entry in §21 — a change to
+<code>saygoweb/imscp</code> that extracts the rule into something callable, improves the
+panel on its own merits, and then lets this plugin delete its copy. The
+duplication is therefore a debt with a repayment schedule rather than a
+permanent property of the design, and §21 says how it is tracked so that it
+stays visible.</p>
+<p><strong>Not negotiable</strong>, given §2.4 — the logic is not callable. What <em>is</em> a choice
+is how much of the surrounding scaffolding to reuse, and the answer is: as
+much as is safely reusable, listed explicitly.</p>
+<table>
+<thead>
+<tr>
+<th>Core facility</th>
+<th>How it is used</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>exec_query()</code>, <code>DatabaseMySQL</code></td>
+<td>Used directly. Same connection, same transaction.</td>
+</tr>
+<tr>
+<td><code>EventAggregator::dispatch()</code></td>
+<td>Used directly, with the same event names and the same parameter arrays the pages pass. This is the whole reason for §3.1.</td>
+</tr>
+<tr>
+<td><code>send_request()</code></td>
+<td>Used directly.</td>
+</tr>
+<tr>
+<td><code>write_log()</code></td>
+<td>Used directly, so API actions appear in the panel's admin log alongside UI actions.</td>
+</tr>
+<tr>
+<td><code>Counting.php</code> (all of it)</td>
+<td>Used directly. Pure counting, no session, no exits.</td>
+</tr>
+<tr>
+<td><code>Input.php</code> validators — <code>validates_username()</code>, <code>checkPasswordSyntax()</code>, <code>chk_email()</code>, <code>isValidDomainName()</code>, <code>clean_input()</code></td>
+<td>Used directly, wrapped so their <code>set_page_message()</code> side effects are captured rather than emitted.</td>
+</tr>
+<tr>
+<td><code>encode_idna()</code> / <code>decode_idna()</code></td>
+<td>Used directly.</td>
+</tr>
+<tr>
+<td><code>Crypt::apr1MD5()</code>, <code>Crypt::sha512()</code></td>
+<td>Used directly. Passwords must be hashed exactly as the panel hashes them or the backend will not accept them.</td>
+</tr>
+<tr>
+<td><code>PhpEditor</code></td>
+<td>Used directly, for the <code>php_ini</code> rows a new subdomain or customer needs.</td>
+</tr>
+<tr>
+<td><code>customerHasFeature()</code>, <code>resellerHasFeature()</code>, <code>customerSqlDbLimitIsReached()</code></td>
+<td>Called only behind the identity shim of §6.4, and only after the plugin's own pre-checks have made their failure paths unreachable.</td>
+</tr>
+<tr>
+<td><code>deleteSubdomain()</code>, <code>deleteSubdomainAlias()</code>, <code>deleteDomainAlias()</code>, <code>deleteCustomer()</code>, <code>delete_sql_database()</code>, <code>sql_delete_user()</code>, <code>change_domain_status()</code></td>
+<td>Called behind the identity shim, after the plugin has already confirmed ownership, so the <code>showBadRequestErrorPage()</code> inside them is unreachable. Each call site carries a comment saying which pre-check makes that true.</td>
+</tr>
+<tr>
+<td><code>set_page_message()</code>, <code>redirectTo()</code>, <code>showBadRequestErrorPage()</code>, <code>TemplateEngine</code>, the whole <code>View.php</code> layer</td>
+<td>Never called from the API path.</td>
+</tr>
+<tr>
+<td><code>VirtualFileSystem</code></td>
+<td>Used for the FTP home-directory existence check, but behind a config switch (§14) — it creates a temporary FTP account and opens an FTP connection for every check, which is a heavy price on an API.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="33-dependencies-webonyxgraphql-php-v15-and-anorm-and-nothing-else">3.3 Dependencies: <code>webonyx/graphql-php</code> v15 and Anorm, and nothing else</h3>
+<p><strong>Decision.</strong> Two runtime dependencies, vendored into the release archive:</p>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>webonyx/graphql-php ^15</code></td>
+<td>The schema engine. Needs PHP 7.4, which §2.5 provides. Measured: v15.37.2 resolves and installs with <code>platform.php = 7.4.33</code>.</td>
+</tr>
+<tr>
+<td><code>saygoweb/anorm ^3.1</code></td>
+<td>The <strong>read</strong> models and their batch loading. See below. Measured: v3.1.1 lints clean on 7.4 and on 8.3, 31 files, unmodified.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Anorm, on the read side only.</strong> An earlier draft of this section rejected
+Anorm outright, for a reason that had nothing to do with the PHP version: a
+write in this system is never "persist a model". It is validate → check quota →
+open a transaction → dispatch a before-event → INSERT with a <code>toadd</code> status →
+write a <code>php_ini</code> row → create default mail accounts → dispatch an
+after-event → commit → poke the daemon → <code>write_log()</code>. An ORM helps with one
+step in ten. <strong>That reasoning is unchanged, and the write side of the
+<code>Service\</code> layer stays on <code>exec_query()</code>.</strong></p>
+<p>The read side is a different problem, and Anorm fits it unusually well. §10.1
+requires DataLoader-style batching, so that "list my customers, and for each
+their domain and its subdomains" is not an N+1. Anorm v3 already ships it:
+<code>Relationship\BatchLoadingOrchestrator</code> over <code>ManyHasOneBatchLoader</code>,
+<code>OneHasManyBatchLoader</code> and <code>ManyHasManyBatchLoader</code> — and, the part that
+matters, <code>loadRelationshipsForModels()</code> takes a <strong>field selection</strong>
+specification of the form <code>['posts', 'company:name,address']</code>, which is the
+shape of a GraphQL <code>ResolveInfo</code>. Feeding a resolver's requested fields into
+Anorm's batch loader is a mapping, not an implementation.</p>
+<p>The cost is two idioms in one codebase — Anorm for reads, <code>exec_query()</code> for
+writes. Each is defensible on its own side; the pair needs justifying, and the
+justification is that they are genuinely different problems. The cheapest
+reversal is to drop Anorm and hand-write the batch loaders; the decision point
+is the start of phase 2.</p>
+<p><strong>Rejected: <code>simpod/graphql-utils</code></strong>, which the <code>emdc-events</code> API uses for its
+<code>ObjectBuilder</code> / <code>FieldBuilder</code> fluent API. On PHP 7.4 it cannot be had
+alongside graphql-php v15 at all: 0.5.0–0.5.3 pin <code>webonyx/graphql-php ^14</code>,
+and 0.5.4 requires PHP <code>^8.0</code>. Measured. §3.4 removes the need for it anyway,
+and this is one of that decision's three supporting arguments.</p>
+<p><strong>Rejected: JWT (<code>lcobucci/jwt</code>)</strong>, which <code>emdc-events</code> uses. v4 is available on
+7.4 — measured, 4.3.0 installs — so this is a design choice rather than a
+constraint. A token that can create system users and SQL grants must be
+revocable <em>now</em>, which means a database lookup on every request, at which point
+the token does not need to carry signed claims. §5 uses opaque tokens instead,
+and gains a dependency-free implementation and per-token revocation, expiry,
+scoping, IP allow-listing and last-used tracking.</p>
+<p><strong>Vendoring.</strong> Both dependencies ship inside <code>SGW_GraphQL.tgz</code>, resolved with
+<code>config.platform.php</code> pinned to the panel's PHP so the archive can never be
+built against a newer PHP than the panel runs. When the panel moves to 8.3 the
+pin moves with it and nothing else changes: neither dependency has an upper
+bound below 8.3.</p>
+<h3 id="34-schema-first-sdl-not-code-first">3.4 Schema-first (SDL), not code-first</h3>
+<p><strong>Decision.</strong> The schema is one file, <code>schema/schema.graphql</code>, in SDL. It is
+loaded with <code>BuildSchema::build()</code>, its parsed AST is cached to disk, and
+resolvers are attached through a resolver map keyed by <code>Type.field</code>.</p>
+<p><strong>Rejected: code-first</strong>, the <code>emdc-events</code> style of one PHP class per type.
+It is the idiom already in use in the neighbouring codebase and there is real
+value in that. But:</p>
+<ul>
+<li>This document's reviewers need to read the schema, and a 400-line SDL file
+  is reviewable in a way that 60 PHP classes are not. That matters right now,
+  during the review this specification exists to invite.</li>
+<li>It removes the <code>simpod/graphql-utils</code> problem of §3.3 rather than working
+  around it — and on PHP 7.4 that problem is absolute, not merely awkward:
+  simpod cannot coexist with graphql-php v15 at any version.</li>
+<li>The SDL file is the artefact clients generate their types from. Having it be
+  the source rather than a dump removes a whole class of drift.</li>
+<li>A completeness test (§17) can assert that every field in the SDL has either
+  a resolver or a working default, which recovers most of what the
+  class-per-type structure gave for free.</li>
+</ul>
+<p><strong>Rejected: nested mutator objects</strong> — <code>mutation { subdomain { create(...) } }</code>,
+the <code>MutatorType</code> pattern from <code>emdc-events</code>. The GraphQL specification
+guarantees serial execution only for the <em>top-level</em> selections of a mutation.
+Fields nested one level deeper execute in parallel, so two operations inside
+one mutator object have no defined order. For an API whose operations create
+system users and databases, that is a correctness problem, not a style
+preference. Mutations are therefore flat and named <code>entityVerb</code>:
+<code>subdomainCreate</code>, <code>subdomainUpdate</code>, <code>subdomainDelete</code>.</p>
+<h3 id="35-identifiers-are-opaque-and-globally-unique">3.5 Identifiers are opaque and globally unique</h3>
+<p><strong>Decision.</strong> Every <code>ID</code> is <code>base64url("&lt;TypeName&gt;:&lt;primary key&gt;")</code>, e.g.
+<code>U3ViZG9tYWluOjM</code> for <code>Subdomain:3</code>. A <code>Query.node(id: ID!): Node</code> field
+resolves any of them.</p>
+<p>i-MSCP's identifiers are per-table integers, and <code>subdomain_id = 3</code>,
+<code>alias_id = 3</code> and <code>mail_id = 3</code> all exist and belong to different customers.
+An API that took bare integers would depend on every single resolver checking
+that the caller supplied an identifier of the right <em>kind</em> before checking
+ownership. Encoding the type into the identifier makes the wrong kind a parse
+error at the edge, before any resolver runs. This removes an entire class of
+authorisation bug for the cost of one codec.</p>
+<p>The encoding is not a secret and is not claimed to be one; it is a type tag,
+not a capability.</p>
+<h3 id="36-errors-are-graphql-errors-with-structured-extensions">3.6 Errors are GraphQL errors with structured extensions</h3>
+<p><strong>Decision.</strong> A failed mutation returns <code>null</code> for its field and adds an entry
+to <code>errors</code> carrying <code>extensions.code</code>, and where applicable
+<code>extensions.field</code> and <code>extensions.limit</code>. There is no <code>userErrors</code> payload
+type.</p>
+<p><strong>Rejected: the payload/<code>userErrors</code> pattern.</strong> It earns its place when one
+mutation can partially succeed across several sub-objects. Every mutation here
+is a single entity in a single transaction: it either happened or it did not.
+The payload wrapper would add a type per mutation and a level of nesting to
+every client, to express a state that cannot occur.</p>
+<hr />
+<h2 id="4-transport">4. Transport</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Endpoint</td>
+<td><code>POST /api/graphql</code> (configurable, §14)</td>
+</tr>
+<tr>
+<td>Request</td>
+<td><code>Content-Type: application/json</code>, body <code>{"query": …, "variables": …, "operationName": …}</code></td>
+</tr>
+<tr>
+<td>Response</td>
+<td><code>application/json</code>, always a GraphQL response envelope</td>
+</tr>
+<tr>
+<td>Methods</td>
+<td><code>POST</code> for everything; <code>OPTIONS</code> for CORS preflight. <code>GET</code> is <strong>not</strong> accepted, for any operation.</td>
+</tr>
+<tr>
+<td>Schema</td>
+<td><code>GET /api/graphql/schema</code> returns the SDL as <code>text/plain</code>, for tooling</td>
+</tr>
+<tr>
+<td>Explorer</td>
+<td><code>GET /api/graphql/explorer</code>, a session-authenticated GraphiQL page, off by default (§14)</td>
+</tr>
+</tbody>
+</table>
+<p><code>GET</code> is refused even for queries. It is the only mechanism by which a
+GraphQL endpoint can be driven from a <code>&lt;img&gt;</code> tag or a link, and nothing here
+needs HTTP caching of query results badly enough to pay for that.</p>
+<p><strong>HTTP status codes.</strong> <code>200</code> when the response envelope is a GraphQL result,
+whatever is in it — including field errors. <code>400</code> for a malformed request body
+or a query that fails validation. <code>401</code> when authentication is absent or bad.
+<code>403</code> when the identity is valid but API access has been withdrawn (§6.2).
+<code>405</code> for a method other than <code>POST</code>/<code>OPTIONS</code>. <code>429</code> when rate limited, with
+<code>Retry-After</code>. <code>503</code> when the plugin is disabled.</p>
+<p>Note the deliberate split: authentication failures are transport-level (<code>401</code>),
+because there is no useful GraphQL result to return; authorisation failures
+<em>within</em> an authenticated request are field-level errors in a <code>200</code> (§9),
+because a query may legitimately be allowed to read some fields and not others.</p>
+<p><strong>CORS.</strong> Off by default. <code>allowed_origins</code> in <code>config.php</code> is a list, never
+<code>*</code>, and credentials are never allowed for cookie-authenticated requests from
+another origin.</p>
+<p><strong>TLS.</strong> With <code>require_tls</code> on (the default), a request that did not arrive
+over HTTPS is refused with <code>403</code> and a body saying so, and — because the
+credential has already been transmitted in the clear at that point — any bearer
+token presented on such a request is revoked and its owner is told. That is
+harsh, and it is correct: the alternative is a token that has been sighted by
+every hop in between and is still valid.</p>
+<hr />
+<h2 id="5-authentication">5. Authentication</h2>
+<h3 id="51-bearer-tokens-primary">5.1 Bearer tokens (primary)</h3>
+<pre><code>Authorization: Bearer imscp_&lt;prefix&gt;_&lt;secret&gt;
+</code></pre>
+<ul>
+<li><code>prefix</code> is 8 base32 characters, unique, stored in the clear, indexed. It is
+  what the lookup is done on, and what the panel UI shows so a user can tell
+  their tokens apart.</li>
+<li><code>secret</code> is 32 bytes from <code>random_bytes()</code>, base64url encoded (43 chars).
+  It is shown to the user exactly once, at creation, and never again.</li>
+<li>Stored as <code>hash('sha256', secret)</code>, compared with <code>hash_equals()</code>.</li>
+</ul>
+<p>Presenting a token proves an identity and carries a set of scopes. A token can
+never do more than the identity it belongs to could do; the scopes only ever
+narrow.</p>
+<p>Verification, in order: parse the header; look up by prefix; constant-time
+compare the hash; reject if revoked or expired; reject if the client IP is
+outside the token's allow-list, if it has one; reject if the owning account's
+<code>admin_status</code> is not <code>ok</code>; reject if API access has been withdrawn from the
+account (§6.2); stamp <code>last_used_at</code> and <code>last_used_ip</code> (§11 explains why that
+write is cheap). Any failure is a <code>401</code> with no detail about which check failed.</p>
+<h3 id="52-panel-session-secondary">5.2 Panel session (secondary)</h3>
+<p>If a request carries a valid panel session cookie and no <code>Authorization</code>
+header, the session identity is used. This makes the in-panel explorer work,
+and makes a future panel-embedded UI possible without minting a token for it.</p>
+<p>It is a cookie, so it is CSRF-exposed, and the mitigations are stacked
+deliberately:</p>
+<ol>
+<li><code>Content-Type: application/json</code> is required. A form cannot send it, so a
+   cross-origin <code>POST</code> from a form is a preflighted request, and §4's CORS
+   policy fails the preflight.</li>
+<li>An <code>X-iMSCP-CSRF</code> header must match <code>$_SESSION['graphql_csrf']</code>, which the
+   panel pages emit. A cross-origin attacker cannot read it.</li>
+<li><code>GET</code> is refused (§4), so there is no link-driven path at all.</li>
+</ol>
+<p>If any of those is missing, the request is treated as unauthenticated. Session
+authentication may be disabled entirely with <code>allow_session_auth = false</code>.</p>
+<h3 id="53-obtaining-a-token-from-credentials">5.3 Obtaining a token from credentials</h3>
+<pre><code class="language-graphql">mutation { tokenIssue(input: { username: &quot;…&quot;, password: &quot;…&quot;, name: &quot;ci&quot;, scopes: [DOMAINS_WRITE], expiresInDays: 90 }) { token expiresAt } }
+</code></pre>
+<p>This is the only unauthenticated field in the schema. It goes through
+i-MSCP's own <code>AuthService::authenticate()</code>, so it inherits the credential
+handler, the <code>BruteForce</code> plugin when <code>BRUTEFORCE</code> is on, the account status
+and expiry checks in <code>login_checkDomainAccount()</code>, and the APR-1 rehash of
+legacy MD5 passwords — none of which is reimplemented. It does <strong>not</strong> create a
+<code>login</code> row or a session.</p>
+<p>It is rate limited far more tightly than anything else (§10.3), and it can be
+disabled with <code>allow_password_grant = false</code> for installations that want tokens
+minted only through the panel UI.</p>
+<h3 id="54-what-is-deliberately-absent">5.4 What is deliberately absent</h3>
+<p>No OAuth, no refresh tokens, no API-key-in-query-string, no HTTP Basic. Each
+adds a credential path to defend for a category of client that a hosting
+control panel does not have.</p>
+<hr />
+<h2 id="6-authorisation">6. Authorisation</h2>
+<h3 id="61-roles">6.1 Roles</h3>
+<p><code>admin.admin_type</code> gives <code>admin</code>, <code>reseller</code> or <code>user</code>, exposed as
+<code>Role.ADMIN</code>, <code>Role.RESELLER</code>, <code>Role.CUSTOMER</code>. It is read from the database
+on every request, not carried in the token, so a demotion takes effect at once.</p>
+<h3 id="62-whether-the-account-may-use-the-api-at-all">6.2 Whether the account may use the API at all</h3>
+<p>A <code>graphql_perm</code> table (§15) holds one row per account whose API access has
+been changed from the default. A reseller may withdraw API access from any of
+their customers; an administrator from any reseller. With
+<code>allowed_by_default = true</code> (the default), an account with no row may use the
+API. This mirrors <code>SGW_ApacheCache</code>'s <code>apache_cache_perm</code> exactly, so the
+behaviour is already familiar on this panel.</p>
+<p>Withdrawal revokes that account's tokens as well as blocking the endpoint.
+A feature and its effects should go away together.</p>
+<h3 id="63-ownership">6.3 Ownership</h3>
+<p>One resolver, used by everything:</p>
+<pre><code class="language-php">OwnershipResolver::ownerOf(GlobalId $id): int   // returns the owning customer's admin_id
+OwnershipResolver::mayReach(Identity $caller, int $ownerId): bool
+</code></pre>
+<p><code>mayReach</code> is true when the caller <em>is</em> the owner; or the caller is a reseller
+and <code>admin.created_by = caller</code> for that owner; or the caller is an
+administrator. Reseller-owned objects (hosting plans, the resellers
+themselves) go through the same function one level up.</p>
+<p>The resolution is a single query per object type, derived from the chain in
+§2.2, and it is checked <strong>before</strong> anything else — before feature checks,
+before quota checks, before validation. A caller who may not reach an object
+gets <code>NOT_FOUND</code>, not <code>FORBIDDEN</code>, so the API does not confirm the existence
+of other people's objects. <code>FORBIDDEN</code> is reserved for objects the caller can
+see but may not change.</p>
+<h3 id="64-the-identity-shim">6.4 The identity shim</h3>
+<p>Several core helpers the plugin reuses read <code>$_SESSION['user_id']</code>,
+<code>$_SESSION['user_type']</code>, <code>$_SESSION['user_logged']</code> and
+<code>$_SESSION['user_created_by']</code> directly (§3.2). Rather than fork them, the
+plugin populates exactly those four keys plus <code>user_identity</code> from the
+authenticated identity, at the start of request handling, without writing a
+<code>login</code> row and without starting a browser session.</p>
+<p>Two rules make this safe, and both are enforced in code, not by convention:</p>
+<ul>
+<li><strong>One identity per request.</strong> <code>customerHasFeature()</code> caches its result in a
+  <code>static</code> that is not keyed by user (<code>gui/include/Client.php:84</code>). A request
+  that switched identity would read the first identity's features for the
+  second. The plugin therefore refuses to change identity mid-request, and
+  there is no impersonation field in the schema.</li>
+<li><strong>The shim is set up once, in one place</strong>, and is asserted to be consistent
+  with the resolved identity before every core call that depends on it.</li>
+</ul>
+<p>This is a compromise and is named as one. The alternative — forking six
+functions to take an explicit <code>$adminId</code> — was rejected because those forks
+would then have to be re-audited against upstream on every i-MSCP update, and
+a silently stale fork of an authorisation helper is a worse failure than a
+documented shim.</p>
+<h3 id="65-the-showerrorpage-hazard">6.5 The <code>showErrorPage()</code> hazard</h3>
+<p>§2.4 established that a core helper can terminate the request with a
+non-GraphQL JSON body. Three layers deal with it:</p>
+<ol>
+<li><strong>Pre-checks.</strong> Every call into a core helper is preceded by the plugin's
+   own ownership, feature and quota checks, chosen so the helper's own
+   failure path is unreachable. Each such call site carries a comment naming
+   the pre-check that makes that true.</li>
+<li><strong>A shutdown guard.</strong> The GraphQL handler registers a shutdown function.
+   If the script terminates while a GraphQL operation is in flight, it emits a
+   well-formed GraphQL error envelope with <code>code: INTERNAL</code> and logs the fact
+   loudly. A caller gets a response it can parse even when layer 1 has a hole.</li>
+<li><strong>A test that asserts layer 1 holds.</strong> §17.</li>
+</ol>
+<hr />
+<h2 id="7-the-schema">7. The schema</h2>
+<p>The full SDL lives at <code>schema/schema.graphql</code>. What follows is that file,
+with commentary. Descriptions are abbreviated here and complete in the file.</p>
+<h3 id="71-scalars-and-provisioning">7.1 Scalars and provisioning</h3>
+<pre><code class="language-graphql">&quot;ISO-8601 instant in UTC, e.g. 2026-09-04T11:00:00Z.&quot;
+scalar DateTime
+
+&quot;A 64-bit unsigned integer serialised as a decimal string, because a JSON
+ number is a double and disk and traffic figures exceed 2^53.&quot;
+scalar BigInt
+
+&quot;A domain name. Accepted as Unicode or as punycode; always returned as Unicode.&quot;
+scalar DomainName
+
+&quot;An email address.&quot;
+scalar EmailAddress
+
+&quot;A write-only value. Never appears in a response, and is redacted from the
+ audit log. Passwords are of this type.&quot;
+scalar Secret
+
+interface Node { id: ID! }
+
+&quot;&quot;&quot;
+Whether the i-MSCP backend has caught up with the panel's intent. See §2.1:
+a mutation records an intent and the backend carries it out afterwards.
+&quot;&quot;&quot;
+type Provisioning {
+  state: ProvisioningState!
+  &quot;The literal i-MSCP status string, for support and for forward compatibility.&quot;
+  raw: String!
+  &quot;False while the backend still has work to do for this object.&quot;
+  settled: Boolean!
+  &quot;The backend's failure text, when state is ERROR.&quot;
+  message: String
+}
+
+enum ProvisioningState {
+  &quot;ok&quot;
+  OK
+  &quot;toadd, tochange, todelete, toenable, todisable, torestore, …&quot;
+  PENDING
+  &quot;disabled&quot;
+  DISABLED
+  &quot;ordered — a domain alias awaiting the reseller's approval&quot;
+  ORDERED
+  &quot;Anything else. i-MSCP stores the backend's failure text in the status column.&quot;
+  ERROR
+}
+
+interface Provisioned { provisioning: Provisioning! }
+</code></pre>
+<p><code>raw</code> is not decoration. i-MSCP's status vocabulary is open — plugins and
+future versions add verbs — and a client that has to handle an unknown state
+is better served by seeing the string than by having it flattened into
+<code>PENDING</code> with no way to find out more.</p>
+<h3 id="72-identity">7.2 Identity</h3>
+<pre><code class="language-graphql">enum Role { ADMIN RESELLER CUSTOMER }
+
+type Viewer {
+  id: ID!
+  username: String!
+  role: Role!
+  email: EmailAddress
+  contact: ContactDetails!
+  &quot;The scopes the presented credential carries, which may be narrower than the role.&quot;
+  scopes: [Scope!]!
+  &quot;Set when role is CUSTOMER.&quot;
+  customer: Customer
+  &quot;Set when role is RESELLER.&quot;
+  reseller: Reseller
+}
+
+enum Scope {
+  ACCOUNT_READ
+  DOMAINS_READ    DOMAINS_WRITE
+  MAIL_READ       MAIL_WRITE
+  FTP_READ        FTP_WRITE
+  SQL_READ        SQL_WRITE
+  DNS_READ        DNS_WRITE
+  CUSTOMERS_READ  CUSTOMERS_WRITE
+  RESELLERS_READ  RESELLERS_WRITE
+}
+
+type ContactDetails {
+  firstName: String  lastName: String  gender: Gender
+  company: String
+  street1: String  street2: String  city: String  state: String
+  postCode: String  country: String
+  email: EmailAddress  phone: String  fax: String
+}
+
+enum Gender { MALE FEMALE UNSPECIFIED }
+</code></pre>
+<h3 id="73-virtual-hosts">7.3 Virtual hosts</h3>
+<p>The four vhost kinds — main domain, subdomain, alias, alias subdomain — differ
+in their tables and almost nowhere else. i-MSCP itself keys them by the pair
+<code>(type, id)</code> with type in <code>dmn|sub|als|alssub</code>; the schema expresses the same
+thing as an interface, which lets a client render a list of "everything Apache
+serves for this customer" without four code paths.</p>
+<pre><code class="language-graphql">interface VirtualHost {
+  id: ID!
+  name: DomainName!
+  &quot;Path under the customer's web root, e.g. /shop.&quot;
+  mountPoint: String!
+  &quot;Path under the mount point that Apache serves, e.g. /htdocs.&quot;
+  documentRoot: String!
+  forwarding: Forwarding
+  &quot;Whether *.name is served by this host as well.&quot;
+  wildcard: Boolean!
+  provisioning: Provisioning!
+}
+
+type Forwarding {
+  url: String!
+  type: ForwardType!
+  &quot;For PROXY only: whether the original Host header is preserved.&quot;
+  keepHost: Boolean!
+}
+
+enum ForwardType { PERMANENT_301 FOUND_302 SEE_OTHER_303 TEMPORARY_307 PROXY }
+
+type Domain implements Node &amp; Provisioned &amp; VirtualHost {
+  id: ID!  name: DomainName!  mountPoint: String!  documentRoot: String!
+  forwarding: Forwarding  wildcard: Boolean!  provisioning: Provisioning!
+  customer: Customer!
+  ipAddress: IpAddress!
+  createdAt: DateTime!
+  expiresAt: DateTime
+  subdomains: [Subdomain!]!
+  aliases: [DomainAlias!]!
+}
+
+type Subdomain implements Node &amp; Provisioned &amp; VirtualHost {
+  id: ID!  name: DomainName!  mountPoint: String!  documentRoot: String!
+  forwarding: Forwarding  wildcard: Boolean!  provisioning: Provisioning!
+  &quot;The label alone, without the parent's name.&quot;
+  label: String!
+  &quot;A Domain, or a DomainAlias when this is an alias subdomain.&quot;
+  parent: VirtualHost!
+  customer: Customer!
+}
+
+type DomainAlias implements Node &amp; Provisioned &amp; VirtualHost {
+  id: ID!  name: DomainName!  mountPoint: String!  documentRoot: String!
+  forwarding: Forwarding  wildcard: Boolean!  provisioning: Provisioning!
+  domain: Domain!
+  customer: Customer!
+  subdomains: [Subdomain!]!
+}
+</code></pre>
+<p>An alias subdomain is a <code>Subdomain</code> whose <code>parent</code> is a <code>DomainAlias</code>. Making
+it a fifth type would expose an i-MSCP storage detail (<code>subdomain_alias</code> is a
+separate table only because <code>subdomain</code> has a <code>domain_id</code> column) for no gain.</p>
+<h3 id="74-quotas">7.4 Quotas</h3>
+<pre><code class="language-graphql">&quot;&quot;&quot;
+One countable allowance. Normalises i-MSCP's three-valued limit columns:
+-1 (feature withheld), 0 (unlimited), n (n). See §2.3.
+&quot;&quot;&quot;
+type Quota {
+  &quot;False when the feature is withheld from the account entirely.&quot;
+  enabled: Boolean!
+  &quot;Null when unlimited.&quot;
+  limit: Int
+  used: Int!
+  &quot;limit - used, or null when unlimited. Convenience; clients get it wrong.&quot;
+  remaining: Int
+}
+
+type Storage {
+  diskLimit: BigInt    diskUsed: BigInt!
+  diskFiles: BigInt!   diskMail: BigInt!   diskSql: BigInt!
+  trafficLimit: BigInt trafficUsed: BigInt!
+  &quot;Default per-mailbox quota. Null when unlimited.&quot;
+  mailQuota: BigInt
+}
+</code></pre>
+<h3 id="75-customer">7.5 Customer</h3>
+<pre><code class="language-graphql">type Customer implements Node &amp; Provisioned {
+  id: ID!
+  username: String!
+  &quot;The reseller's own reference for this customer (admin.customer_id).&quot;
+  reference: String
+  contact: ContactDetails!
+  reseller: Reseller!
+  createdAt: DateTime!
+  expiresAt: DateTime
+  domain: Domain!
+  quotas: CustomerQuotas!
+  storage: Storage!
+  features: CustomerFeatures!
+  &quot;Whether this account may use this API at all. See §6.2.&quot;
+  apiAccess: Boolean!
+  provisioning: Provisioning!
+
+  subdomains: [Subdomain!]!
+  domainAliases: [DomainAlias!]!
+  mailAccounts(filter: MailAccountFilter, page: PageInput): MailAccountConnection!
+  ftpUsers(page: PageInput): FtpUserConnection!
+  sqlDatabases: [SqlDatabase!]!
+  sqlUsers: [SqlUser!]!
+  dnsRecords: [DnsRecord!]!
+}
+
+type CustomerQuotas {
+  subdomains: Quota!  domainAliases: Quota!  mailAccounts: Quota!
+  ftpUsers: Quota!    sqlDatabases: Quota!   sqlUsers: Quota!
+}
+
+type CustomerFeatures {
+  php: Boolean!  phpEditor: Boolean!  cgi: Boolean!
+  customDns: Boolean!  externalMail: Boolean!
+  backup: Boolean!  ssl: Boolean!  webStats: Boolean!  supportSystem: Boolean!
+}
+</code></pre>
+<p><code>features</code> is <code>customerHasFeature()</code>'s answer, verbatim and per name, so the
+API cannot disagree with the panel about what a customer is allowed.</p>
+<h3 id="76-mail">7.6 Mail</h3>
+<pre><code class="language-graphql">type MailAccount implements Node &amp; Provisioned {
+  id: ID!
+  address: EmailAddress!
+  kind: MailAccountKind!
+  &quot;The vhost this address belongs to.&quot;
+  host: VirtualHost!
+  forwardTo: [EmailAddress!]!
+  &quot;Null when unlimited.&quot;
+  quota: BigInt
+  quotaUsed: BigInt
+  &quot;Whether POP/IMAP access is enabled (mail_users.po_active).&quot;
+  active: Boolean!
+  autoresponder: Autoresponder
+  provisioning: Provisioning!
+}
+
+enum MailAccountKind { MAILBOX FORWARD MAILBOX_AND_FORWARD CATCHALL }
+
+type Autoresponder { enabled: Boolean!  message: String! }
+</code></pre>
+<p>i-MSCP stores twelve <code>mail_type</code> values — the cross product of
+<code>{normal, alias, subdom, alssub}</code> and <code>{mail, forward, catchall}</code>, sometimes
+comma-joined for a mailbox that also forwards. The vhost half of that product
+is already carried by <code>host</code>, so the schema keeps only the second half. The
+mapping table lives in the implementation, in one place, tested both ways.</p>
+<h3 id="77-ftp-and-sql">7.7 FTP and SQL</h3>
+<pre><code class="language-graphql">type FtpUser implements Node &amp; Provisioned {
+  id: ID!
+  &quot;user@domain — the FTP login.&quot;
+  username: String!
+  &quot;Absolute path on the server.&quot;
+  homeDirectory: String!
+  customer: Customer!
+  provisioning: Provisioning!
+}
+
+&quot;&quot;&quot;
+Note the absence of `provisioning`. SQL databases and users are created
+synchronously by the panel itself, not by the backend. See §2.1.
+&quot;&quot;&quot;
+type SqlDatabase implements Node {
+  id: ID!
+  name: String!
+  customer: Customer!
+  users: [SqlUser!]!
+}
+
+type SqlUser implements Node {
+  id: ID!
+  name: String!
+  &quot;The host the SQL user may connect from.&quot;
+  host: String!
+  databases: [SqlDatabase!]!
+}
+</code></pre>
+<h3 id="78-dns-ip-addresses-hosting-plans-resellers">7.8 DNS, IP addresses, hosting plans, resellers</h3>
+<pre><code class="language-graphql">type DnsRecord implements Node &amp; Provisioned {
+  id: ID!
+  &quot;The domain or alias this record hangs off.&quot;
+  host: VirtualHost!
+  name: String!
+  class: DnsClass!
+  type: DnsRecordType!
+  value: String!
+  &quot;&quot;&quot;
+  'custom_dns_feature' for a customer's own record; otherwise the name of the
+  plugin that owns it. A record owned by a plugin is read-only here.
+  &quot;&quot;&quot;
+  ownedBy: String!
+  provisioning: Provisioning!
+}
+
+enum DnsClass { IN CH HS }
+enum DnsRecordType { A AAAA CERT CNAME DNAME GPOS KEY KX MX NAPTR NSAP NS NXT PTR PX SIG SRV TXT SPF }
+
+type IpAddress implements Node {
+  id: ID!  address: String!  netmask: Int  card: String
+}
+
+type HostingPlan implements Node {
+  id: ID!
+  name: String!
+  description: String
+  reseller: Reseller!
+  available: Boolean!
+  quotas: PlanQuotas!
+  storage: PlanStorage!
+  features: PlanFeatures!
+}
+
+type Reseller implements Node &amp; Provisioned {
+  id: ID!
+  username: String!
+  contact: ContactDetails!
+  createdAt: DateTime!
+  quotas: ResellerQuotas!
+  storage: Storage!
+  ipAddresses: [IpAddress!]!
+  apiAccess: Boolean!
+  provisioning: Provisioning!
+  customers(filter: CustomerFilter, page: PageInput): CustomerConnection!
+  hostingPlans: [HostingPlan!]!
+}
+</code></pre>
+<p><code>hosting_plans.props</code> is a positional, semicolon-delimited string of 25 fields
+(<code>gui/public/reseller/user_add3.php:133</code>). Parsing and re-emitting it is
+delicate and must round-trip exactly; §20 lists it as a risk, and §17 requires
+a property test for it.</p>
+<h3 id="79-pagination">7.9 Pagination</h3>
+<pre><code class="language-graphql">input PageInput { limit: Int = 50, offset: Int = 0 }
+
+type CustomerConnection    { totalCount: Int!  nodes: [Customer!]! }
+type MailAccountConnection { totalCount: Int!  nodes: [MailAccount!]! }
+type FtpUserConnection     { totalCount: Int!  nodes: [FtpUser!]! }
+type ResellerConnection    { totalCount: Int!  nodes: [Reseller!]! }
+</code></pre>
+<p>Offset pagination, not cursors. A reseller has hundreds of customers, not
+millions, the panel's own lists are offset-paged, and cursor connections would
+add four types and a page-info object per list to solve a problem this data
+does not have. <code>limit</code> is capped at 200 by the server regardless of what is
+asked for.</p>
+<p>Lists with a natural ceiling — a customer's subdomains, a database's users —
+are plain lists. i-MSCP's own limits bound them.</p>
+<h3 id="710-query">7.10 Query</h3>
+<pre><code class="language-graphql">type Query {
+  &quot;The schema version this endpoint serves, e.g. 1.3.0. See §18.&quot;
+  apiVersion: String!
+  viewer: Viewer!
+  node(id: ID!): Node
+
+  customer(id: ID!): Customer
+  customers(filter: CustomerFilter, page: PageInput): CustomerConnection!
+  reseller(id: ID!): Reseller
+  resellers(filter: ResellerFilter, page: PageInput): ResellerConnection!
+
+  &quot;Everything the caller owns that the backend has not finished with. See §8.2.&quot;
+  pending: [Node!]!
+}
+
+input CustomerFilter {
+  username: String
+  domainName: DomainName
+  state: ProvisioningState
+  &quot;Administrators only; ignored for a reseller, who only ever sees their own.&quot;
+  resellerId: ID
+}
+</code></pre>
+<h3 id="711-mutations">7.11 Mutations</h3>
+<p>Flat, <code>entityVerb</code>, one entity each (§3.4). <code>Create</code> returns the new object,
+<code>Update</code> the changed one, <code>Delete</code> the object as it was at the moment deletion
+was scheduled — which is the only moment its fields are still readable.</p>
+<pre><code class="language-graphql">type Mutation {
+  # ---- credentials (see §5)
+  &quot;The one unauthenticated field in the schema.&quot;
+  tokenIssue(input: TokenIssueInput!): IssuedToken!
+  tokenRevoke(id: ID!): Boolean!
+
+  # ---- the caller's own main domain
+  domainUpdate(id: ID!, input: DomainUpdateInput!): Domain!
+
+  # ---- vhosts
+  subdomainCreate(input: SubdomainCreateInput!): Subdomain!
+  subdomainUpdate(id: ID!, input: SubdomainUpdateInput!): Subdomain!
+  subdomainDelete(id: ID!): Subdomain!
+
+  domainAliasCreate(input: DomainAliasCreateInput!): DomainAlias!
+  domainAliasUpdate(id: ID!, input: DomainAliasUpdateInput!): DomainAlias!
+  domainAliasDelete(id: ID!): DomainAlias!
+  &quot;Reseller and administrator only. Approves an alias in the ORDERED state.&quot;
+  domainAliasApprove(id: ID!): DomainAlias!
+  domainAliasReject(id: ID!): DomainAlias!
+
+  # ---- mail
+  mailAccountCreate(input: MailAccountCreateInput!): MailAccount!
+  mailAccountUpdate(id: ID!, input: MailAccountUpdateInput!): MailAccount!
+  mailAccountDelete(id: ID!): MailAccount!
+  mailAutoresponderSet(id: ID!, input: AutoresponderInput!): MailAccount!
+  mailCatchallCreate(input: MailCatchallCreateInput!): MailAccount!
+  mailCatchallDelete(id: ID!): MailAccount!
+
+  # ---- ftp
+  ftpUserCreate(input: FtpUserCreateInput!): FtpUser!
+  ftpUserUpdate(id: ID!, input: FtpUserUpdateInput!): FtpUser!
+  ftpUserDelete(id: ID!): FtpUser!
+
+  # ---- sql
+  sqlDatabaseCreate(input: SqlDatabaseCreateInput!): SqlDatabase!
+  sqlDatabaseDelete(id: ID!): SqlDatabase!
+  sqlUserCreate(input: SqlUserCreateInput!): SqlUser!
+  sqlUserSetPassword(id: ID!, password: Secret!): SqlUser!
+  sqlUserDelete(id: ID!): SqlUser!
+
+  # ---- dns
+  dnsRecordCreate(input: DnsRecordCreateInput!): DnsRecord!
+  dnsRecordUpdate(id: ID!, input: DnsRecordUpdateInput!): DnsRecord!
+  dnsRecordDelete(id: ID!): DnsRecord!
+
+  # ---- customers (reseller and administrator)
+  customerCreate(input: CustomerCreateInput!): Customer!
+  customerUpdate(id: ID!, input: CustomerUpdateInput!): Customer!
+  customerDelete(id: ID!): Customer!
+  customerSetState(id: ID!, state: AccountState!): Customer!
+  customerSetApiAccess(id: ID!, allowed: Boolean!): Customer!
+
+  hostingPlanCreate(input: HostingPlanInput!): HostingPlan!
+  hostingPlanUpdate(id: ID!, input: HostingPlanInput!): HostingPlan!
+  hostingPlanDelete(id: ID!): HostingPlan!
+
+  # ---- resellers (administrator)
+  resellerCreate(input: ResellerCreateInput!): Reseller!
+  resellerUpdate(id: ID!, input: ResellerUpdateInput!): Reseller!
+  resellerDelete(id: ID!): Reseller!
+  resellerSetApiAccess(id: ID!, allowed: Boolean!): Reseller!
+}
+
+enum AccountState { ENABLED DISABLED }
+</code></pre>
+<p>Representative inputs; the rest follow the same shape and are in the SDL file.</p>
+<pre><code class="language-graphql">input SubdomainCreateInput {
+  &quot;The Domain or DomainAlias to hang it off.&quot;
+  parentId: ID!
+  &quot;The label alone, e.g. 'shop'. Unicode or punycode.&quot;
+  label: String!
+  &quot;Mount an existing vhost's directory instead of creating a new one.&quot;
+  sharedMountPointOf: ID
+  forwarding: ForwardingInput
+  wildcard: Boolean = false
+}
+
+input ForwardingInput {
+  url: String!
+  type: ForwardType!
+  &quot;PROXY only.&quot;
+  keepHost: Boolean = false
+}
+
+input CustomerCreateInput {
+  username: String!
+  password: Secret!
+  domainName: DomainName!
+  ipAddressId: ID!
+  contact: ContactDetailsInput!
+  expiresAt: DateTime
+  &quot;&quot;&quot;
+  Take limits and features from this plan. Exactly one of hostingPlanId or
+  allowances must be given.
+  &quot;&quot;&quot;
+  hostingPlanId: ID
+  allowances: CustomerAllowancesInput
+  reference: String
+  &quot;Send i-MSCP's welcome message. Defaults to the panel's own behaviour.&quot;
+  sendWelcomeEmail: Boolean
+}
+</code></pre>
+<p><code>CustomerCreateInput</code> is the one place the API is <em>simpler</em> than the panel: the
+panel spreads this across a three-step wizard with state in <code>$_SESSION</code>
+(<code>user_add1.php</code>, <code>user_add2.php</code>, <code>user_add3.php</code>). The API takes it in one
+call, applying the same validation each step applied.</p>
+<hr />
+<h2 id="8-mutation-semantics">8. Mutation semantics</h2>
+<h3 id="81-the-shape-of-every-write">8.1 The shape of every write</h3>
+<p>Identical for all of them, in this order:</p>
+<ol>
+<li><strong>Authenticate</strong> (§5) — else <code>401</code>.</li>
+<li><strong>Resolve ownership</strong> (§6.3) — else <code>NOT_FOUND</code>.</li>
+<li><strong>Check the scope</strong> on the presented credential — else <code>FORBIDDEN</code>.</li>
+<li><strong>Check the feature</strong> is available to the owning customer — else
+   <code>FEATURE_UNAVAILABLE</code>.</li>
+<li><strong>Check the object is settled</strong> (§8.3) — else <code>CONFLICT</code>.</li>
+<li><strong>Validate the input</strong> — else <code>BAD_USER_INPUT</code> with <code>extensions.field</code>.</li>
+<li><strong>Check the quota</strong>, for creates — else <code>LIMIT_EXCEEDED</code> with
+   <code>extensions.limit</code>.</li>
+<li><strong>Transaction</strong>: <code>beginTransaction()</code>, dispatch the <code>onBefore…</code> event with
+   the same parameters the panel passes, write the rows with the appropriate
+   <code>to…</code> status, dispatch <code>onAfter…</code>, <code>commit()</code>.</li>
+<li><strong><code>send_request()</code></strong> — outside the transaction, after the commit, never
+   before. A daemon that read the rows mid-transaction would see nothing.</li>
+<li><strong><code>write_log()</code></strong> and the audit row (§11).</li>
+<li><strong>Return the object</strong>, with <code>provisioning.state = PENDING</code>.</li>
+</ol>
+<p>Steps 2–7 are ordered so that the error a caller gets leaks the least. In
+particular ownership is resolved before validation, so a caller cannot probe
+which domain names exist by watching which validation errors come back.</p>
+<h3 id="82-mutations-return-intent-not-completion">8.2 Mutations return intent, not completion</h3>
+<p>A mutation returns as soon as the intent is recorded. The returned object's
+<code>provisioning.state</code> is <code>PENDING</code> and <code>provisioning.settled</code> is <code>false</code>.</p>
+<p>A client that needs to know the operation finished polls:</p>
+<pre><code class="language-graphql">mutation { subdomainCreate(input: {...}) { id provisioning { state settled } } }
+# then, until settled:
+query($id: ID!) { node(id: $id) { ... on Subdomain { provisioning { state message } } } }
+</code></pre>
+<p><code>Query.pending</code> returns everything the caller owns that is not settled, so a
+client can poll once for a whole batch rather than once per object.</p>
+<p>Typical settle time on the reference box is a few seconds; the backend runs on
+the daemon's schedule. There is no server-side wait: a <code>waitFor</code> argument would
+hold a PHP-FPM worker for the duration, and the panel's pool is small.</p>
+<p><strong>A backend failure is not a GraphQL error.</strong> It happens minutes after the
+response was sent. It surfaces as <code>provisioning.state = ERROR</code> with the
+backend's text in <code>provisioning.message</code>, which is exactly where the panel
+surfaces it too.</p>
+<h3 id="83-an-unsettled-object-may-not-be-changed">8.3 An unsettled object may not be changed</h3>
+<p>Any mutation targeting an object whose <code>provisioning.settled</code> is false is
+refused with <code>CONFLICT</code>, and the error's <code>extensions.retryAfterSeconds</code>
+suggests when to try again. §2.3 is why: the backend consumes the status
+column as a work queue, and a second write would overwrite an instruction it
+has not yet read.</p>
+<p>The one exception is delete, which is allowed against an object in the <code>ERROR</code>
+state — that is how an object that failed to provision is cleaned up, and it
+is what the panel's own retry does.</p>
+<h3 id="84-idempotency">8.4 Idempotency</h3>
+<p>Creates are not idempotent, and no idempotency key is offered in version 1.
+They are protected instead by the uniqueness i-MSCP already enforces —
+<code>domain.domain_name</code>, <code>mail_users.mail_addr</code>, <code>ftp_users.userid</code>,
+<code>sql_database.sqld_name</code> are all unique keys — so a retried create fails with
+<code>CONFLICT</code> rather than producing a duplicate. Updates and deletes are naturally
+idempotent; deleting an already-deleted object returns <code>NOT_FOUND</code>.</p>
+<h3 id="85-multiple-mutations-in-one-document">8.5 Multiple mutations in one document</h3>
+<p>Permitted, executed serially in the order written, as the GraphQL
+specification requires. They are <strong>not</strong> one transaction: each is committed
+separately, because each ends in a <code>send_request()</code> that must not be rolled
+back. A document whose third mutation fails leaves the first two done. This is
+stated in the schema description of <code>Mutation</code> so it cannot be discovered by
+surprise, and the recommendation to clients is one mutation per request.</p>
+<hr />
+<h2 id="9-errors">9. Errors</h2>
+<p>Every error carries <code>extensions.code</code>. Codes are a closed set and are part of
+the compatibility contract (§18).</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>HTTP</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>UNAUTHENTICATED</code></td>
+<td>401</td>
+<td>No credential, or a bad one</td>
+</tr>
+<tr>
+<td><code>API_ACCESS_WITHDRAWN</code></td>
+<td>403</td>
+<td>Valid identity, but §6.2 says no</td>
+</tr>
+<tr>
+<td><code>FORBIDDEN</code></td>
+<td>200</td>
+<td>Visible object, disallowed operation, or missing scope</td>
+</tr>
+<tr>
+<td><code>NOT_FOUND</code></td>
+<td>200</td>
+<td>No such object, or not the caller's</td>
+</tr>
+<tr>
+<td><code>BAD_USER_INPUT</code></td>
+<td>200</td>
+<td>Validation. Carries <code>extensions.field</code></td>
+</tr>
+<tr>
+<td><code>LIMIT_EXCEEDED</code></td>
+<td>200</td>
+<td>A quota. Carries <code>extensions.limit</code> and <code>extensions.used</code></td>
+</tr>
+<tr>
+<td><code>FEATURE_UNAVAILABLE</code></td>
+<td>200</td>
+<td>The feature is withheld from this account</td>
+</tr>
+<tr>
+<td><code>CONFLICT</code></td>
+<td>200</td>
+<td>Object not settled (§8.3), or a uniqueness clash</td>
+</tr>
+<tr>
+<td><code>RATE_LIMITED</code></td>
+<td>429</td>
+<td>§10.3. Carries <code>Retry-After</code></td>
+</tr>
+<tr>
+<td><code>QUERY_TOO_COMPLEX</code></td>
+<td>400</td>
+<td>§10.2</td>
+</tr>
+<tr>
+<td><code>INTERNAL</code></td>
+<td>200</td>
+<td>Anything else</td>
+</tr>
+</tbody>
+</table>
+<p><code>INTERNAL</code> never carries a message beyond "an internal error occurred" and a
+correlation id, unless <code>debug = true</code> in <code>config.php</code>. The correlation id is
+written to the panel's log with the full exception, so support can join the
+two without the client ever seeing a stack trace or a query.</p>
+<hr />
+<h2 id="10-performance-and-abuse-limits">10. Performance and abuse limits</h2>
+<h3 id="101-batching">10.1 Batching</h3>
+<p>The obvious shape — "list my customers, and for each their domain and its
+subdomains" — is an N+1 by default. graphql-php's <code>Deferred</code> and
+<code>SyncPromiseAdapter</code> give the DataLoader pattern without a dependency, and the
+plugin ships a small <code>BatchLoader</code> used by every one-to-many and many-to-one
+edge: customer→domain, domain→subdomains, domain→aliases, alias→subdomains,
+domain→mail accounts, customer→ftp users, database→sql users, and the reverse
+of each. A resolver that queries per parent is a defect, and §17 has a test
+that counts queries for a known document.</p>
+<h3 id="102-query-cost">10.2 Query cost</h3>
+<p><code>QueryDepth</code> (default 15) and <code>QueryComplexity</code> (default 1000) rules from
+graphql-php, both configurable. List fields declare a complexity proportional
+to their <code>limit</code>. Introspection is allowed by default and can be turned off;
+turning it off is noted in the documentation as obscurity, not security, since
+the SDL ships in the archive.</p>
+<h3 id="103-rate-limits">10.3 Rate limits</h3>
+<p>Per token, in a fixed window, counted in APCu (present and enabled in the
+reference box) with a database fallback when APCu is not available:</p>
+<table>
+<thead>
+<tr>
+<th>Bucket</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Queries</td>
+<td>120/minute</td>
+</tr>
+<tr>
+<td>Mutations</td>
+<td>30/minute</td>
+</tr>
+<tr>
+<td><code>tokenIssue</code></td>
+<td>5/minute per source IP, and 10/hour per username</td>
+</tr>
+</tbody>
+</table>
+<p>Exceeding a bucket returns <code>429</code> with <code>Retry-After</code>. The <code>tokenIssue</code> limit is
+separate and much tighter because it is the one unauthenticated field, and it
+is <em>in addition to</em> i-MSCP's <code>BruteForce</code> plugin, not instead of it.</p>
+<h3 id="104-cost-of-the-request-itself">10.4 Cost of the request itself</h3>
+<p>The panel bootstrap is not free — it builds a Slim application, a Zend
+translator, a navigation tree and a plugin manager on every request. The
+plugin cannot avoid it, but it can avoid adding to it: the parsed schema AST is
+cached to disk on first use and re-read from <code>var_export</code> output afterwards,
+so <code>BuildSchema</code> does not re-parse the SDL per request. The <code>last_used_at</code>
+stamp of §5.1 is written at most once per minute per token, not once per
+request.</p>
+<hr />
+<h2 id="11-observability">11. Observability</h2>
+<p><strong>The panel's own log.</strong> Every mutation calls <code>write_log()</code> with the same
+wording the equivalent page uses, so an administrator reading the panel's log
+sees API actions and UI actions in one list, and does not have to know which
+was which to understand what happened.</p>
+<p><strong>The audit table.</strong> <code>graphql_audit</code> (§15) records, per request: time,
+identity, token, source IP, operation name, the mutation field names invoked,
+the variables <strong>with every <code>Secret</code>-typed value replaced by <code>***</code></strong>, outcome,
+error code, and duration. <code>audit</code> in <code>config.php</code> selects <code>none</code>, <code>mutations</code>
+(the default) or <code>all</code>. Rows older than <code>audit_retention_days</code> are pruned.</p>
+<p>Redaction is by schema type, not by field-name heuristics: the request's
+variables are walked against the operation's argument types and anything typed
+<code>Secret</code> is replaced. A password cannot be logged by forgetting to add its
+field name to a list, because there is no list.</p>
+<p><strong>Nothing is sent anywhere.</strong> No telemetry, no external calls.</p>
+<hr />
+<h2 id="12-security">12. Security</h2>
+<p>The threat model is worth stating plainly, because it is more serious than a
+typical API's. This endpoint can create system users with shells, create
+databases and grant privileges on them, create mail accounts, and — for a
+reseller token — create customers, each of which is a system account. A stolen
+token is not a data breach; it is most of the way to a shell on a shared
+hosting server.</p>
+<table>
+<thead>
+<tr>
+<th>Threat</th>
+<th>Control</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Token theft in transit</td>
+<td>TLS required (§4), with revocation of any token sighted on a plaintext request</td>
+</tr>
+<tr>
+<td>Token theft at rest, server side</td>
+<td>Only a SHA-256 hash is stored; the secret exists in plaintext exactly once, in the creation response</td>
+</tr>
+<tr>
+<td>Token theft at rest, client side</td>
+<td>Expiry (default 365 days, settable per token), per-token revocation, <code>last_used_at</code>/<code>last_used_ip</code> shown in the panel so an unexpected use is visible</td>
+</tr>
+<tr>
+<td>Over-broad tokens</td>
+<td>Scopes (§7.2), which only narrow, never widen</td>
+</tr>
+<tr>
+<td>Token used from an unexpected place</td>
+<td>Optional per-token CIDR allow-list</td>
+</tr>
+<tr>
+<td>CSRF against the session path</td>
+<td>Three stacked controls (§5.2), or disable session auth</td>
+</tr>
+<tr>
+<td>Credential stuffing on <code>tokenIssue</code></td>
+<td>i-MSCP <code>BruteForce</code> plus a dedicated rate bucket (§10.3)</td>
+</tr>
+<tr>
+<td>Horizontal privilege escalation</td>
+<td>Ownership resolved before every operation, from the database, in one function (§6.3)</td>
+</tr>
+<tr>
+<td>Vertical privilege escalation</td>
+<td>Role read from the database per request, never from the token; no impersonation field exists</td>
+</tr>
+<tr>
+<td>Object enumeration</td>
+<td>Unreachable objects return <code>NOT_FOUND</code>, never <code>FORBIDDEN</code> (§6.3); opaque type-tagged ids (§3.5)</td>
+</tr>
+<tr>
+<td>Denial of service by query shape</td>
+<td>Depth and complexity limits (§10.2)</td>
+</tr>
+<tr>
+<td>Denial of service by volume</td>
+<td>Rate limits (§10.3)</td>
+</tr>
+<tr>
+<td>Information disclosure in errors</td>
+<td><code>INTERNAL</code> carries a correlation id only (§9)</td>
+</tr>
+<tr>
+<td>Secrets in logs</td>
+<td>Redaction by schema type (§11)</td>
+</tr>
+<tr>
+<td>Compromise of the whole feature</td>
+<td>An administrator can disable the plugin; a reseller can withdraw a customer's access; both revoke tokens</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Passwords</strong> are accepted in plaintext over TLS, as the panel's own login
+does, and are immediately hashed with the same functions the panel uses —
+<code>Crypt::apr1MD5()</code> for panel accounts, <code>Crypt::sha512()</code> for FTP. They are
+typed <code>Secret</code>, so they are unreadable and unloggable by construction.</p>
+<p><strong>SQL user creation</strong> is the sharpest edge, because it issues real <code>GRANT</code>
+statements. It reuses i-MSCP's own constraints unchanged: the 16-character
+name limit, the reseller-configured prefix policy, the host restriction, and
+the reserved database names.</p>
+<hr />
+<h2 id="13-plugin-layout">13. Plugin layout</h2>
+<p>Following <code>SGW_ApacheCache</code>, which is the most recent and the most complete of
+the reference plugins.</p>
+<pre><code>SGW_GraphQL.php               plugin class: install/update/uninstall, routes,
+                              service provider, event listeners
+info.php                      name, version, require_api 1.5.1, date
+config.php                    §14
+sql/                          001_create_graphql_tables.php, …
+
+src/                          PSR-4, iMSCP\Plugin\SGW_GraphQL\
+  Http/                       PSR-15 middleware: Tls, Cors, Authenticate,
+                              RateLimit, Audit; and the endpoint handler
+  Auth/                       TokenService, SessionIdentity, Identity, Scope
+  Security/                   OwnershipResolver, IdentityShim, Guard
+  Schema/                     SchemaFactory (SDL + AST cache), ResolverMap,
+                              GlobalId, scalar implementations
+  Resolver/                   one class per type; thin — they call Service/
+  Service/                    the business logic of §3.2: SubdomainService,
+                              MailService, FtpService, SqlService, DnsService,
+                              CustomerService, ResellerService, HostingPlanService
+  Repository/                 exec_query() wrappers and the batch loaders
+  Support/                    Provisioning status mapping, IDN, error factory
+
+schema/schema.graphql         the schema (§7). Shipped, and served at
+                              GET /api/graphql/schema
+
+frontend/                     panel pages (§16)
+  client/graphql_tokens.php
+  reseller/graphql_tokens.php  reseller/graphql.php
+  admin/graphql.php
+  common.php
+themes/default/view/…         templates for the above
+l10n/en_GB.php
+
+vendor/                       webonyx/graphql-php only, committed to the
+                              release archive but not to git (§3.3)
+
+docs/                         this document, and the client-facing API guide
+test/                         §17
+tools/                        deploy.sh, version.php, schema-check.php
+makefile.json                 clean / test / version / package
+upload-exclude.txt            keeps docs, test, tools out of the archive
+</code></pre>
+<p>There is no <code>backend/</code> directory, and that is worth noticing: unlike
+<code>SGW_ApacheCache</code> and <code>SGW_LetsEncrypt</code>, this plugin has no Perl module and
+installs no system configuration. All provisioning is delegated to i-MSCP's
+own backend modules through the status columns. Nothing here touches the
+server outside the database and the panel.</p>
+<p><strong>Packaging.</strong> <code>make.phar version &amp;&amp; make.phar package</code> produces
+<code>SGW_GraphQL.tgz</code>, with <code>vendor/</code> included and <code>composer.json</code> pinned to
+<code>platform.php = 7.3.33</code> so the archive can never be built against a newer PHP
+than the panel runs. <code>tools/version.php</code> is taken from <code>SGW_ApacheCache</code>
+unchanged.</p>
+<hr />
+<h2 id="14-configuration">14. Configuration</h2>
+<p><code>config.php</code>, read through <code>getConfigParam()</code>:</p>
+<pre><code class="language-php">return array(
+    'endpoint'                    =&gt; '/api/graphql',
+    'schema_endpoint'             =&gt; '/api/graphql/schema',
+
+    // Customers and resellers may use the API unless it is withdrawn (§6.2).
+    'allowed_by_default'          =&gt; true,
+
+    // Transport
+    'require_tls'                 =&gt; true,
+    'allowed_origins'             =&gt; array(),      // never '*'
+    'allow_session_auth'          =&gt; true,
+    'allow_password_grant'        =&gt; true,
+    'explorer'                    =&gt; false,        // GraphiQL at /api/graphql/explorer
+
+    // Tokens
+    'token_default_ttl_days'      =&gt; 365,
+    'token_max_ttl_days'          =&gt; 730,
+    'token_max_per_account'       =&gt; 10,
+
+    // Query cost
+    'introspection'               =&gt; true,
+    'max_query_depth'             =&gt; 15,
+    'max_query_complexity'        =&gt; 1000,
+    'max_page_size'               =&gt; 200,
+
+    // Rate limits, per minute unless stated
+    'rate_limit_queries'          =&gt; 120,
+    'rate_limit_mutations'        =&gt; 30,
+    'rate_limit_token_issue'      =&gt; 5,
+
+    // Observability
+    'audit'                       =&gt; 'mutations',  // none | mutations | all
+    'audit_retention_days'        =&gt; 90,
+    'debug'                       =&gt; false,        // error detail in responses
+
+    // The FTP home-directory check opens an FTP connection per call (§3.2).
+    'validate_ftp_home_dir'       =&gt; true
+);
+</code></pre>
+<hr />
+<h2 id="15-database">15. Database</h2>
+<p>Three tables, all owned by the plugin, all dropped on uninstall. No i-MSCP
+table is altered — a plugin that alters core tables cannot be uninstalled
+cleanly, and <code>SGW_ApacheCache</code> sets the precedent of keeping to its own.</p>
+<pre><code class="language-sql">CREATE TABLE IF NOT EXISTS `graphql_token` (
+    `token_id`     int(11) unsigned NOT NULL AUTO_INCREMENT,
+    `admin_id`     int(11) unsigned NOT NULL,
+    `name`         varchar(255) NOT NULL,
+    -- Shown in the panel so a user can tell their tokens apart, and the key
+    -- the lookup is done on. Not a secret.
+    `token_prefix` char(8) NOT NULL,
+    `token_hash`   char(64) NOT NULL,
+    `scopes`       varchar(1024) NOT NULL,
+    -- Comma-separated CIDRs, or NULL for no restriction.
+    `ip_allowlist` varchar(1024) DEFAULT NULL,
+    `created_at`   int(11) unsigned NOT NULL,
+    `expires_at`   int(11) unsigned DEFAULT NULL,
+    `last_used_at` int(11) unsigned DEFAULT NULL,
+    `last_used_ip` varchar(45) DEFAULT NULL,
+    `revoked_at`   int(11) unsigned DEFAULT NULL,
+    PRIMARY KEY (`token_id`),
+    UNIQUE KEY `graphql_token_prefix` (`token_prefix`),
+    KEY `graphql_token_admin_id` (`admin_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+-- One row per account whose API access differs from the default. Same shape
+-- as SGW_ApacheCache's apache_cache_perm, for the same reason.
+CREATE TABLE IF NOT EXISTS `graphql_perm` (
+    `admin_id` int(11) unsigned NOT NULL,
+    `allowed`  tinyint(1) NOT NULL DEFAULT '1',
+    PRIMARY KEY (`admin_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `graphql_audit` (
+    `audit_id`    bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+    `at`          int(11) unsigned NOT NULL,
+    `admin_id`    int(11) unsigned NOT NULL,
+    `token_id`    int(11) unsigned DEFAULT NULL,
+    `ip`          varchar(45) NOT NULL,
+    `operation`   varchar(255) DEFAULT NULL,
+    `fields`      varchar(1024) DEFAULT NULL,
+    -- Variables with every Secret-typed value already replaced (§11).
+    `variables`   mediumtext,
+    `outcome`     enum('ok','error') NOT NULL,
+    `error_code`  varchar(64) DEFAULT NULL,
+    `duration_ms` int(11) unsigned NOT NULL,
+    PRIMARY KEY (`audit_id`),
+    KEY `graphql_audit_at` (`at`),
+    KEY `graphql_audit_admin_id` (`admin_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+</code></pre>
+<p>Event listeners keep these in step with the panel: <code>onAfterDeleteCustomer</code> and
+<code>onAfterDeleteUser</code> delete that account's tokens, permission row and — after
+the retention period — its audit rows.</p>
+<hr />
+<h2 id="16-panel-pages">16. Panel pages</h2>
+<p>The API is the product, but it needs three small pages, and they follow the
+navigation-injection pattern of <code>SGW_ApacheCache::setupNavigation()</code>.</p>
+<p><strong><code>/client/graphql_tokens.php</code></strong> — under <em>Domains</em>. One row per token: name,
+prefix, scopes, created, expires, last used and from where. A create form
+(name, scopes, lifetime, optional CIDR list) that shows the secret <strong>once</strong>,
+with a clear statement that it will not be shown again, and a revoke button.
+Also a link to the endpoint and to the schema.</p>
+<p><strong><code>/reseller/graphql_tokens.php</code></strong> — the same, for the reseller's own tokens.</p>
+<p><strong><code>/reseller/graphql.php</code></strong> — under <em>Customers</em>. One row per customer, with a
+switch that grants or withdraws API access (§6.2), and a count of that
+customer's live tokens with a button to revoke all of them.</p>
+<p><strong><code>/admin/graphql.php</code></strong> — under <em>System tools</em>. The same grid for resellers,
+plus the effective configuration, plus a paged view of <code>graphql_audit</code>.</p>
+<p>The explorer, when enabled, is a fourth page rather than a bare route, so it
+inherits the panel's session and its navigation. Its GraphiQL assets are
+vendored into <code>themes/default/assets/</code>, not fetched from a CDN — the panel is
+frequently run on servers with no outbound access, and a control panel should
+not make requests to third parties.</p>
+<hr />
+<h2 id="17-testing">17. Testing</h2>
+<p>Four layers, and the reference plugins already establish where they live.</p>
+<p><strong>Unit</strong> (<code>test/unit/</code>, PHPUnit run under PHP 7.4 in the box). No database.
+The global-id codec round-trips, including rejection of a mismatched type tag.
+The status-string → <code>ProvisioningState</code> mapping, in both directions, over every
+status i-MSCP is known to write. The mail <code>mail_type</code> mapping, both ways, over
+all twelve values. The <code>hosting_plans.props</code> parser, as a property test:
+parse then re-emit must be byte-identical for every plan on the reference box
+and for generated inputs. Every input validator.</p>
+<p><strong>Forward compatibility</strong> (<code>test/lint/</code>). Every source file in the plugin lints
+under <strong>both</strong> <code>php7.4</code> and <code>php8.3</code>, one invocation per file. This is what
+holds §2.5's rule that the plugin costs nothing when the panel migrates: a
+construct removed in PHP 8 fails the suite on the day it is written rather than
+during the migration, and the <code>#[...]</code> attributes the plugin carries are
+verified to be comments on 7.4 and attributes on 8.3.</p>
+<p><strong>Core debt</strong> (<code>test/lint/</code>). Every <code>CORE-DEBT(Cn)</code> marker (§21.2) names an item
+that exists in §21, and the suite prints the current inventory so the debt is
+reported rather than merely recorded.</p>
+<p><strong>Schema</strong> (<code>test/schema/</code>). The SDL parses and <code>assertValid()</code> passes. Every
+field in the SDL has a resolver in the map or a working default — this is the
+test that recovers what §3.4 gave up by not having a class per type. Every
+<code>extensions.code</code> the code can emit is in the documented set of §9, and vice
+versa. A committed snapshot of the SDL must match, so a schema change is
+always a visible diff in review.</p>
+<p><strong>Authorisation</strong> (<code>test/authz/</code>, against a seeded database). A matrix: for
+every mutation, and for each of {owner, another customer of the same reseller,
+another reseller's customer, the owning reseller, another reseller,
+administrator}, assert the exact outcome. This is the test that matters most,
+and it is written before the resolvers it tests. It also asserts §6.5's first
+layer: no core helper is reached in a state that would let it exit.</p>
+<p><strong>Integration</strong> (<code>test/api/</code>, against the running box, in the style of
+<code>SGW_ApacheCache</code>'s <code>test/cache-matrix.sh</code>). Issue a token; create a customer;
+poll until settled; add a subdomain, a mail account, an FTP user, a database
+and a SQL user; assert each reaches <code>ok</code>; assert the vhost actually answers;
+delete everything; assert the database is back to where it started and no
+system user, maildir or vhost file is left behind. This is the test that would
+have caught the event-dispatch problem of §3.1, and it runs against a box with
+<code>SGW_ApacheCache</code> and <code>SGW_LetsEncrypt</code> installed for exactly that reason.</p>
+<p><strong>Query counting.</strong> The integration suite runs one representative deep
+document with a query log attached and asserts the count is below a threshold,
+so an N+1 regression (§10.1) fails a test rather than a customer's page load.</p>
+<hr />
+<h2 id="18-compatibility">18. Compatibility</h2>
+<p><code>Query.apiVersion</code> returns a semantic version for the <em>schema</em>, which moves
+independently of the plugin's own version in <code>info.php</code>.</p>
+<p>Within a major version: fields and types may be added; arguments may be added
+only as optional; nothing is removed or renamed; no field's type is narrowed;
+no enum value is removed; no <code>extensions.code</code> is removed. A field to be
+removed is marked <code>@deprecated(reason:)</code> for at least one minor version first,
+and the reason names its replacement.</p>
+<p>Enums are the sharp edge — adding a value is a breaking change for a client
+that switches exhaustively. New values will be added (i-MSCP grows DNS record
+types, and plugins add provisioning verbs), so every enum's description says
+so, and <code>ProvisioningState</code> is paired with <code>raw</code> (§7.1) precisely so a client
+can cope with a state it has never seen.</p>
+<hr />
+<h2 id="19-delivery">19. Delivery</h2>
+<p>Phases, each ending somewhere it is safe to stop and each independently
+reviewable. The implementation plan will expand these; here they exist to show
+the shape and to make the risk order explicit.</p>
+<p>There are two tracks. The plugin track is the deliverable; the core track is
+§21, and it runs alongside rather than blocking. The only hard ordering between
+them is phase 0.</p>
+<p><strong>Plugin track</strong></p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Phase</th>
+<th>Ends when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>PHP 7.4, then skeleton</td>
+<td>The panel runs on 7.4 (§2.5: two config values, no code changes) and the 21-page sweep of §17 is a committed test and green. Then: the plugin installs, uninstalls and appears in the panel; <code>sql/001</code> migrates up and down; <code>tools/deploy.sh</code> and the box are in the loop</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Walking skeleton</td>
+<td><code>POST /api/graphql</code> answers <code>{ viewer { username role } }</code> for a bearer token, end to end, with the middleware stack, the token table and the token UI in place. The riskiest integration points — routing, auth, the identity shim, the SDL cache — are all exercised by the smallest possible query</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Read model</td>
+<td>The whole customer graph reads: domains, subdomains, aliases, mail, FTP, SQL, DNS, quotas, provisioning. Batch loaders and the query-count test with it</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Customer mutations</td>
+<td>Subdomains, aliases, mail, FTP, SQL, DNS. The authorisation matrix is written first and stays green</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Reseller mutations</td>
+<td>Customers, hosting plans, alias approval, <code>customerSetState</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>Administrator mutations</td>
+<td>Resellers</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Hardening</td>
+<td>Rate limits, audit, complexity limits, the explorer, the client-facing API guide</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Release</td>
+<td>Packaging, <code>CHANGELOG.md</code>, README, version bump workflow</td>
+</tr>
+</tbody>
+</table>
+<p>Phase 1 is deliberately disproportionate. Every unknown in this document —
+whether the identity shim holds, whether <code>getRoutes()</code> will carry middleware,
+whether the SDL cache survives the panel's opcache, whether <code>showErrorPage()</code>
+can still escape — is resolved there, on one field, where it is cheap to be
+wrong.</p>
+<p><strong>Core track</strong> — §21, in <code>saygoweb/imscp</code>, each item independently useful to the
+panel whether or not this plugin ever ships. C1 and C2 are worth doing before
+plugin phase 3, because they delete design compromises rather than code. C3 is
+the long one and is best taken entity by entity, each one trailing the plugin
+mutation that duplicated it — write the duplicate, ship it, then extract and
+delete it, so the plugin's own tests are already covering the behaviour when
+core changes underneath it.</p>
+<p>The tracks are deliberately not interlocked. If the core track stalls, the
+plugin still works; it just carries more duplication for longer.</p>
+<hr />
+<h2 id="20-risks-and-open-questions">20. Risks and open questions</h2>
+<p><strong>Risks</strong></p>
+<ol>
+<li><strong>PHP 7.4 is also long past end of life.</strong> Moving off 7.3 does not fix
+   that; it buys the libraries this plugin needs and nothing else. The real
+   mitigation is the 8.3 migration of §2.5, and the risk is that 7.4 turns out
+   to be comfortable enough that 8.3 never happens. Reviewing it on a date
+   rather than on a feeling is the only defence — and the panel's unsupported
+   Roundcube 1.3.15 is a better forcing function than this plugin is.</li>
+<li><strong>Reimplemented logic drifts from the core.</strong> §3.2's transcription is
+   correct on the day it is written and silently rots when i-MSCP changes a
+   rule. This is the largest risk in the design and the reason §21 exists:
+   the retirement of each duplicate is the real mitigation, and the ones with
+   the highest drift risk are also the ones §21 schedules first. Until then:
+   each transcribed rule cites the page and line it came from, so a diff of
+   those pages between i-MSCP versions is a review checklist; the <code>CORE-DEBT</code>
+   markers of §21.2 make every duplicate greppable; and the integration suite
+   of §17 fails loudly when the backend stops accepting what the API writes.</li>
+<li><strong>The identity shim</strong> (§6.4) depends on undocumented <code>$_SESSION</code> keys. If
+   i-MSCP renames one, the API silently authorises as nobody. §17's
+   authorisation matrix catches it; a start-up assertion that the shim
+   round-trips catches it faster; and §21's C1 removes it altogether.</li>
+<li><strong><code>hosting_plans.props</code></strong> is 25 positional semicolon-delimited fields with
+   underscore-prefixed booleans. Getting it wrong creates a customer with the
+   wrong limits. §17 requires the round-trip property test.</li>
+<li><strong>The FTP home-directory check</strong> opens an FTP connection per call. On a
+   busy API this is a real cost and a real failure mode when ProFTPD is
+   restarting. §14 makes it switchable; the default may need to flip.</li>
+</ol>
+<p><strong>Open questions for review</strong></p>
+<ol>
+<li><strong>Is SDL-first the right call</strong>, or is the familiarity of the
+   <code>emdc-events</code> code-first idiom worth more than the reviewability argument in
+   §3.4? Still the decision most worth arguing about, and still the cheapest to
+   reverse before phase 2. Note that on PHP 7.4 the code-first route cannot use
+   <code>simpod/graphql-utils</code> alongside graphql-php v15 at all (§3.3), so choosing
+   it means either dropping to graphql-php v14 or writing the builders by hand.</li>
+<li>~~Should Anorm be used?~~ <strong>Answered in §3.3</strong>: yes, for the read models and
+   their batch loading, on the strength of Anorm v3's field-selection-aware
+   batch loaders; no, for writes. What remains open is narrower — whether two
+   idioms in one codebase is worth that, with the decision point at the start
+   of phase 2.</li>
+<li><strong>Scope granularity.</strong> Fourteen scopes (§7.2) may be more than anyone will
+   use. Three — <code>READ</code>, <code>WRITE</code>, <code>ADMIN</code> — would be simpler and harder to get
+   wrong. Adding scopes later is compatible; removing them is not.</li>
+<li><strong>Should a reseller token be able to act <em>as</em> one of its customers</strong>, or
+   only <em>on</em> them? The schema currently says "on": a reseller mutates a
+   customer's subdomain by naming it, and there is no impersonation. That is
+   safer, and §6.4's one-identity-per-request rule depends on it.</li>
+<li><strong>Alias ordering.</strong> i-MSCP lets a customer <em>order</em> an alias for reseller
+   approval, or create it outright, depending on configuration.
+   <code>domainAliasCreate</code> currently returns an object in either <code>PENDING</code> or
+   <code>ORDERED</code> accordingly. Is that transparent enough, or should ordering be a
+   separate mutation?</li>
+<li><strong>Traffic and disk history.</strong> §7 exposes current usage only. Is
+   <code>Domain.trafficHistory(from:, to:)</code> over <code>domain_traffic</code> wanted in version
+   1, or later?</li>
+<li><strong>Rate limit defaults.</strong> 120 queries and 30 mutations a minute is a guess.
+   What does the real client look like?</li>
+</ol>
+<hr />
+<h2 id="21-the-core-improvement-backlog">21. The core-improvement backlog</h2>
+<p>Every rule this plugin has to transcribe (§3.2) is a rule that exists twice.
+This section is the list of changes to <code>saygoweb/imscp</code> that make each of them
+exist once again.</p>
+<p>The framing matters, and it is the reason variant B was not chosen. Variant B's
+case was that a plugin cannot change core, so it must duplicate. True — but a
+plugin can change core <em>separately</em>. Each item below is worth doing to i-MSCP on
+its own merits, by someone who has never heard of this plugin; that it also
+lets the plugin delete a copy is the second payoff, not the justification.
+Written the other way round — "refactor the panel so my plugin is tidier" — none
+of these would be worth doing, and none would survive review.</p>
+<h3 id="211-the-list">21.1 The list</h3>
+<p>Ordered by ratio of value to risk. C1 and C2 are pure refactors that delete
+design compromises; C3 is the long one and is where most of the duplication
+actually lives.</p>
+<hr />
+<p><strong>C1 — Thread an explicit <code>$adminId</code> through the session-coupled helpers.</strong></p>
+<p><em>Change.</em> Add an optional trailing <code>$adminId</code> parameter, defaulting to
+<code>$_SESSION['user_id']</code>, to <code>customerHasFeature()</code>, <code>customerHasDomain()</code>,
+<code>customerSqlDbLimitIsReached()</code> (<code>gui/include/Client.php</code>),
+<code>resellerHasFeature()</code>, <code>resellerHasCustomers()</code> (<code>gui/include/Reseller.php</code>),
+and to <code>deleteSubdomain()</code>, <code>deleteSubdomainAlias()</code>, <code>deleteDomainAlias()</code>,
+<code>deleteCustomer()</code>, <code>delete_sql_database()</code>, <code>sql_delete_user()</code>,
+<code>change_domain_status()</code>. Key <code>customerHasFeature()</code>'s <code>static</code> cache by
+<code>$adminId</code> while you are there.</p>
+<p><em>Why i-MSCP wants it anyway.</em> The <code>static</code> cache at <code>gui/include/Client.php:84</code>
+is not keyed by user. Any page that asks about two different customers in one
+request gets the first one's answer for both — a latent bug in the panel today,
+not merely an inconvenience for an API. And a function that reads a superglobal
+cannot be tested; these are the functions most worth testing.</p>
+<p><em>What the plugin deletes.</em> §6.4, the identity shim, in its entirety — along
+with the one-identity-per-request rule it forces and open question 4, which
+only exists because of that rule.</p>
+<p><em>Shape.</em> Additive. Every one of the existing call sites is untouched.</p>
+<hr />
+<p><strong>C2 — Make the error-page helpers throw rather than <code>exit</code>.</strong></p>
+<p><em>Change.</em> <code>showErrorPage()</code> and its wrappers (<code>gui/include/View.php:932</code>) raise
+a typed exception. A handler registered by the page bootstrap catches it and
+renders exactly what is rendered today, so panel behaviour is unchanged.</p>
+<p><em>Why i-MSCP wants it anyway.</em> <code>exit()</code> inside a helper makes the surrounding
+code untestable and makes any non-HTML consumer of these functions impossible.
+The function already contains a JSON branch and an XML branch — the codebase has
+been half-admitting it has API-shaped callers for years, while keeping the one
+construct that guarantees they cannot work.</p>
+<p><em>What the plugin deletes.</em> §6.5 entirely: the pre-check discipline, the "comment
+naming the pre-check that makes this unreachable" convention, and the test that
+asserts the discipline holds. The shutdown guard is worth keeping regardless.</p>
+<p><em>Shape.</em> Additive if the handler is registered by the existing page bootstrap.</p>
+<hr />
+<p><strong>C3 — Extract the write logic from the page scripts into callable services.</strong></p>
+<p><em>Change.</em> One service per entity, taking an explicit identity and a typed input,
+throwing typed exceptions. The page keeps <code>$_POST</code> parsing, <code>set_page_message()</code>
+and <code>redirectTo()</code> and calls the service for everything between. No rule is
+redesigned on the way through; extraction is mechanical, and improvements are
+separate commits afterwards.</p>
+<p><em>Why i-MSCP wants it anyway.</em> <code>client/subdomain_add.php</code> is 582 lines, of which
+about 250 are business rules that cannot be tested, reused, or read without the
+form around them. The reseller's customer-creation flow carries state across
+three requests in <code>$_SESSION</code> (<code>user_add1.php</code>, <code>user_add2.php</code>,
+<code>user_add3.php</code>) for no reason other than that it was written as three forms.</p>
+<p><em>What the plugin deletes.</em> The bulk of §3.2 — its whole <code>Service\</code> write layer,
+entity by entity, replaced by a call into core.</p>
+<p><em>Order.</em> Smallest and most self-contained first, so the pattern is proven before
+the hard ones test it:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Service</th>
+<th>Extracted from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>SqlDatabaseService</code>, <code>SqlUserService</code></td>
+<td><code>sql_database_add.php</code>, <code>sql_user_add.php</code>, <code>sql_delete_user.php</code>, <code>sql_database_delete.php</code> — smallest, and synchronous, so no daemon in the loop</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>FtpUserService</code></td>
+<td><code>ftp_add.php</code>, <code>ftp_edit.php</code>, <code>ftp_delete.php</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>MailService</code></td>
+<td><code>mail_add.php</code>, <code>mail_edit.php</code>, <code>mail_delete.php</code>, <code>mail_catchall*.php</code>, <code>mail_autoresponder_*.php</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>SubdomainService</code></td>
+<td><code>subdomain_add.php</code>, <code>subdomain_edit.php</code>, <code>subdomain_delete.php</code>, <code>alssub_delete.php</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>DomainAliasService</code></td>
+<td><code>alias_add.php</code>, <code>alias_edit.php</code>, <code>alias_delete.php</code>, <code>reseller/alias.php</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>DnsRecordService</code></td>
+<td><code>dns_add.php</code>, <code>dns_edit.php</code>, <code>dns_delete.php</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>DomainService</code></td>
+<td><code>domain_edit.php</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>CustomerService</code></td>
+<td><code>reseller/user_add{1,2,3}.php</code>, <code>user_edit.php</code>, <code>user_delete.php</code>, <code>domain_status_change.php</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>HostingPlanService</code></td>
+<td><code>reseller/hosting_plan*.php</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>ResellerService</code></td>
+<td><code>admin/user_add*.php</code>, <code>user_edit.php</code>, <code>user_delete.php</code></td>
+</tr>
+</tbody>
+</table>
+<p><em>Shape.</em> Behaviour-preserving, one entity per pull request, with the panel page
+as the regression test: it exercised these rules before the extraction and must
+exercise them identically after.</p>
+<hr />
+<p><strong>C4 — A <code>hosting_plans.props</code> codec.</strong></p>
+<p><em>Change.</em> One class that parses and emits the 25 positional semicolon-delimited
+fields, with a round-trip property test. Replace the <code>explode()</code>/<code>list()</code> pairs
+that currently do it inline, of which <code>reseller/user_add3.php:133</code> is one.</p>
+<p><em>Why i-MSCP wants it anyway.</em> Twenty-five positional fields with
+underscore-prefixed booleans, parsed by hand in more than one place. Getting it
+wrong creates a customer with the wrong limits, silently. This is the highest
+ratio of latent-bug to lines-of-fix in the panel.</p>
+<p><em>What the plugin deletes.</em> Its own copy of the parser, and risk 4.</p>
+<hr />
+<p><strong>C5 — A canonical "every vhost this account owns" query.</strong></p>
+<p><em>Change.</em> One function returning the four-way union of <code>domain</code>, <code>subdomain</code>,
+<code>domain_aliasses</code> and <code>subdomain_alias</code> keyed by the <code>(type, id)</code> pair i-MSCP
+already uses everywhere. <code>SGW_ApacheCache</code>'s <code>getDomains()</code> is the shape.</p>
+<p><em>Why i-MSCP wants it anyway.</em> The panel builds this list ad hoc in
+<code>domains_manage.php</code>, in <code>ftp_add.php</code>'s domain selector, in <code>mail_add.php</code>'s,
+and elsewhere, each slightly differently — which is why alias subdomains
+intermittently go missing from one list and not another.</p>
+<p><em>What the plugin deletes.</em> Its own copy of the union, and the risk of disagreeing
+with the panel about what a customer owns.</p>
+<hr />
+<p><strong>C6 — Publish the provisioning status vocabulary.</strong></p>
+<p><em>Change.</em> Constants for the settled and pending status sets, and a helper that
+classifies an arbitrary status string, next to the existing
+<code>translate_dmn_status()</code>.</p>
+<p><em>Why i-MSCP wants it anyway.</em> Every plugin re-derives these sets — see
+<code>SGW_ApacheCache::SETTLED_STATUSES</code> and <code>PENDING_STATUSES</code> — and each one is a
+separate opportunity to miss a verb and treat an in-flight object as settled.</p>
+<p><em>What the plugin deletes.</em> The mapping table behind §7.1's <code>ProvisioningState</code>.</p>
+<hr />
+<h3 id="212-keeping-the-debt-visible">21.2 Keeping the debt visible</h3>
+<p>Duplication that nobody can find is duplication that never gets retired. Two
+mechanisms, both cheap:</p>
+<ol>
+<li><strong>A marker at every duplicate.</strong> Each transcribed rule carries</li>
+</ol>
+<p><code>php
+   // CORE-DEBT(C3): transcribed from gui/public/client/subdomain_add.php:274
+   //   Retire when SubdomainService lands in core.</code></p>
+<p>so <code>grep -rn 'CORE-DEBT'</code> is the current debt inventory, and the item it
+   belongs to is in the marker. §17 gains a test that every marker names an item
+   that exists in this section.</p>
+<ol start="2">
+<li><strong>An issue per item in <code>saygoweb/imscp</code>.</strong> C1–C6 are filed there, not here,
+   because that is where the work happens and where someone who has never read
+   this document will meet them. Each issue is written on i-MSCP's own terms —
+   the "why i-MSCP wants it anyway" paragraph above is the issue body, and the
+   plugin is a footnote.</li>
+</ol>
+<h3 id="213-what-this-is-not">21.3 What this is not</h3>
+<p>It is not a commitment to variant B by instalments. Variant B put the API's own
+code in core; this puts nothing there. What crosses over is only the business
+logic that was always core's to own, extracted in a form the panel itself uses.
+If every item here lands, the plugin still ships as a <code>.tgz</code>, still installs
+through the plugin manager, and is still removable — it simply stops carrying a
+second copy of the panel's rules.</p>
+<hr />
+<h2 id="appendix-a--what-was-measured">Appendix A — what was measured</h2>
+<p>Everything below was run inside the <code>imscp_debian_trixie</code> box on 2026-09-04,
+rather than inferred from a manifest.</p>
+<table>
+<thead>
+<tr>
+<th>Claim</th>
+<th>Method</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The panel runs PHP 7.3 on Debian 13</td>
+<td><code>php -v</code> in the box</td>
+<td><code>PHP 7.3.33-34+0~20260703.143+debian13~1</code> on Debian 13.6</td>
+</tr>
+<tr>
+<td>Required extensions are present</td>
+<td><code>php -m</code></td>
+<td><code>json</code>, <code>mbstring</code>, <code>pdo_mysql</code>, <code>openssl</code>, <code>sodium</code>, <code>apcu</code>, <code>intl</code> all present</td>
+</tr>
+<tr>
+<td><code>webonyx/graphql-php</code> v14 installs under 7.3</td>
+<td><code>composer install</code> with <code>platform.php = 7.3.33</code>, using the panel's own <code>composer.phar</code></td>
+<td>v14.11.10 installed</td>
+</tr>
+<tr>
+<td>SDL-first execution works under 7.3</td>
+<td><code>BuildSchema::build()</code> + <code>assertValid()</code> + <code>GraphQL::executeQuery()</code> on a three-type schema</td>
+<td><code>{"data":{"viewer":{…}}}</code></td>
+</tr>
+<tr>
+<td>Anorm v3.1.1 does not parse under 7.3</td>
+<td><code>php7.3 -l</code> over all 31 source files</td>
+<td>3 failures, all typed properties: <code>MangoQuery.php:19</code>, <code>SqlCondition.php:11</code>, <code>MangoQueryParser.php:11</code></td>
+</tr>
+<tr>
+<td>Removing those types is sufficient</td>
+<td>Same lint after stripping the 10 property type declarations</td>
+<td>All 31 files clean</td>
+</tr>
+<tr>
+<td>The box is reachable for deployment without a synced folder</td>
+<td><code>vagrant ssh-config</code> → <code>rsync</code> → <code>ssh … sudo sh -s</code></td>
+<td>Working; <code>tools/deploy.sh</code></td>
+</tr>
+<tr>
+<td>Panel services are up</td>
+<td><code>systemctl is-active imscp_panel nginx mariadb</code></td>
+<td>all <code>active</code></td>
+</tr>
+</tbody>
+</table>
+<p>Added during the 2026-09-04 review that produced the decisions in the header:</p>
+<table>
+<thead>
+<tr>
+<th>Claim</th>
+<th>Method</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>PHP 7.4 needs no changes at all</strong></td>
+<td>Unmodified <code>gui/</code> and unmodified 7.3-era <code>vendor/</code>, served under <code>php7.4</code>, swept 21 pages as admin, reseller and customer with a real session</td>
+<td>21 of 21 render; 0 deprecations; 0 syntax failures in panel code or in ZF1, idna-convert, Slim or Flysystem</td>
+</tr>
+<tr>
+<td><code>webonyx/graphql-php</code> v15 is available from 7.4</td>
+<td><code>composer update</code> with <code>platform.php = 7.4.33</code></td>
+<td>v15.37.2</td>
+</tr>
+<tr>
+<td><code>lcobucci/jwt</code> v4 is available from 7.4</td>
+<td>Same</td>
+<td>4.3.0 — so §3.3's rejection of JWT is a choice, not a constraint</td>
+</tr>
+<tr>
+<td><code>simpod/graphql-utils</code> cannot be had with v15 on 7.4</td>
+<td>Same</td>
+<td>0.5.0–0.5.3 pin graphql-php <code>^14</code>; 0.5.4 requires PHP <code>^8.0</code></td>
+</tr>
+<tr>
+<td>Anorm v3.1.1 runs unmodified from 7.4</td>
+<td><code>php7.4 -l</code> and <code>php8.3 -l</code>, one invocation per file</td>
+<td>31 files, 0 failures on both. The three typed-property files that fail on 7.3 are fine from 7.4</td>
+</tr>
+<tr>
+<td>Anorm has DataLoader-shaped batching</td>
+<td>Read <code>src/Relationship/BatchLoadingOrchestrator.php</code> and <code>BatchLoader/*</code></td>
+<td><code>loadRelationshipsForModels()</code> takes field-selection specs of the form <code>['posts', 'company:name,address']</code> — the shape of a GraphQL <code>ResolveInfo</code></td>
+</tr>
+<tr>
+<td>The panel also runs on 8.3, after a bounded set of fixes</td>
+<td>Built a PHP 8.3 tree: 3 dependency replacements, 25 <code>#[\ReturnTypeWillChange]</code>, 3 <code>#[\AllowDynamicProperties]</code>, <code>Serializable</code> → <code>__serialize</code>, 2 <code>(string)</code> casts, escaper and IDNA API changes; same 21-page sweep</td>
+<td>20 of 21 render; 0 deprecations; the one failure is <code>src/SystemInfo.php:501</code>, an admin-only diagnostics page</td>
+</tr>
+<tr>
+<td><code>shardj/zf1-future</code> covers the panel's Zend surface</td>
+<td>22 component checks on 8.3, 8.4 and 8.5</td>
+<td>All pass on all three; zero deprecations from ZF1</td>
+</tr>
+<tr>
+<td><code>#[...]</code> attributes are safe on 7.4 and 8.3 alike</td>
+<td><code>php7.4 -l</code> and <code>php8.3 -l</code> on the touched files</td>
+<td>Clean on both — a comment on PHP 7, an attribute on PHP 8, which is what lets §2.5's forward-compatibility rule work</td>
+</tr>
+</tbody>
+</table>
+<div class="colophon">
+  Facts about i-MSCP were read out of the source at commit 7d8788400.<br>
+  PHP, dependency and lint results were measured inside the running
+  imscp_debian_trixie box on 2026-09-04, not inferred &mdash; see Appendix A.<br>
+  Variant A of two. Variant B &mdash; the in-core design &mdash; is at
+  <a href="https://claude.ai/code/artifact/67c172f6-9833-4228-9a49-d817c2c5a1c0">https://claude.ai/code/artifact/67c172f6-9833-4228-9a49-d817c2c5a1c0</a>.<br>
+  Source: <code>docs/SPECIFICATION.md</code> in <code>saygoweb/imscp-graphql</code>.
+</div>
+</article></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/graphql.min.js"></script>
+<script>
+(function () {
+  if (window.hljs) {
+    document.querySelectorAll('pre code[class*="language-"]').forEach(function (el) {
+      try { hljs.highlightElement(el); } catch (e) { /* leave it plain */ }
+    });
+  }
+
+  // Mark the section being read in the index.
+  var links = {};
+  document.querySelectorAll('[data-nav]').forEach(function (a) {
+    (links[a.dataset.nav] = links[a.dataset.nav] || []).push(a);
+  });
+  var heads = document.querySelectorAll('.doc h2[id], .doc h3[id]');
+  if (!('IntersectionObserver' in window) || !heads.length) return;
+
+  var seen = new Set();
+  function paint() {
+    var first = null;
+    heads.forEach(function (h) { if (!first && seen.has(h.id)) first = h.id; });
+    Object.keys(links).forEach(function (k) {
+      links[k].forEach(function (a) { a.classList.toggle('current', k === first); });
+    });
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) seen.add(e.target.id); else seen.delete(e.target.id);
+    });
+    paint();
+  }, { rootMargin: '0px 0px -70% 0px' });
+  heads.forEach(function (h) { io.observe(h); });
+})();
+</script>
