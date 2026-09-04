@@ -1,0 +1,58 @@
+<?php
+/**
+ * i-MSCP SGW_GraphQL plugin
+ * Copyright (C) 2026 Cambell Prince <cambell.prince@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ */
+
+return array(
+    'endpoint'                => '/api/graphql',
+    'schema_endpoint'         => '/api/graphql/schema',
+
+    // Customers and resellers may use the API unless a reseller or an
+    // administrator withdraws it. Mirrors SGW_ApacheCache's permission model.
+    'allowed_by_default'      => true,
+
+    // Transport
+    'require_tls'             => true,
+    'allowed_origins'         => array(),   // never '*'
+    'allow_session_auth'      => true,
+    'allow_password_grant'    => true,
+
+    // Tokens
+    'token_default_ttl_days'  => 365,
+    'token_max_ttl_days'      => 730,
+    'token_max_per_account'   => 10,
+
+    // Query cost
+    'introspection'           => true,
+    'max_query_depth'         => 15,
+    'max_query_complexity'    => 1000,
+    'max_page_size'           => 200,
+
+    // Rate limits, per minute. Enforced from plan 4; the keys exist now so
+    // that operators who set them early are not surprised later.
+    'rate_limit_queries'      => 120,
+    'rate_limit_mutations'    => 30,
+    'rate_limit_token_issue'  => 5,
+
+    // Observability
+    'audit'                   => 'mutations',   // none | mutations | all
+    'audit_retention_days'    => 90,
+
+    // Error detail in responses. Never enable on a production panel.
+    'debug'                   => false
+);

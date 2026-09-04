@@ -1,0 +1,31 @@
+{
+    "variables": {
+        "name": "SGW_GraphQL",
+        "sudo": "sudo",
+        "bump": "patch"
+    },
+    "clean": {
+        "by": [
+            "rm -f ./*.tgz"
+        ]
+    },
+    "test": {
+        "by": [
+            "sh test/lint/all.sh",
+            "vendor/bin/phpunit --configuration test/phpunit.xml"
+        ]
+    },
+    "version": {
+        "by": [
+            "php tools/version.php {{bump}}"
+        ]
+    },
+    "package": {
+        "depends": [
+            "clean"
+        ],
+        "by": [
+            "tar -cvzf ./{{name}}.tgz --transform 's|./|{{name}}/|' -X upload-exclude.txt ./*"
+        ]
+    }
+}
