@@ -11,8 +11,7 @@
     },
     "test": {
         "by": [
-            "sh test/lint/all.sh",
-            "vendor/bin/phpunit --configuration test/phpunit.xml"
+            "tools/test.sh"
         ]
     },
     "version": {
