@@ -1,0 +1,64 @@
+# SGW_GraphQL — the i-MSCP API schema.
+#
+# Phase 1 carries the viewer slice only. See docs/SPECIFICATION.md section 7
+# for the full schema this grows into.
+
+schema {
+  query: Query
+}
+
+"ISO-8601 instant in UTC, e.g. 2026-09-04T11:00:00Z."
+scalar DateTime
+
+"An email address."
+scalar EmailAddress
+
+"""
+A write-only value. Never appears in a response, and is redacted from the audit
+log. Passwords are of this type.
+"""
+scalar Secret
+
+enum Role {
+  ADMIN
+  RESELLER
+  CUSTOMER
+}
+
+"""
+A scope narrows what a credential may do; it never widens it. New values are
+added over time, so a client must tolerate one it has not seen.
+"""
+enum Scope {
+  ACCOUNT_READ
+  DOMAINS_READ
+  DOMAINS_WRITE
+  MAIL_READ
+  MAIL_WRITE
+  FTP_READ
+  FTP_WRITE
+  SQL_READ
+  SQL_WRITE
+  DNS_READ
+  DNS_WRITE
+  CUSTOMERS_READ
+  CUSTOMERS_WRITE
+  RESELLERS_READ
+  RESELLERS_WRITE
+}
+
+"The account this request is acting as."
+type Viewer {
+  id: ID!
+  username: String!
+  role: Role!
+  email: EmailAddress
+  "The scopes the presented credential carries, which may be narrower than the role."
+  scopes: [Scope!]!
+}
+
+type Query {
+  "The schema version this endpoint serves. See docs/SPECIFICATION.md section 18."
+  apiVersion: String!
+  viewer: Viewer!
+}
