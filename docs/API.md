@@ -171,7 +171,9 @@ HTTP will leak the token on the wire — there is no reason to send credentials
 to it at all, so don't.
 
 The schema grows additively and will keep doing so: fields and types are
-added, and enums gain values (`Scope` and `Role` both say so in their own
-descriptions). A client must not treat an unrecognised enum value as an
-error — decode what you understand and pass the rest through, the way you
+added, and enums may gain values. `Scope` says so in its own description and
+is the one most likely to grow, as API features are added; `Role` mirrors the
+panel's three account types and is not expected to grow, but asks the same
+tolerance of you anyway. A client must not treat an unrecognised enum value as
+an error — decode what you understand and pass the rest through, the way you
 would for any field you have not started using yet.

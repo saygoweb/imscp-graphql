@@ -20,8 +20,11 @@ log. Passwords are of this type.
 scalar Secret
 
 """
-The account's tier within the panel. New values are added over time, so a
-client must tolerate one it has not seen.
+The account's tier within the panel, read from the database on every request
+so that a demotion takes effect at once. These three mirror the panel's own
+account types; unlike Scope, this enum is not expected to grow. A client
+should still tolerate an unfamiliar value rather than fail on it, because an
+enum in this schema may only ever gain members, never change or lose them.
 """
 enum Role {
   ADMIN
