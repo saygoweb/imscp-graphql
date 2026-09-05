@@ -24,7 +24,7 @@
         "ext-mbstring": "*",
         "ext-pdo": "*",
         "webonyx/graphql-php": "^15.0",
-        "saygoweb/anorm": "^3.1"
+        "saygoweb/anorm": "^3.1.2"
     },
     "require-dev": {
         "phpunit/phpunit": "^9.6",
