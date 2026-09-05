@@ -21,6 +21,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Http;
  */
 
 use GraphQL\Error\DebugFlag;
+use GraphQL\Error\Error;
 use GraphQL\GraphQL;
 use GraphQL\Validator\DocumentValidator;
 use GraphQL\Validator\Rules\DisableIntrospection;
@@ -119,7 +120,11 @@ final class GraphQLHandler
                 } else {
                     $formatted = array(
                         'message'    => $error->getMessage(),
-                        'extensions' => array('code' => ErrorCode::BAD_USER_INPUT)
+                        'extensions' => array(
+                            'code' => $this->isDepthOrComplexityBreach($error)
+                                ? ErrorCode::QUERY_TOO_COMPLEX
+                                : ErrorCode::BAD_USER_INPUT
+                        )
                     );
                 }
 
@@ -237,6 +242,34 @@ final class GraphQLHandler
                 ? DisableIntrospection::DISABLED
                 : DisableIntrospection::ENABLED
         ));
+    }
+
+    /**
+     * graphql-php's QueryDepth and QueryComplexity rules (see
+     * vendor/webonyx/graphql-php/src/Validator/Rules/QueryDepth.php and
+     * QueryComplexity.php, v15.37.2 — the version pinned by composer.lock at
+     * the time this was written) report a breach by calling
+     * `$context->reportError(new Error($message))`. That `Error` carries no
+     * previous exception and no code or class of its own to key off; the
+     * message text built by each rule's own public static
+     * `maxQueryDepthErrorMessage()` / `maxQueryComplexityErrorMessage()`
+     * method is the only signal either rule exposes. There is nothing more
+     * stable to bind to, so this isolates that coupling in one place: if a
+     * future graphql-php release reworks the wording, this is the method
+     * that breaks and needs updating, not a conditional buried in the
+     * formatter.
+     *
+     * Both templates share the shape "Max query <thing> should be <max> but
+     * got <count>." — matched structurally rather than against a copied
+     * literal so a change to either rule's configured limit does not require
+     * touching this regular expression.
+     */
+    private function isDepthOrComplexityBreach(Error $error): bool
+    {
+        return (bool)preg_match(
+            '/^Max query (?:depth|complexity) should be \d+ but got \d+\.$/',
+            $error->getMessage()
+        );
     }
 
     /**

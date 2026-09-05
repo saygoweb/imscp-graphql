@@ -211,8 +211,63 @@ class GraphQLHandlerTest extends TestCase
             ->withAttribute('identity', $this->identity());
 
         $response = $handler($request, new Response(), []);
+        $body = json_decode((string)$response->getBody(), true);
 
         self::assertSame(400, $response->getStatusCode());
+        self::assertSame(
+            'QUERY_TOO_COMPLEX', $body['errors'][0]['extensions']['code'],
+            (string)$response->getBody()
+        );
+    }
+
+    public function testAnOverComplexQueryIsRefused(): void
+    {
+        // 0 is QuerySecurityRule::DISABLED, not "breach on anything above
+        // zero" — passing it turns the rule off rather than tightening it
+        // (QuerySecurityRule::isEnabled() checks `!== self::DISABLED`), so
+        // this needs a real positive limit undercut by a real query. Every
+        // non-introspection field costs 1 by default (see
+        // QueryComplexity::nodeComplexity()'s "$childrenComplexity + 1"
+        // fallback): 'apiVersion' costs 1 and 'viewer { username }' costs 2
+        // (1 for username, +1 for viewer), for a total of 3 against a limit
+        // of 1.
+        $handler = $this->handler(['maxQueryComplexity' => 1]);
+
+        $env = Environment::mock([
+            'REQUEST_METHOD' => 'POST', 'REQUEST_URI' => '/api/graphql',
+            'CONTENT_TYPE' => 'application/json',
+        ]);
+        $stream = fopen('php://temp', 'r+');
+        fwrite($stream, json_encode(['query' => '{ apiVersion viewer { username } }']));
+        rewind($stream);
+        $request = Request::createFromEnvironment($env)
+            ->withBody(new \Slim\Http\Stream($stream))
+            ->withAttribute('identity', $this->identity());
+
+        $response = $handler($request, new Response(), []);
+        $body = json_decode((string)$response->getBody(), true);
+
+        self::assertSame(400, $response->getStatusCode());
+        self::assertSame(
+            'QUERY_TOO_COMPLEX', $body['errors'][0]['extensions']['code'],
+            (string)$response->getBody()
+        );
+    }
+
+    public function testAnOrdinaryValidationFailureIsStillBadUserInput(): void
+    {
+        // The control for the two tests above: an unknown field is a
+        // validation failure with no previous Throwable, exactly like a
+        // depth or complexity breach, but it is not one of those rules. If
+        // the handler mapped every codeless validation error to
+        // QUERY_TOO_COMPLEX instead of recognising the specific rules, this
+        // would fail alongside them passing.
+        $body = json_decode(
+            (string)$this->post('{ viewer { thisFieldDoesNotExist } }')->getBody(), true
+        );
+
+        self::assertArrayHasKey('errors', $body, (string)json_encode($body));
+        self::assertSame('BAD_USER_INPUT', $body['errors'][0]['extensions']['code']);
     }
 
     public function testIntrospectionCanBeTurnedOff(): void

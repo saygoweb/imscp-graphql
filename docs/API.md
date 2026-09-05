@@ -115,7 +115,7 @@ the compatibility contract — a code is never removed within a major version.
 | `INTERNAL` | 200 | A resolver raised once the document was already executing — `data` is present alongside `errors`, so a real result exists | Safe to retry; if it persists, report the correlation id in the message (only present when the fault is genuinely on this side) |
 | `INTERNAL` | 500 | The request failed before the document ran at all — a wiring fault, not something the query caused | Safe to retry; report the correlation id if one is present |
 
-Three of those rows — `LIMIT_EXCEEDED`, `FEATURE_UNAVAILABLE`, `CONFLICT` and
+Four of those rows — `LIMIT_EXCEEDED`, `FEATURE_UNAVAILABLE`, `CONFLICT` and
 the rate limiter behind `RATE_LIMITED` — are part of the closed vocabulary the
 schema commits to, but nothing in the current schema triggers them yet: there
 are no mutations, no quotas and no rate limiting in phase 0–1. They are listed

@@ -430,9 +430,24 @@ DEEP_BODY=$(api "$TOKEN" "$DEEP")
 # limit that never fires — both of which answer 200. The message is asserted
 # as well as the status, because a 400 alone would also be produced by a
 # malformed generated document, and that would pass for the wrong reason.
+#
+# extensions.code is asserted too, and is the check that actually matters:
+# task-17's review found that the handler derived extensions.code from the
+# error's previous exception and QueryDepth/QueryComplexity raise a plain
+# Error with none, so every breach fell through to BAD_USER_INPUT while this
+# script kept passing on the message text alone. QUERY_TOO_COMPLEX is part of
+# the documented compatibility contract (docs/API.md, SPECIFICATION.md §9 and
+# §18); a client branching on it must actually be able to see it fire. The
+# message check is kept alongside it — it is what pins this down to the
+# depth rule specifically, since the code alone would also be produced by a
+# complexity breach (this schema excludes __schema from complexity scoring,
+# so this particular document cannot trip that rule instead, but the message
+# still documents which one is under test).
 check "a query past the depth limit is 400" "400" "$(api_status "$TOKEN" "$DEEP")"
 check_contains "and it is the depth rule that refused it" \
       "Max query depth should be" "$DEEP_BODY"
+check_contains "and extensions.code is QUERY_TOO_COMPLEX, not BAD_USER_INPUT" \
+      '"code":"QUERY_TOO_COMPLEX"' "$DEEP_BODY"
 
 echo
 echo "Scopes:"
