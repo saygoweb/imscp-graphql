@@ -4,12 +4,16 @@ A GraphQL API for i-MSCP. A customer, reseller or administrator authenticates
 as themselves and performs, over HTTP, the operations the panel would let them
 perform in its web interface — and only those.
 
-**Status: specification accepted; implementation follows.** Built as an i-MSCP
-plugin, targeting **PHP 7.4** (the panel moves off 7.3 first; 8.3 later).
+**Status: phase 1 complete.** An authenticated endpoint serving `viewer`.
+Read and write operations follow — see
+[the plan](docs/superpowers/plans/2026-09-04-graphql-plugin-phase-0-1.md) for
+what is next.
 
 * [Specification](docs/SPECIFICATION.md) — the design, and the reasoning
   behind it. §21 is the backlog of i-MSCP improvements that retire the
   duplication this design starts with.
+* [API](docs/API.md) — a client-facing guide to what phase 0–1 actually
+  shipped: the endpoint, authentication, tokens, scopes, and the error model.
 * [In-core variant](docs/SPECIFICATION-IN-CORE.md) — the alternative that was
   considered and not adopted, retained for its reasoning.
 * [Development](docs/DEVELOPMENT.md) — the Vagrant box, deployment, tests.
@@ -53,10 +57,11 @@ and [§8.2](docs/SPECIFICATION.md#82-mutations-return-intent-not-completion).
 ## How to Help
 
 The [core-improvement backlog](docs/SPECIFICATION.md#21-the-core-improvement-backlog)
-is the most useful place to start: six changes to
+is the most useful place to start: nine changes to
 [saygoweb/imscp](https://github.com/saygoweb/imscp) that are worth making to the
-panel on their own merits, and that each let this plugin delete a duplicated
-copy of a rule. The specification's
+panel on their own merits — six that let this plugin delete a duplicated copy
+of a rule, and three (found by testing the deployed core during phase 0–1)
+that are simply defects in i-MSCP itself. The specification's
 [open questions](docs/SPECIFICATION.md#20-risks-and-open-questions) are where the
 design is least settled.
 

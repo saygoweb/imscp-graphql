@@ -97,6 +97,29 @@ make.phar test          # unit and schema tests, inside the box
 test/api/smoke.sh       # integration, against the running box
 ```
 
+`make.phar test` runs `tools/test.sh`, which pushes the tree over `vagrant ssh`
+and runs the lint script and the PHPUnit suite inside the box — see the note
+above about why the box, not the host: the host has no PHP 7.4.
+
+`test/api/smoke.sh` is different in kind: it drives the *deployed* endpoint
+over HTTPS exactly as a real client would, rather than exercising the code in
+isolation. It needs the plugin already installed and enabled on a running box
+— `tools/deploy.sh` gets you there — plus SSH access to that box (it reads
+`vagrant ssh-config` itself) and at least one customer account for it to mint
+tokens against. It mints and deletes its own tokens, and restores whatever
+`api_perm` row it found beforehand, so a normal run leaves the box exactly as
+it found it; run it against a box you don't mind touching regardless, since a
+run killed hard enough to skip its cleanup leaves tokens named
+`smoke-run-%` behind for the next run to sweep up.
+
+```shell
+test/api/smoke.sh                        # against imscp_debian_trixie
+test/api/smoke.sh imscp_debian_bookworm  # or another box
+```
+
+Set `IMSCP_VAGRANT_DIR` the same way as for `tools/deploy.sh` if the i-MSCP
+repository is not at `../imscp`.
+
 ## Reference plugins
 
 Three sibling repositories are worth reading before writing anything here.

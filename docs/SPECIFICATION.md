@@ -440,6 +440,31 @@ token presented on such a request is revoked and its owner is told. That is
 harsh, and it is correct: the alternative is a token that has been sighted by
 every hop in between and is still valid.
 
+In the shipped deployment this revocation is a defence in depth, not a control
+that fires against a client using `http://` today: nginx 302-redirects plain
+HTTP to HTTPS before PHP runs at all, so the middleware never sees such a
+request, and the behaviour above is verified in-process instead. The control
+exists for a front end that is misconfigured or absent — a reverse proxy
+terminating TLS elsewhere, a direct FPM bind — and in the standard install the
+redirect gets there first. Do not read this as protection against a client
+that actually sends `http://` today: the secret has already crossed the wire
+in clear by the time either mechanism acts.
+
+**The schema route sits outside this pipeline, deliberately.** `GET
+/api/graphql/schema` passes through none of the TLS, CORS or authentication
+middleware above; it serves the SDL as `text/plain` to anyone who asks, over
+plain HTTP if that is what is sent. That is by design: the SDL is "for
+tooling" (see the table above), introspection defaults to `true`
+(`config.php`), so this design does not treat the schema as secret, and an
+unauthenticated client presents no credential for the route to leak. Two
+consequences follow from the omission. First, the route carries no CORS
+headers, so browser-based tooling running on another origin cannot read it —
+a client wanting that must ship the SDL alongside itself rather than fetching
+it live. Second, a client that sends an `Authorization` header to the schema
+endpoint over plain HTTP leaks a bearer token that `TlsMiddleware` would
+otherwise have revoked, because that middleware is exactly what this route
+does not pass through.
+
 ---
 
 ## 5. Authentication
@@ -1862,6 +1887,117 @@ classifies an arbitrary status string, next to the existing
 separate opportunity to miss a verb and treat an in-flight object as settled.
 
 *What the plugin deletes.* The mapping table behind §7.1's `ProvisioningState`.
+
+---
+
+C7, C8 and C9 differ from C1–C6 in kind, not just number: they were found
+during phase 0–1 by replaying real requests through the deployed core, not by
+reading source, and each is a defect in i-MSCP itself that this plugin merely
+tripped over rather than a rule this plugin duplicates. That provenance is
+worth stating plainly, because it is the argument for why they are credible —
+none of the three is a theoretical reading of the code.
+
+**C7 — Plugin route middleware cannot be attached, in either shape the core
+offers.**
+
+*Defect.* `PluginRoutesInjector::injectRoute()`
+(`gui/src/Plugin/PluginRoutesInjector.php:214`) reads a plain route's
+`middleware` key with `isset($routeSpec['middleware'])`, but `$routeSpec` is
+not defined in that method's scope — its own parameter is `$spec`; `$routeSpec`
+is the loop variable belonging to `injectRouteGroup()` one frame up
+(line 156), which called `injectRoute()` with `$spec`, not with `$routeSpec`.
+`isset()` on an undefined variable is silently `false` under both PHP 7.4 and
+8.3, so the key advertised in `AbstractPlugin`'s own docblock is never applied
+and no warning is raised. The documented alternative fares no better:
+`injectRouteGroup()` hands `Slim\App::group()` a closure that calls
+`$this->injectRoute(...)`, relying on `$this` inside that closure meaning the
+injector — but `Slim\RouteGroup::__invoke()` (`vendor/slim/slim/Slim/RouteGroup.php`)
+rebinds the closure to the `App` before calling it, so the call inside becomes
+`App->injectRoute()`, which does not exist, and Slim's `__call()` throws
+`BadMethodCallException`. Both halves were confirmed against the deployed core
+with a request replayed through the real dispatch path, not inferred from
+reading the source.
+
+*Consequence.* Every plugin that wants route-level middleware must currently
+bake it into its own handler by hand, as this plugin does in
+`Api\Container::routeHandler()`. The security shape is worth naming: a plugin
+that trusts the advertised `middleware` key ships an endpoint with no
+middleware at all, and is given no indication — no warning, no exception —
+that this has happened.
+
+*What the plugin does instead.* `Container::routeHandler()` collapses the
+whole middleware stack into the single callable the route spec calls its
+`handler`, so the router is never asked to attach middleware at all. This item
+would let that workaround be deleted once either code path in core is fixed.
+
+---
+
+**C8 — `TemplateEngine` re-scans its own substituted output, so any
+user-controlled string can hang a request.**
+
+*Defect.* `TemplateEngine::substitute_dynamic()` (`gui/src/TemplateEngine.php`)
+sets `$startFrom = $curlB - 1` immediately after a substitution (lines 558 and
+568), rewinding to just before the text it has just inserted, with the core's
+own comment "new value may also begin with `'{'`". That is deliberate, so that
+a substituted value which is itself a placeholder reference gets expanded too.
+But `tohtml()` (`gui/include/Input.php:118`) escapes only the characters HTML
+gives special meaning — `<`, `>`, `&`, `"`, `'` — and leaves `{` and `}` alone,
+because neither is special to HTML. So a user-controlled value containing
+`{SOMETHING}` is handed back to the scanner and re-expanded, and a value that
+substitutes to itself is the same length after every pass: no memory growth,
+nothing for a resource limit to catch, pure CPU until `max_execution_time`
+finally intervenes.
+
+*Consequence.* This is a whole-panel hazard, not a plugin one, and it has gone
+unnoticed until now because the core's own free-form fields are
+character-restricted; this plugin's token names were the first 255-character
+unconstrained user string the panel renders back to its owner. Two impacts
+follow. The page that renders the hostile value can no longer be loaded at
+all, so the account that set it cannot undo the damage through the UI it
+broke — the only way out is a direct database edit. And a value that happens
+to name a real template placeholder renders that other variable's contents in
+the wrong place, which is a narrow information leak on top of the denial of
+service.
+
+*Recommendation.* Fix it at `tohtml()`, not at every caller: have it strip or
+escape `{` and `}` (or have `substitute_dynamic()` refuse to rewind into text
+it has already substituted). Either covers every current and future caller in
+one place, which is exactly what this plugin cannot do from outside core — it
+can only reject the character at the one point it controls, `TokenService::issue()`.
+
+---
+
+**C9 — A server-wide `add_header Cache-Control public` contradicts the
+session cache limiter.**
+
+*Defect.* The frontend nginx template sets `add_header Cache-Control public;`
+at the `http` block level (`configs/debian/default/frontend/nginx.nginx:56`),
+beside the `gzip_*` directives rather than inside any static-asset `location`.
+nginx's `add_header` is inherited by every server and location block that does
+not set its own, so this directive reaches every response the panel serves,
+API and page alike. PHP's session module already emits its own
+`Cache-Control: no-store, no-cache, must-revalidate` on any request that
+starts a session, so an authenticated page ends up carrying **two
+contradictory `Cache-Control` header lines** — verified on the wire against
+the deployed core, not assumed from reading the template.
+
+*Consequence.* The practical exposure is bounded today: per RFC 9111, a
+`no-store` anywhere in a combined directive list wins, and every authenticated
+panel page starts a session, so the harsher directive is the one a compliant
+cache honours. But a response that never starts a session gets `public` alone
+with nothing to contradict it, and a plugin that sets its own `no-store` — as
+this one does on every API response and on every panel response that displays
+a token secret — is relying on conflicting-directive resolution in whichever
+cache sits between it and the client, rather than on the header actually
+saying one consistent thing.
+
+*Recommendation.* Scope the directive to the static-asset locations it was
+presumably meant for, rather than the `http` block. That is a template
+change, not a plugin change; nothing here can be fixed from outside core.
+
+**Numbering note.** Phase 2's plan reserves C7 for a different item (batched
+counting). C7–C9 above land first, in phase 0–1's own release, so phase 2's
+entry must be renumbered when that plan executes; it is not added here.
 
 ---
 
