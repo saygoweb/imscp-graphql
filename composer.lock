@@ -8,19 +8,20 @@
     "packages": [
         {
             "name": "saygoweb/anorm",
-            "version": "v3.1.1",
+            "version": "v3.1.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/saygoweb/anorm.git",
-                "reference": "13f7268f4cfcc0ea7029ea3f9d5d8d6f4d6cb6f8"
+                "reference": "83a421eec20f2b7979c74efc5ee7b99fa82e0dfa"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/saygoweb/anorm/zipball/13f7268f4cfcc0ea7029ea3f9d5d8d6f4d6cb6f8",
-                "reference": "13f7268f4cfcc0ea7029ea3f9d5d8d6f4d6cb6f8",
+                "url": "https://api.github.com/repos/saygoweb/anorm/zipball/83a421eec20f2b7979c74efc5ee7b99fa82e0dfa",
+                "reference": "83a421eec20f2b7979c74efc5ee7b99fa82e0dfa",
                 "shasum": ""
             },
             "require": {
+                "php": "^7.4 || ^8.0",
                 "wp-cli/php-cli-tools": "^0.11.10"
             },
             "require-dev": {
@@ -53,9 +54,9 @@
             "description": "Another ORM for PHP",
             "support": {
                 "issues": "https://github.com/saygoweb/anorm/issues",
-                "source": "https://github.com/saygoweb/anorm/tree/v3.1.1"
+                "source": "https://github.com/saygoweb/anorm/tree/v3.1.2"
             },
-            "time": "2026-05-03T23:42:13+00:00"
+            "time": "2026-09-05T12:11:00+00:00"
         },
         {
             "name": "webonyx/graphql-php",
