@@ -46,6 +46,15 @@ FAILED=0
 PERM_INITIAL=    # 'none', or the allowed value api_perm held before we started
 CLEANED=0
 
+# Where PERM_INITIAL is written, durably, just before the withdrawal check
+# mutates api_perm. A run killed too hard to run its own EXIT trap (SIGKILL,
+# a power cut, a host lockup) between that mutation and the restore leaves
+# the row behind; without this file the next run would read that leftover
+# row as the account's genuine prior state and preserve it forever. Named
+# after the box, so two runs against different boxes cannot tread on each
+# other's marker.
+MARKER_FILE="${TMPDIR:-/tmp}/sgw-smoke.perm-marker.$BOX"
+
 # The ledger of minted token ids, one per line. A file rather than a variable
 # because mint() is called from a command substitution, which is a subshell:
 # anything it assigned to a variable would be lost the moment it returned, and
@@ -119,16 +128,27 @@ cleanup() {
 " ;;
     esac
 
-    [ -z "$statements" ] && return
+    if [ -z "$statements" ]; then
+        # Nothing to restore, so nothing this run could have left half-done
+        # in api_perm either.
+        rm -f "$MARKER_FILE"
+        return
+    fi
 
     echo
     echo "Clean up:"
 
     if sql "$statements" >/dev/null 2>&1; then
         pass "the box is back as it was found"
+        # The restore above just did, by hand, what MARKER_FILE exists to
+        # survive a kill through. Once it has succeeded, the marker's job is
+        # done.
+        rm -f "$MARKER_FILE"
     else
         printf '  FAIL  could not clean up. Remove by hand:\n%s' "$statements" >&2
         FAILED=$((FAILED + 1))
+        # MARKER_FILE deliberately left in place: the restore above just
+        # failed, so the next run must still repair api_perm from it.
     fi
 }
 
@@ -167,6 +187,27 @@ ADMIN_NAME=$(sql "SELECT admin_name FROM admin WHERE admin_id = $ADMIN_ID;")
 # Whatever a previous run was killed before removing. Scoped to this account
 # and to this script's own name prefix, so no fixture token can be caught.
 sql "DELETE FROM api_token WHERE admin_id = $ADMIN_ID AND name LIKE '${NAME_PREFIX}%';" >/dev/null
+
+# The same idea applied to api_perm: if MARKER_FILE is still here, a previous
+# run was killed too hard to reach its own EXIT trap, between writing the
+# withdrawal row and restoring it. Repair the row from the marker's record of
+# what the account looked like before that run started, *before* reading the
+# live table below as this run's baseline — otherwise the leftover row would
+# be read as the account's genuine prior state and preserved forever.
+if [ -f "$MARKER_FILE" ]; then
+    marker_admin=$(sed -n '1p' "$MARKER_FILE")
+    marker_state=$(sed -n '2p' "$MARKER_FILE")
+    if [ -n "$marker_admin" ]; then
+        case "$marker_state" in
+            none) sql "DELETE FROM api_perm WHERE admin_id = $marker_admin;" >/dev/null \
+                      || die "could not repair api_perm left by a killed run (admin_id $marker_admin)" ;;
+            ?*) sql "INSERT INTO api_perm (admin_id, allowed) VALUES ($marker_admin, $marker_state) ON DUPLICATE KEY UPDATE allowed = $marker_state;" >/dev/null \
+                      || die "could not repair api_perm left by a killed run (admin_id $marker_admin)" ;;
+        esac
+        echo "Repaired api_perm left behind by a run killed mid-withdrawal (admin_id $marker_admin)."
+    fi
+    rm -f "$MARKER_FILE"
+fi
 
 PERM_INITIAL=$(sql "SELECT allowed FROM api_perm WHERE admin_id = $ADMIN_ID;")
 [ -n "$PERM_INITIAL" ] || PERM_INITIAL=none
@@ -412,13 +453,15 @@ echo "Credential lifecycle:"
 # verify() honouring the column, not the writer that set it.
 ISSUED=$(mint revoked '[]' 1 'null') || die "could not mint the token to revoke"
 REVOKED=${ISSUED#* }
-sql "UPDATE api_token SET revoked_at = UNIX_TIMESTAMP() WHERE token_id = ${ISSUED%% *};" >/dev/null
+sql "UPDATE api_token SET revoked_at = UNIX_TIMESTAMP() WHERE token_id = ${ISSUED%% *};" >/dev/null \
+    || die "could not set up the revoked-token state"
 # Catches: verify() ignoring revoked_at, which would make revocation cosmetic.
 check "a revoked token is 401" "401" "$(api_status "$REVOKED" '{ apiVersion }')"
 
 ISSUED=$(mint expired '[]' 1 'null') || die "could not mint the token to expire"
 EXPIRED=${ISSUED#* }
-sql "UPDATE api_token SET expires_at = UNIX_TIMESTAMP() - 60 WHERE token_id = ${ISSUED%% *};" >/dev/null
+sql "UPDATE api_token SET expires_at = UNIX_TIMESTAMP() - 60 WHERE token_id = ${ISSUED%% *};" >/dev/null \
+    || die "could not set up the expired-token state"
 # Catches: verify() ignoring expires_at, which would make every TTL infinite.
 check "an expired token is 401" "401" "$(api_status "$EXPIRED" '{ apiVersion }')"
 
@@ -433,14 +476,21 @@ check "a token restricted to another address is 401" "401" \
 
 echo
 echo "API access withdrawal:"
-sql "INSERT INTO api_perm (admin_id, allowed) VALUES ($ADMIN_ID, 0) ON DUPLICATE KEY UPDATE allowed = 0;" >/dev/null
+# Recorded before the row is touched, so a kill between here and the
+# restoring DELETE below leaves a durable record of what to put back — see
+# MARKER_FILE's own comment for why the EXIT trap cannot be relied on for
+# this.
+printf '%s\n%s\n' "$ADMIN_ID" "$PERM_INITIAL" > "$MARKER_FILE"
+sql "INSERT INTO api_perm (admin_id, allowed) VALUES ($ADMIN_ID, 0) ON DUPLICATE KEY UPDATE allowed = 0;" >/dev/null \
+    || die "could not set up the withdrawn-access state"
 WITHDRAWN=$(api "$TOKEN" '{ apiVersion }')
 # Catches: the access checker failing open — granting access because a
 # dependency was not wired, or because the query threw. api_perm is empty in
 # production, so this branch is otherwise never exercised on a live box.
 check "a withdrawn account is 403" "403" "$(api_status "$TOKEN" '{ apiVersion }')"
 check_contains "and it says API_ACCESS_WITHDRAWN" '"code":"API_ACCESS_WITHDRAWN"' "$WITHDRAWN"
-sql "DELETE FROM api_perm WHERE admin_id = $ADMIN_ID;" >/dev/null
+sql "DELETE FROM api_perm WHERE admin_id = $ADMIN_ID;" >/dev/null \
+    || die "could not restore api_perm after the withdrawal check"
 # Catches: a withdrawal that cannot be undone because the decision is cached
 # across requests. It is also the control for the two checks above: without
 # it, they would pass just as happily if the account were denied for some
