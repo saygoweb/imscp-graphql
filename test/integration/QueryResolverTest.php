@@ -170,7 +170,20 @@ class QueryResolverTest extends IntegrationTestCase
     {
         // A third answer here - BAD_USER_INPUT - would let a caller tell a
         // well-formed unreachable id from a malformed one, and then probe.
-        foreach (array('', 'not-base64', GlobalId::encode('Htaccess', 1)) as $id) {
+        //
+        // The last three are the shapes decodeKey() accepts and getId() does
+        // not: every type but FtpUser has an integer key, and a non-integer
+        // key for one of them reached OwnershipResolver::bindValue() as an
+        // uncaught InvalidArgumentException - an INTERNAL with a correlation
+        // id, which is the third answer this test exists to rule out.
+        $ids = array(
+            '', 'not-base64', GlobalId::encode('Htaccess', 1),
+            GlobalId::encodeKey(NodeType::DOMAIN, 'abc'),
+            GlobalId::encodeKey(NodeType::DOMAIN, '0'),
+            GlobalId::encodeKey(NodeType::CUSTOMER, '03')
+        );
+
+        foreach ($ids as $id) {
             try {
                 $this->resolver->resolveNode(
                     null, array('id' => $id), $this->context('customer'), $this->info()

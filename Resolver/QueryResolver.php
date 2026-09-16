@@ -427,6 +427,20 @@ final class QueryResolver
             throw self::notFound();
         }
 
+        if (!NodeType::isStringKeyed($globalId->getType())) {
+            try {
+                // The shape check, asked of the one class that defines it
+                // rather than repeated here. Without it a non-numeric key for
+                // an integer-keyed type survives decodeKey() and throws out of
+                // OwnershipResolver::bindValue() instead - an INTERNAL, which
+                // is the third distinguishable answer the comment above says
+                // must not exist.
+                $globalId->getId();
+            } catch (InvalidArgumentException $e) {
+                throw self::notFound();
+            }
+        }
+
         return $globalId;
     }
 
