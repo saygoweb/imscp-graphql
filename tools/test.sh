@@ -91,6 +91,15 @@ if [ "$MODE" = auto ]; then
     if docker_ready; then MODE=docker; else MODE=vagrant; fi
 fi
 
+# Quoted once, for both the docker and the vagrant remote command lines below:
+# each argument is single-quoted so a value containing a space (or any other
+# shell metacharacter) survives being handed to a remote "sh -c"/"ssh" string
+# rather than being re-split on whitespace.
+quoted=
+for arg in "$@"; do
+    quoted="$quoted '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
+done
+
 if [ "$MODE" = docker ]; then
     docker_ready || {
         echo "$0: no running i-MSCP container for $IMSCP_DIR." >&2
@@ -111,11 +120,6 @@ if [ "$MODE" = docker ]; then
            exit 1 ;;
     esac
     IN_CONTAINER=/var/www/imscp-plugins/${SRC#"$PLUGINS_ROOT"/}
-
-    quoted=
-    for arg in "$@"; do
-        quoted="$quoted '$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")'"
-    done
 
     exec "$IMSCP_DIR/docker/imscp" exec sh -c \
         "cd '$IN_CONTAINER' && sh tools/test.sh$quoted"
@@ -145,4 +149,4 @@ rsync -a --delete --exclude=.git --exclude=.ssh-config \
     -e "ssh -F $SSH_CONFIG" "$SRC/" "$BOX:$TEST_STAGE/"
 
 # The staged copy has the test suite ready to run, so it tests itself.
-ssh -F "$SSH_CONFIG" "$BOX" "cd $TEST_STAGE && sh tools/test.sh $*"
+ssh -F "$SSH_CONFIG" "$BOX" "cd $TEST_STAGE && sh tools/test.sh$quoted"
