@@ -236,9 +236,42 @@ final class OwnershipResolver
     }
 
     /**
-     * Reseller-owned objects: the reseller itself, or an administrator.
+     * Whether the caller may reach this reseller's object at all: the reseller
+     * itself, an administrator, or a customer that reseller created.
+     *
+     * The customer is admitted because the schema already hands them the same
+     * object: spec section 7.5 makes Customer.reseller a non-null Reseller!,
+     * and the Reseller type's own description says "A customer may read the
+     * identity of their own reseller - id, username and contact details - and
+     * nothing else". Refusing it here made Query.reseller answer NOT_FOUND for
+     * an object the caller could hold in their hand through Customer.reseller.
+     *
+     * "And nothing else" is not this method's business: every private field of
+     * a Reseller is refused separately by ResellerResolver::requireReseller(),
+     * which is FORBIDDEN rather than NOT_FOUND precisely because the object is
+     * reachable. Their own reseller and no other, so this still confirms
+     * nothing about identifiers the caller did not already know.
      */
     public function mayReachReseller(Identity $caller, int $resellerId): bool
+    {
+        if ($this->mayAdministerReseller($caller, $resellerId)) {
+            return true;
+        }
+
+        // getCreatedBy() rather than a query: it is the customer's own
+        // admin.created_by, read when the identity was resolved, and
+        // ResellerResolver::resolveCustomers() already trusts it for the same
+        // question from the other direction.
+        return $caller->getRole() === Identity::ROLE_CUSTOMER
+            && $caller->getCreatedBy() === $resellerId;
+    }
+
+    /**
+     * Whether the caller may reach a reseller's *own* things - a hosting plan,
+     * the catalogue it sells from: the reseller itself, or an administrator.
+     * A customer may reach their reseller (above) but none of its property.
+     */
+    public function mayAdministerReseller(Identity $caller, int $resellerId): bool
     {
         return $caller->getRole() === Identity::ROLE_ADMIN
             || $caller->getAdminId() === $resellerId;
@@ -268,8 +301,13 @@ final class OwnershipResolver
 
         if (in_array($tag, NodeType::RESELLER_OWNED, true)) {
             $ownerId = $this->resellerOf($id);
+            // The reseller object itself and the reseller's property are two
+            // different questions, and only the first admits the customer.
+            $reachable = $ownerId !== null && ($tag === NodeType::RESELLER
+                ? $this->mayReachReseller($caller, $ownerId)
+                : $this->mayAdministerReseller($caller, $ownerId));
 
-            if ($ownerId === null || !$this->mayReachReseller($caller, $ownerId)) {
+            if (!$reachable) {
                 throw self::notFound();
             }
 

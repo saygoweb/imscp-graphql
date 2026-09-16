@@ -219,6 +219,59 @@ class OwnershipResolverTest extends TestCase
         self::assertSame(5, $this->resolver()->assertReachable($this->reseller(), $id));
     }
 
+    public function testACustomerMayReachTheirOwnReseller(): void
+    {
+        // The Reseller type's own SDL description - "A customer may read the
+        // identity of their own reseller" - and spec section 7.5, which makes
+        // Customer.reseller a non-null Reseller!, so the object is reachable
+        // by definition. Every private field on it is refused separately by
+        // ResellerResolver::requireReseller(); this is about the object.
+        $this->resellerOwns(5);
+        $id = GlobalId::decode(GlobalId::encode(NodeType::RESELLER, 5));
+
+        self::assertTrue($this->resolver()->mayReachReseller($this->owner(), 5));
+        self::assertSame(5, $this->resolver()->assertReachable($this->owner(), $id));
+    }
+
+    public function testACustomerMayNotReachAnotherReseller(): void
+    {
+        // Their own, and no other: otherwise Query.reseller would confirm
+        // which identifiers name a reseller for any caller who asked.
+        $this->resellerOwns(6);
+        $id = GlobalId::decode(GlobalId::encode(NodeType::RESELLER, 6));
+
+        self::assertFalse($this->resolver()->mayReachReseller($this->owner(), 6));
+
+        try {
+            $this->resolver()->assertReachable($this->owner(), $id);
+            self::fail('a customer must not reach another reseller');
+        } catch (ApiException $e) {
+            self::assertSame(ErrorCode::NOT_FOUND, $e->getErrorCode());
+        }
+    }
+
+    public function testASiblingsResellerIsTheSameResellerAndIsReachable(): void
+    {
+        $this->resellerOwns(5);
+
+        self::assertTrue($this->resolver()->mayReachReseller($this->sibling(), 5));
+    }
+
+    /**
+     * Make the reseller-owner query answer with this admin_id.
+     *
+     * Its needle has to come first: the customer query and the reseller query
+     * differ only in the admin_type they compare, and the generic needle in
+     * setUp() matches both.
+     */
+    private function resellerOwns(int $resellerId): void
+    {
+        $this->rows = array_merge(
+            array("admin_type = 'reseller'" => array(array('owner_id' => $resellerId))),
+            $this->rows
+        );
+    }
+
     public function testACustomerMayNotReachAHostingPlan(): void
     {
         $id = GlobalId::decode(GlobalId::encode(NodeType::HOSTING_PLAN, 2));

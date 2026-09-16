@@ -195,6 +195,61 @@ class QueryResolverTest extends IntegrationTestCase
         }
     }
 
+    public function testACustomerMayReadTheIdentityOfTheirOwnReseller(): void
+    {
+        // The SDL says so in as many words, and spec section 7.5 makes
+        // Customer.reseller a non-null Reseller!, so the object is reachable
+        // through the edge whatever Query.reseller answers. It answered
+        // NOT_FOUND, which made the two disagree about the same object.
+        $reseller = $this->value($this->resolver->resolveReseller(
+            null,
+            array('id' => GlobalId::encode(
+                NodeType::RESELLER, $this->fixture->resellerId()
+            )),
+            $this->context('customer'), $this->info()
+        ));
+
+        self::assertNotNull($reseller);
+        self::assertSame(Fixture::PREFIX . 'reseller', $reseller['username']);
+        // "And nothing else" is ResellerResolver::requireReseller()'s job, and
+        // ResellerResolverTest holds that half of the rule.
+        self::assertNotNull($reseller['contact']['email']);
+    }
+
+    public function testACustomerMayNotReadAnotherReseller(): void
+    {
+        try {
+            $this->resolver->resolveReseller(
+                null,
+                array('id' => GlobalId::encode(
+                    NodeType::RESELLER, $this->fixture->otherResellerId()
+                )),
+                $this->context('customer'), $this->info()
+            );
+            self::fail('a customer must not reach another reseller');
+        } catch (ApiException $e) {
+            self::assertSame(ErrorCode::NOT_FOUND, $e->getErrorCode());
+        }
+    }
+
+    public function testACustomerStillMayNotReadAHostingPlan(): void
+    {
+        // Their reseller's catalogue is the reseller's own property, and
+        // admitting the customer to the reseller must not admit them to it.
+        try {
+            $this->resolver->resolveNode(
+                null,
+                array('id' => GlobalId::encode(
+                    NodeType::HOSTING_PLAN, $this->fixture->hostingPlanId()
+                )),
+                $this->context('customer'), $this->info()
+            );
+            self::fail('a customer must not reach a hosting plan');
+        } catch (ApiException $e) {
+            self::assertSame(ErrorCode::NOT_FOUND, $e->getErrorCode());
+        }
+    }
+
     public function testACustomerListingCustomersSeesOnlyThemselves(): void
     {
         $connection = $this->value($this->resolver->resolveCustomers(
