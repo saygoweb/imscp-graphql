@@ -21,6 +21,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Schema;
  */
 
 use GraphQL\Language\AST\DocumentNode;
+use GraphQL\Language\AST\InterfaceTypeDefinitionNode;
 use GraphQL\Language\Parser;
 use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Schema;
@@ -49,21 +50,48 @@ final class SchemaFactory
     /** @var ResolverMap */
     private $resolvers;
 
-    public function __construct(string $sdlPath, ?string $cacheDir, ResolverMap $resolvers)
-    {
+    /** @var callable|null */
+    private $resolveType;
+
+    /**
+     * @param callable|null $resolveType fn($value, $context, ResolveInfo): string
+     *                                   Attached to every interface in the SDL.
+     *                                   Optional so that plan 1's three-argument
+     *                                   construction still builds the viewer
+     *                                   slice, which has no interfaces.
+     */
+    public function __construct(
+        string $sdlPath, ?string $cacheDir, ResolverMap $resolvers,
+        ?callable $resolveType = null
+    ) {
         $this->sdlPath = $sdlPath;
         $this->cacheDir = $cacheDir;
         $this->resolvers = $resolvers;
+        $this->resolveType = $resolveType;
     }
 
     public function create(): Schema
     {
         $resolvers = $this->resolvers;
+        $resolveType = $this->resolveType;
 
         return BuildSchema::build(
             $this->document(),
-            static function (array $typeConfig, $typeDefinitionNode) use ($resolvers) {
+            static function (array $typeConfig, $typeDefinitionNode) use (
+                $resolvers, $resolveType
+            ) {
                 $typeName = $typeConfig['name'];
+
+                // Node, Provisioned and VirtualHost. Without this, the first
+                // query selecting an interface field fails with "abstract type
+                // must resolve to an Object type at runtime" - and it fails at
+                // execution, not at build, so a schema test alone would not
+                // catch it.
+                if ($resolveType !== null
+                    && $typeDefinitionNode instanceof InterfaceTypeDefinitionNode
+                ) {
+                    $typeConfig['resolveType'] = $resolveType;
+                }
 
                 $typeConfig['resolveField'] = static function (
                     $source, $args, $context, ResolveInfo $info

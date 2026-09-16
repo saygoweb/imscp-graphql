@@ -1,18 +1,3 @@
-# SGW_GraphQL — the i-MSCP API schema.
-#
-# The read schema of docs/SPECIFICATION.md section 7. Mutations arrive in
-# phase 3; nothing here is provisional on their behalf.
-#
-# Every BigInt in this schema is a count of BYTES. i-MSCP mixes units -
-# domain.domain_disk_limit and domain.domain_traffic_limit are in MiB while
-# every usage figure is in bytes - and the conversion happens once, on read,
-# so that a client comparing diskUsed to diskLimit cannot be out by a factor
-# of a million.
-
-schema {
-  query: Query
-}
-
 "ISO-8601 instant in UTC, e.g. 2026-09-04T11:00:00Z."
 scalar DateTime
 
@@ -44,10 +29,13 @@ records an intent and the backend carries it out afterwards.
 """
 type Provisioning {
   state: ProvisioningState!
+
   "The literal i-MSCP status string, for support and for forward compatibility."
   raw: String!
+
   "False while the backend still has work to do for this object."
   settled: Boolean!
+
   "The backend's failure text, when state is ERROR."
   message: String
 }
@@ -55,12 +43,16 @@ type Provisioning {
 enum ProvisioningState {
   "ok"
   OK
+
   "toadd, tochange, todelete, toenable, todisable, torestore, tochangepwd, topurge"
   PENDING
+
   "disabled"
   DISABLED
+
   "ordered — a domain alias awaiting the reseller's approval"
   ORDERED
+
   "Anything else. i-MSCP stores the backend's failure text in the status column."
   ERROR
 }
@@ -128,10 +120,13 @@ type Viewer {
   role: Role!
   email: EmailAddress
   contact: ContactDetails!
+
   "The scopes the presented credential carries, which may be narrower than the role."
   scopes: [Scope!]!
+
   "Set when role is CUSTOMER."
   customer: Customer
+
   "Set when role is RESELLER."
   reseller: Reseller
 }
@@ -144,19 +139,25 @@ dmn|sub|als|alssub; this interface is the same idea without four code paths.
 interface VirtualHost {
   id: ID!
   name: DomainName!
+
   "Path under the customer's web root, e.g. /shop."
   mountPoint: String!
+
   "Path under the mount point that Apache serves, e.g. /htdocs."
   documentRoot: String!
+
   forwarding: Forwarding
+
   "Whether *.name is served by this host as well."
   wildcard: Boolean!
+
   provisioning: Provisioning!
 }
 
 type Forwarding {
   url: String!
   type: ForwardType!
+
   "For PROXY only: whether the original Host header is preserved."
   keepHost: Boolean!
 }
@@ -180,8 +181,10 @@ type Domain implements Node & Provisioned & VirtualHost {
   customer: Customer!
   ipAddress: IpAddress!
   createdAt: DateTime!
+
   "Null when the account does not expire."
   expiresAt: DateTime
+
   subdomains: [Subdomain!]!
   aliases: [DomainAlias!]!
 }
@@ -194,10 +197,13 @@ type Subdomain implements Node & Provisioned & VirtualHost {
   forwarding: Forwarding
   wildcard: Boolean!
   provisioning: Provisioning!
+
   "The label alone, without the parent's name."
   label: String!
+
   "A Domain, or a DomainAlias when this is a subdomain of an alias."
   parent: VirtualHost!
+
   customer: Customer!
 }
 
@@ -221,9 +227,12 @@ One countable allowance. Normalises i-MSCP's three-valued limit columns:
 type Quota {
   "False when the feature is withheld from the account entirely."
   enabled: Boolean!
+
   "Null when unlimited."
   limit: Int
+
   used: Int!
+
   "limit - used, or null when unlimited. Never negative."
   remaining: Int
 }
@@ -232,14 +241,18 @@ type Quota {
 type Storage {
   "Null when unlimited."
   diskLimit: BigInt
+
   diskUsed: BigInt!
   diskFiles: BigInt!
   diskMail: BigInt!
   diskSql: BigInt!
+
   "Null when unlimited."
   trafficLimit: BigInt
+
   "This calendar month's web, FTP, mail and POP traffic added together."
   trafficUsed: BigInt!
+
   "Default per-mailbox quota. Null when unlimited."
   mailQuota: BigInt
 }
@@ -269,23 +282,30 @@ type CustomerFeatures {
 type Customer implements Node & Provisioned {
   id: ID!
   username: String!
+
   "The reseller's own reference for this customer (admin.customer_id)."
   reference: String
+
   contact: ContactDetails!
   reseller: Reseller!
   createdAt: DateTime!
+
   "Null when the account does not expire."
   expiresAt: DateTime
+
   domain: Domain!
   quotas: CustomerQuotas!
   storage: Storage!
   features: CustomerFeatures!
+
   "Whether this account may use this API at all."
   apiAccess: Boolean!
+
   provisioning: Provisioning!
 
   "Subdomains of the main domain and of every alias alike."
   subdomains: [Subdomain!]!
+
   domainAliases: [DomainAlias!]!
   mailAccounts(filter: MailAccountFilter, page: PageInput): MailAccountConnection!
   ftpUsers(page: PageInput): FtpUserConnection!
@@ -298,19 +318,25 @@ type MailAccount implements Node & Provisioned {
   id: ID!
   address: EmailAddress!
   kind: MailAccountKind!
+
   "The vhost this address belongs to."
   host: VirtualHost!
+
   forwardTo: [EmailAddress!]!
+
   "Null when unlimited. Bytes."
   quota: BigInt
+
   """
   Bytes currently held in the mailbox, from the maildirsize file the mail
   server maintains. Null when there is no mailbox, when no quota is set, or
   when the file cannot be read.
   """
   quotaUsed: BigInt
+
   "Whether POP/IMAP access is enabled (mail_users.po_active)."
   active: Boolean!
+
   autoresponder: Autoresponder
   provisioning: Provisioning!
 }
@@ -329,10 +355,13 @@ type Autoresponder {
 
 type FtpUser implements Node & Provisioned {
   id: ID!
+
   "user@domain — the FTP login."
   username: String!
+
   "Absolute path on the server."
   homeDirectory: String!
+
   customer: Customer!
   provisioning: Provisioning!
 }
@@ -351,25 +380,31 @@ type SqlDatabase implements Node {
 type SqlUser implements Node {
   id: ID!
   name: String!
+
   "The host the SQL user may connect from."
   host: String!
+
   "One row per grant, so a user granted on three databases appears in three."
   databases: [SqlDatabase!]!
 }
 
 type DnsRecord implements Node & Provisioned {
   id: ID!
+
   "The domain or alias this record hangs off."
   host: VirtualHost!
+
   name: String!
   class: DnsClass!
   type: DnsRecordType!
   value: String!
+
   """
   'custom_dns_feature' for a customer's own record; otherwise the name of the
   plugin that owns it. A record owned by a plugin is read-only here.
   """
   ownedBy: String!
+
   provisioning: Provisioning!
 }
 
@@ -412,6 +447,7 @@ type IpAddress implements Node {
 type PlanAllowance {
   "False when the plan withholds the feature entirely."
   enabled: Boolean!
+
   "Null when unlimited."
   limit: Int
 }
@@ -445,6 +481,7 @@ type PlanFeatures {
   customDns: Boolean!
   externalMail: Boolean!
   webFolderProtection: Boolean!
+
   "Empty when the plan grants no backup at all."
   backup: [BackupTarget!]!
 }
@@ -485,19 +522,25 @@ type Reseller implements Node & Provisioned {
   contact: ContactDetails!
   createdAt: DateTime!
   provisioning: Provisioning!
+
   "Reseller or administrator only."
   quotas: ResellerQuotas!
+
   "Reseller or administrator only. All figures in bytes."
   storage: Storage!
+
   "Reseller or administrator only."
   ipAddresses: [IpAddress!]!
+
   "Reseller or administrator only."
   apiAccess: Boolean!
+
   """
   The customers of this reseller that the caller may reach. A customer asking
   sees only themselves.
   """
   customers(filter: CustomerFilter, page: PageInput): CustomerConnection!
+
   "Reseller or administrator only."
   hostingPlans: [HostingPlan!]!
 }
@@ -512,6 +555,7 @@ input CustomerFilter {
   username: String
   domainName: DomainName
   state: ProvisioningState
+
   "Administrators only; ignored for a reseller, who only ever sees their own."
   resellerId: ID
 }
@@ -523,6 +567,7 @@ input ResellerFilter {
 
 input MailAccountFilter {
   kind: MailAccountKind
+
   "Substring match on the address, as the panel's own list does."
   address: String
   state: ProvisioningState
@@ -551,7 +596,9 @@ type ResellerConnection {
 type Query {
   "The schema version this endpoint serves. See docs/SPECIFICATION.md section 18."
   apiVersion: String!
+
   viewer: Viewer!
+
   "Any object by its opaque identifier. Null when the caller cannot reach it."
   node(id: ID!): Node
 
