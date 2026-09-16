@@ -20,12 +20,6 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Integration;
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-// composer.json has no autoload-dev section (Task 8 adds it), so the test
-// namespace is not autoloaded; require the base class explicitly rather than
-// relying on PHPUnit's own directory scan to have loaded it first (it scans
-// alphabetically, and "DbTest.php" sorts before "IntegrationTestCase.php").
-require_once __DIR__ . '/IntegrationTestCase.php';
-
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
 
 class DbTest extends IntegrationTestCase

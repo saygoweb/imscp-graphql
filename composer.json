@@ -39,5 +39,11 @@
             "/tools/",
             "/frontend/"
         ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "iMSCP\\Plugin\\SGW_GraphQL\\Test\\Integration\\": "test/integration",
+            "iMSCP\\Plugin\\SGW_GraphQL\\Test\\": "test/"
+        }
     }
 }

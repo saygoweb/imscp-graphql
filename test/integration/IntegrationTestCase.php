@@ -29,9 +29,11 @@ use PHPUnit\Framework\TestCase;
  * so every such test is skipped rather than failed: the unit suite must stay
  * runnable on a machine that has only PHP.
  *
- * composer.json has no autoload-dev section yet (that is Task 8's edit), so
- * this class is not found by the autoloader; a subclass must require_once
- * this file itself rather than relying on PSR-4 to find it.
+ * Found by the `autoload-dev` PSR-4 mapping in composer.json (Task 8), which
+ * maps this namespace's `Integration\` segment directly onto `test/integration`
+ * rather than deriving it from `Test\` => `test/`: the directory is
+ * lower-case but the namespace segment is not, and PSR-4 resolution is
+ * case-sensitive on a case-sensitive filesystem.
  */
 abstract class IntegrationTestCase extends TestCase
 {
