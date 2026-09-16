@@ -111,4 +111,49 @@ class GlobalIdTest extends TestCase
 
         GlobalId::encode('Sub:domain', 1);
     }
+
+    public function testAStringKeyRoundTrips(): void
+    {
+        // ftp_users has no integer primary key: it is userid varchar(255).
+        $encoded = GlobalId::encodeKey('FtpUser', 'shop@example.com');
+        $decoded = GlobalId::decodeKey($encoded);
+
+        self::assertSame('FtpUser', $decoded->getType());
+        self::assertSame('shop@example.com', $decoded->getKey());
+    }
+
+    public function testGetKeyWorksForAnIntegerIdentifierToo(): void
+    {
+        self::assertSame('3', GlobalId::decode(GlobalId::encode('Subdomain', 3))->getKey());
+    }
+
+    public function testGetIdStillRefusesANonNumericKey(): void
+    {
+        // A caller that expects an integer must not be handed a string one.
+        $decoded = GlobalId::decodeKey(GlobalId::encodeKey('FtpUser', 'shop@example.com'));
+
+        $this->expectException(InvalidArgumentException::class);
+        $decoded->getId();
+    }
+
+    public function testDecodeKeyEnforcesTheExpectedType(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        GlobalId::decodeKey(GlobalId::encodeKey('FtpUser', 'a@b.c'), 'MailAccount');
+    }
+
+    public function testAKeyMayNotContainTheSeparator(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        GlobalId::encodeKey('FtpUser', 'a:b');
+    }
+
+    public function testAnEmptyKeyIsRejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        GlobalId::encodeKey('FtpUser', '');
+    }
 }
