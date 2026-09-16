@@ -185,7 +185,10 @@ class VirtualHostsTest extends IntegrationTestCase
 
         self::assertCount(1, $pending);
         self::assertSame(NodeType::ALIAS_SUBDOMAIN, $pending[0]['tag']);
-        self::assertSame($this->fixture->aliasSubdomainId(), (int)$pending[0]['key']);
+        // No cast on the actual value: pendingFor() now returns an int key
+        // for this kind, matching aliasSubdomainId()'s int, so assertSame
+        // here also pins the type, not just the value.
+        self::assertSame($this->fixture->aliasSubdomainId(), $pending[0]['key']);
         self::assertSame('toadd', $pending[0]['status']);
     }
 

@@ -272,7 +272,15 @@ class VirtualHosts
             foreach ($this->db->rows($sql, $bind) as $row) {
                 $pending[] = array(
                     'tag'    => $tag,
-                    'key'    => $row['k'],
+                    // FtpUser is keyed by ftp_users.userid, a varchar, and
+                    // stays a string. Every other kind here is an
+                    // auto-increment int primary key, matching normalise(),
+                    // and must be cast the same way: PDO returns every
+                    // column as a string, so leaving this uncast makes the
+                    // same object's key a numeric string from pendingFor()
+                    // but an int from byKeys()/ofKind(), which fails a
+                    // strict (===) comparison.
+                    'key'    => $tag === NodeType::FTP_USER ? (string)$row['k'] : (int)$row['k'],
                     'status' => (string)$row['s']
                 );
             }
