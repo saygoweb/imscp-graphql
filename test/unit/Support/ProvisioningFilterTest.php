@@ -64,23 +64,47 @@ class ProvisioningFilterTest extends TestCase
         // listed error strings would match none of them.
         list($sql, $bind) = ProvisioningFilter::clause('m.status', 'ERROR');
 
-        self::assertStringStartsWith(' AND m.status NOT IN (', $sql);
+        self::assertStringStartsWith(' AND (m.status NOT IN (', $sql);
         self::assertContains('ok', $bind);
         self::assertContains('disabled', $bind);
         self::assertContains('ordered', $bind);
         self::assertContains('toadd', $bind);
     }
 
-    public function testDisabledAndOrderedAreLiterals(): void
+    public function testOrderedIsALiteral(): void
     {
-        self::assertSame(
-            array(' AND a.alias_status = ?', array('disabled')),
-            ProvisioningFilter::clause('a.alias_status', 'DISABLED')
-        );
         self::assertSame(
             array(' AND a.alias_status = ?', array('ordered')),
             ProvisioningFilter::clause('a.alias_status', 'ORDERED')
         );
+    }
+
+    public function testDisabledAlsoMatchesAStatusThatIsNull(): void
+    {
+        // Provisioning::fromStatus(null) is DISABLED, so a row with a NULL
+        // status is reported as DISABLED by every resolver in the plugin. A
+        // plain '= ?' never matches NULL in SQL, so without the second half of
+        // this predicate the API reports a row as DISABLED and then hides it
+        // from filter: { state: DISABLED }.
+        self::assertSame(
+            array(
+                ' AND (a.alias_status = ? OR a.alias_status IS NULL)',
+                array('disabled')
+            ),
+            ProvisioningFilter::clause('a.alias_status', 'DISABLED')
+        );
+    }
+
+    public function testErrorExcludesAStatusThatIsNull(): void
+    {
+        // The other side of the same coin: NOT IN (...) is unknown for NULL
+        // rather than true, but a reader would expect the open-ended ERROR set
+        // to swallow it. It is DISABLED, and the predicate says so.
+        list($sql, $bind) = ProvisioningFilter::clause('a.alias_status', 'ERROR');
+
+        self::assertStringStartsWith(' AND (a.alias_status NOT IN (', $sql);
+        self::assertStringEndsWith(' AND a.alias_status IS NOT NULL)', $sql);
+        self::assertContains('disabled', $bind);
     }
 
     public function testAnUnknownStateFiltersNothingRatherThanEverything(): void

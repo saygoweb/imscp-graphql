@@ -62,6 +62,18 @@ final class ProvisioningFilter
             return array('', array());
         }
 
+        if ($state === Provisioning::STATE_DISABLED) {
+            // Provisioning::fromStatus(null) is DISABLED, and every resolver
+            // in the plugin passes a NULL status through it, so a NULL row is
+            // reported as DISABLED. '= ?' is never true for NULL, so without
+            // the second half the API would report a row as DISABLED and then
+            // omit it from the list of disabled rows.
+            return array(
+                ' AND (' . $column . ' = ? OR ' . $column . ' IS NULL)',
+                array(self::LITERALS[$state])
+            );
+        }
+
         if (isset(self::LITERALS[$state])) {
             return array(' AND ' . $column . ' = ?', array(self::LITERALS[$state]));
         }
@@ -80,8 +92,12 @@ final class ProvisioningFilter
             array_values(self::LITERALS), Provisioning::PENDING_STATUSES
         );
 
+        // NOT IN is unknown rather than true for NULL, so a NULL row falls out
+        // of this set on its own - but saying so is what keeps the two halves
+        // of the DISABLED/ERROR split readable side by side.
         return array(
-            ' AND ' . $column . ' NOT IN (' . self::questions(count($known)) . ')',
+            ' AND (' . $column . ' NOT IN (' . self::questions(count($known)) . ')'
+                . ' AND ' . $column . ' IS NOT NULL)',
             $known
         );
     }

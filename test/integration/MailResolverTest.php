@@ -134,6 +134,50 @@ class MailResolverTest extends IntegrationTestCase
         self::assertSame(1, $connection['totalCount']);
     }
 
+    public function testADisabledFilterFindsAnAccountWhoseStatusIsNull(): void
+    {
+        // mail_users.status is the one status column in the schema that is
+        // nullable, and Provisioning::fromStatus(null) is DISABLED - so this
+        // row is reported as DISABLED and has to be findable as one. It was
+        // not: '= ?' is never true for NULL.
+        $this->nullTheMailboxStatus();
+
+        $connection = $this->value($this->resolver->resolveCustomerMailAccounts(
+            $this->customer(), array('filter' => array('state' => 'DISABLED')),
+            $this->context(), $this->info()
+        ));
+
+        self::assertSame(1, $connection['totalCount']);
+        self::assertSame(
+            'sales@' . $this->fixture->domainName(), $connection['nodes'][0]['address']
+        );
+        // What the API says the row is, beside what the filter for that state
+        // returns. The finding was that the two disagreed.
+        self::assertSame(
+            'DISABLED', $connection['nodes'][0]['provisioning']['state']
+        );
+    }
+
+    public function testAnErrorFilterDoesNotClaimAnAccountWhoseStatusIsNull(): void
+    {
+        $this->nullTheMailboxStatus();
+
+        $connection = $this->value($this->resolver->resolveCustomerMailAccounts(
+            $this->customer(), array('filter' => array('state' => 'ERROR')),
+            $this->context(), $this->info()
+        ));
+
+        self::assertSame(0, $connection['totalCount']);
+    }
+
+    private function nullTheMailboxStatus(): void
+    {
+        $statement = $this->db->pdo()->prepare(
+            'UPDATE mail_users SET status = NULL WHERE mail_id = ?'
+        );
+        $statement->execute(array($this->fixture->mailboxId()));
+    }
+
     public function testAPageNarrowsTheNodesAndNotTheTotal(): void
     {
         // totalCount is what the filter matched, not what the page returned -
