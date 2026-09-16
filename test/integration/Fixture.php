@@ -266,9 +266,12 @@ final class Fixture
 
     /**
      * @param string $who customer|sibling|otherCustomer|reseller|otherReseller|admin
+     * @param string[] $scopes The scopes the credential carries; the empty
+     *                         array is a token that records none, which
+     *                         Identity reads as a full one.
      * @throws InvalidArgumentException
      */
-    public function identity(string $who): Identity
+    public function identity(string $who, array $scopes = array()): Identity
     {
         $accounts = array(
             'customer'      => array('customer', 'user', 'reseller'),
@@ -291,8 +294,8 @@ final class Fixture
             $type,
             $parent === null ? null : (int)$this->id($parent),
             self::PREFIX . $key . '@example.test',
-            array(),
-            null
+            $scopes,
+            $scopes === array() ? null : 1
         );
     }
 

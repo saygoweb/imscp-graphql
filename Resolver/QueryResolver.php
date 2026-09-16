@@ -105,15 +105,77 @@ final class QueryResolver
     }
 
     /**
+     * The scope a caller must hold to be handed an object of each tag.
+     *
+     * Only edges were gated, which left Query.node and Query.pending as a way
+     * round every one of them: a plain value field has no resolver of its own,
+     * so SchemaFactory's fallback reads it straight off the source array and
+     * checks nothing. A token scoped to DOMAINS_READ alone could name its own
+     * mail account's identifier and read address, forwardTo, quota and kind
+     * with no MAIL_READ - which is precisely the design
+     * VirtualHostResolver::resolveCreatedAt() explains Domain.createdAt is
+     * gated to protect, walked past from the other direction.
+     *
+     * The gate therefore lives where the object is produced rather than in
+     * every edge resolver that remembers to ask, and both root fields inherit
+     * it. Two tags read oddly at first glance and are deliberate:
+     *
+     *   Customer is ACCOUNT_READ, not CUSTOMERS_READ. ACCOUNT_READ is what
+     *   every other path to a Customer object already asks for -
+     *   Viewer.customer, FtpUser.customer, SqlDatabase.customer - and
+     *   Query.pending is ACCOUNT_READ and has always returned Customer nodes.
+     *   CUSTOMERS_READ stays where it was: on the root fields that *find*
+     *   customers, other people's included. Reading an account whose
+     *   identifier the caller already holds is the account scope's business.
+     *
+     *   IpAddress is RESELLERS_READ. assertReachable() refuses a customer an
+     *   IpAddress by identifier at all, so the only callers here are resellers
+     *   and administrators, and Reseller.ipAddresses is the listing that
+     *   produces the same objects for them.
+     */
+    const SCOPES = array(
+        NodeType::CUSTOMER        => Scope::ACCOUNT_READ,
+        NodeType::DOMAIN          => Scope::DOMAINS_READ,
+        NodeType::SUBDOMAIN       => Scope::DOMAINS_READ,
+        NodeType::ALIAS_SUBDOMAIN => Scope::DOMAINS_READ,
+        NodeType::DOMAIN_ALIAS    => Scope::DOMAINS_READ,
+        NodeType::MAIL_ACCOUNT    => Scope::MAIL_READ,
+        NodeType::FTP_USER        => Scope::FTP_READ,
+        NodeType::SQL_DATABASE    => Scope::SQL_READ,
+        NodeType::SQL_USER        => Scope::SQL_READ,
+        NodeType::DNS_RECORD      => Scope::DNS_READ,
+        NodeType::RESELLER        => Scope::RESELLERS_READ,
+        NodeType::HOSTING_PLAN    => Scope::RESELLERS_READ,
+        NodeType::IP_ADDRESS      => Scope::RESELLERS_READ
+    );
+
+    /**
      * From a NodeType tag to the resolver that shapes that tag.
      *
      * The one place the mapping exists. Query.node and Query.pending both use
      * it, and a tag with no case here returns null rather than guessing.
      *
+     * The scope gate is here rather than in the two callers so that neither
+     * can forget it, and it is asked after the caller's own ownership check
+     * rather than before: an object the caller cannot reach is NOT_FOUND
+     * (spec section 6.3, indistinguishable from one that does not exist), and
+     * only an object they *can* reach and hold no scope for is FORBIDDEN. In
+     * that order the FORBIDDEN confirms nothing the caller did not know.
+     *
      * @param int|string $key
+     * @param mixed $context
+     * @throws ApiException FORBIDDEN when the credential lacks the tag's scope
      */
-    public function nodeReference(string $tag, $key): ?SyncPromise
+    public function nodeReference(string $tag, $key, $context): ?SyncPromise
     {
+        if (!isset(self::SCOPES[$tag])) {
+            // An ungated tag would be served by the fallback with no check at
+            // all, which is the whole of this defect. Refuse instead.
+            return null;
+        }
+
+        TypeResolver::requireScope($context, self::SCOPES[$tag]);
+
         switch ($tag) {
             case NodeType::CUSTOMER:
                 return $this->customers->reference((int)$key);
@@ -157,7 +219,9 @@ final class QueryResolver
         // "does this object exist".
         $this->ownership->assertReachable($identity, $globalId);
 
-        return $this->nodeReference($globalId->getType(), $globalId->getKey());
+        return $this->nodeReference(
+            $globalId->getType(), $globalId->getKey(), $context
+        );
     }
 
     /**
@@ -341,7 +405,9 @@ final class QueryResolver
         // gathering below only decides the order results are collected in, not
         // when they are fetched.
         foreach ($this->vhosts->pendingFor($adminIds) as $pending) {
-            $reference = $this->nodeReference($pending['tag'], $pending['key']);
+            $reference = $this->nodeReference(
+                $pending['tag'], $pending['key'], $context
+            );
 
             if ($reference !== null) {
                 $references[] = $reference;
