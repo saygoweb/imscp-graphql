@@ -22,8 +22,13 @@
 // AbstractPlugin and calls the real i-MSCP Registry, neither of which is
 // vendored or reachable from the unit suite (see test/bootstrap.php's note
 // that anything needing the panel belongs elsewhere). Those two classes are
-// the only things customerHasApiAccess() and the class's own "extends" line
-// require in order to load and run at all, so this stubs exactly those two,
+// what customerHasApiAccess() and the class's own "extends" line require in
+// order to load and run at all. Task 16 adds a third: Container::fromPlugin()
+// now resolves Db::fromPanel(), which calls iMSCP\Database\DatabaseMySQL's
+// static getPDO() - also never vendored here - so
+// testContainerFromPluginBakesTheConfiguredDefaultIntoTheAccessChecker below,
+// which drives fromPlugin() end to end, would fail on a missing class rather
+// than exercising anything this suite is about. All three are stubbed here,
 // minimally, the same way test/unit/Frontend/GlobalStubs.php stands in for
 // tohtml().
 
@@ -32,6 +37,26 @@ namespace iMSCP\Plugin {
     if (!class_exists(__NAMESPACE__ . '\AbstractPlugin', false)) {
         abstract class AbstractPlugin
         {
+        }
+    }
+}
+
+namespace iMSCP\Database {
+
+    if (!class_exists(__NAMESPACE__ . '\DatabaseMySQL', false)) {
+        /**
+         * Minimal stand-in for the real DatabaseMySQL. Only the static
+         * getPDO() Repository\Db::fromPanel() calls is exercised here, and it
+         * returns null - Db's constructor accepts a null PDO for exactly this
+         * ("a detached handle"), and no test in this class ever queries
+         * through the Db that fromPlugin() builds.
+         */
+        class DatabaseMySQL
+        {
+            public static function getPDO()
+            {
+                return null;
+            }
         }
     }
 }
