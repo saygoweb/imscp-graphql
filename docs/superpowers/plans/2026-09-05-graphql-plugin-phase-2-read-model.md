@@ -176,7 +176,7 @@ Spec §7.4's `Quota.used` values come from `gui/include/Counting.php` (spec §3.
 
 Spec §3.3 chose Anorm for the read side on the strength of `Relationship\BatchLoadingOrchestrator::loadRelationshipsForModels()` taking field-selection specs shaped like a GraphQL `ResolveInfo`. Reading `/home/cambell/src/sgw/anorm/src` at v3.1.1 before writing this plan turned up four facts that change how it must be used, and writing the resolvers turned up a fifth. None of them reverses the decision; all of them constrain it, and Task 10 is the task that encodes the constraints.
 
-1. **`Strategy\FieldSelectionParser` and `Strategy\DataSizeEstimator` call `str_contains()`, `str_starts_with()` and `str_ends_with()`** — PHP 8.0 functions. They lint clean on 7.4, because a call to an undefined function is a run-time error, not a syntax error. Spec Appendix A measured `php7.4 -l` over Anorm's 31 files and recorded "0 failures", which is true and does not cover this. Any code path reaching those two classes is a fatal error on the panel's PHP.
+1. **At v3.1.1, `Strategy\FieldSelectionParser` and `Strategy\DataSizeEstimator` called `str_contains()`, `str_starts_with()` and `str_ends_with()`** — PHP 8.0 functions. They lint clean on 7.4, because a call to an undefined function is a run-time error, not a syntax error. Spec Appendix A measured `php7.4 -l` over Anorm's 31 files and recorded "0 failures", which is true and does not cover this. Any code path reaching those two classes was a fatal error on the panel's PHP. **This is no longer true of the vendored library.** `vendor/saygoweb/anorm` is v3.1.2, not v3.1.1, and in v3.1.2 both classes were rewritten to use `strpos()`/`substr()` instead. Verified three times: by executing both classes on PHP 7.4.33, where `str_contains()` does not exist, and watching them run clean; by grepping `/home/cambell/src/sgw/anorm/src` for `str_contains`, `str_starts_with` and `str_ends_with` and getting zero hits; and by an independent reviewer. Facts 2–4 below were read from that same v3.1.2 source and still hold.
 2. **`Strategy\QueryStrategySelector` returns `STRATEGY_INDIVIDUAL_LOADING` when the source count is 10 or fewer** (`individual_loading_threshold => 10`). A customer has one domain; a reseller has tens of customers. The default configuration therefore chooses the N+1 for exactly the sizes this API sees.
 3. **`Strategy\JoinWithSelectionLoader::getTableName()` returns the literal string `'users'` for the source side** and guesses the related table by string substitution — it is a stub, marked "simplified implementation". `QueryStrategySelector` will select it whenever a field selection is supplied and the estimator likes the numbers.
 4. **`OneHasMany::batchLoad()` constructs its own `new QueryStrategySelector()` with default configuration**, ignoring whatever the orchestrator was configured with. So configuring the orchestrator cannot fix (2) or (3) for one-to-many edges.
@@ -5713,6 +5713,20 @@ is that class, and it is the task the [Anorm section](#anorm-what-was-measured-a
 above exists for.
 
 **Precondition — Anorm must run on PHP 7.4 before this task can land.**
+
+*Post-implementation correction:* this precondition, and the measurements
+below it, describe Anorm v3.1.1, which is what `/home/cambell/src/sgw/anorm/src`
+held when this plan was drafted (see fact 1 of the
+[Anorm section](#anorm-what-was-measured-and-what-this-plan-does-about-it)
+above, now corrected). The library actually vendored at `vendor/saygoweb/anorm`
+is v3.1.2, in which `FieldSelectionParser` and `DataSizeEstimator` no longer
+call the PHP 8.0 string functions this precondition is about — both classes
+run clean on PHP 7.4.33. `Repository/BatchLoader.php`'s own docblock records
+the up-to-date facts. The precondition was satisfied by the time Task 10
+landed for that reason, not because a polyfill was added; the design choice
+below — call the two IN-clause loaders directly and never enter
+`Relationship/Strategy/` — stands regardless, on facts 2–4 of the section
+above, and the containment test at Step 4 still pins it.
 
 Anorm v3.1.1 does **not** run on PHP 7.4, and it is broken in exactly the
 subsystem this task depends on. Eight call sites in two files of
