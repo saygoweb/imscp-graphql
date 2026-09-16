@@ -120,13 +120,17 @@ final class QueryResolver
      * every edge resolver that remembers to ask, and both root fields inherit
      * it. Two tags read oddly at first glance and are deliberate:
      *
-     *   Customer is ACCOUNT_READ, not CUSTOMERS_READ. ACCOUNT_READ is what
-     *   every other path to a Customer object already asks for -
-     *   Viewer.customer, FtpUser.customer, SqlDatabase.customer - and
-     *   Query.pending is ACCOUNT_READ and has always returned Customer nodes.
-     *   CUSTOMERS_READ stays where it was: on the root fields that *find*
-     *   customers, other people's included. Reading an account whose
-     *   identifier the caller already holds is the account scope's business.
+     *   Customer is the entry scopeFor() overrides, and this table's
+     *   ACCOUNT_READ is only half the answer: it is the scope for the
+     *   caller's *own* account, and any other account is CUSTOMERS_READ. Flat
+     *   ACCOUNT_READ here was a hole. It was defended on the grounds that
+     *   CUSTOMERS_READ gates the root fields that *find* customers while
+     *   node() addresses one already known - but a Customer identifier is
+     *   base64("Customer:N") and a reseller's own customers are trivially
+     *   enumerable, so in practice ACCOUNT_READ granted exactly what
+     *   CUSTOMERS_READ exists to gate: a reseller holding ACCOUNT_READ alone
+     *   was refused by customer(id: X) and admitted by node(id: X) for the
+     *   same object. See scopeFor().
      *
      *   IpAddress is RESELLERS_READ. assertReachable() refuses a customer an
      *   IpAddress by identifier at all, so the only callers here are resellers
@@ -150,6 +154,41 @@ final class QueryResolver
     );
 
     /**
+     * The scope this particular object needs, which for a Customer depends on
+     * whose account it is.
+     *
+     * SCOPES is a table of tags, and for twelve of the thirteen a tag is the
+     * whole question. Customer is the exception, because the schema has always
+     * had two answers for it and Query.customer is the one that is right:
+     * CUSTOMERS_READ to read a customer, with ACCOUNT_READ enough only for
+     * one's own account. Mirroring that here makes node() and customer() agree
+     * about the same object - they disagreed, and the identifier a caller
+     * needs to exploit the disagreement is base64("Customer:N") - while
+     * leaving Query.pending usable by a customer reading their own pending
+     * account, which is what the flat ACCOUNT_READ was protecting.
+     *
+     * Ownership has already been resolved by the time this is asked (see
+     * nodeReference()), so a FORBIDDEN from here confirms nothing: the caller
+     * could already reach the object.
+     *
+     * @param int|string $key
+     * @return string|null The scope required, or null for a tag with no gate,
+     *                     which is a tag that may not be served at all.
+     */
+    public static function scopeFor(string $tag, $key, Identity $identity): ?string
+    {
+        if (!isset(self::SCOPES[$tag])) {
+            return null;
+        }
+
+        if ($tag === NodeType::CUSTOMER && (int)$key !== $identity->getAdminId()) {
+            return Scope::CUSTOMERS_READ;
+        }
+
+        return self::SCOPES[$tag];
+    }
+
+    /**
      * From a NodeType tag to the resolver that shapes that tag.
      *
      * The one place the mapping exists. Query.node and Query.pending both use
@@ -168,13 +207,15 @@ final class QueryResolver
      */
     public function nodeReference(string $tag, $key, $context): ?SyncPromise
     {
-        if (!isset(self::SCOPES[$tag])) {
+        $scope = self::scopeFor($tag, $key, TypeResolver::identity($context));
+
+        if ($scope === null) {
             // An ungated tag would be served by the fallback with no check at
             // all, which is the whole of this defect. Refuse instead.
             return null;
         }
 
-        TypeResolver::requireScope($context, self::SCOPES[$tag]);
+        TypeResolver::requireScope($context, $scope);
 
         switch ($tag) {
             case NodeType::CUSTOMER:

@@ -147,16 +147,41 @@ class ScopeGateTest extends IntegrationTestCase
     }
 
     /**
+     * The scope the caller in these enumerations - the administrator - must
+     * hold to be handed one subject.
+     *
+     * QueryResolver::SCOPES is a table of tags, but the Customer gate is per
+     * object: ACCOUNT_READ reads the caller's own account and CUSTOMERS_READ
+     * reads anybody else's, exactly as Query.customer has always required.
+     * Every Customer among these subjects belongs to somebody else - the
+     * caller is the administrator and the fixture's customer is not them - so
+     * for that one tag the scope under test is CUSTOMERS_READ. The two tests
+     * at the foot of this file drive the other half of that gate.
+     */
+    private function requiredScope(string $tag): string
+    {
+        return $tag === NodeType::CUSTOMER
+            ? Scope::CUSTOMERS_READ
+            : QueryResolver::SCOPES[$tag];
+    }
+
+    /**
      * @param string[] $scopes
+     * @param string $who A Fixture account. The administrator by default,
+     *                    because these tests are about scopes and the
+     *                    administrator is the caller whose *role* never
+     *                    refuses; the Customer gate below is the one question
+     *                    where whose account it is matters, so its tests name
+     *                    a caller.
      * @return array{0: Schema, 1: array<string, mixed>} schema and context
      */
-    private function stack(array $scopes): array
+    private function stack(array $scopes, string $who = 'admin'): array
     {
         $container = $this->container();
 
         return array(
             $container->schemaFactory()->create(),
-            array('identity' => $this->fixture->identity('admin', $scopes))
+            array('identity' => $this->fixture->identity($who, $scopes))
         );
     }
 
@@ -165,9 +190,11 @@ class ScopeGateTest extends IntegrationTestCase
      * @param array<string, mixed> $variables
      * @return array<string, mixed>
      */
-    private function execute(string $document, array $scopes, array $variables = array()): array
-    {
-        list($schema, $context) = $this->stack($scopes);
+    private function execute(
+        string $document, array $scopes, array $variables = array(),
+        string $who = 'admin'
+    ): array {
+        list($schema, $context) = $this->stack($scopes, $who);
         $result = GraphQL::executeQuery(
             $schema, $document, null, $context, $variables
         );
@@ -249,7 +276,7 @@ class ScopeGateTest extends IntegrationTestCase
         list($schema,) = $this->stack(array());
 
         foreach ($this->subjects() as $tag => $id) {
-            $scope = QueryResolver::SCOPES[$tag];
+            $scope = $this->requiredScope($tag);
             $response = $this->execute(
                 'query Node($id: ID!) { node(id: $id) { __typename ... on '
                     . NodeType::graphqlType($tag) . ' { '
@@ -279,7 +306,7 @@ class ScopeGateTest extends IntegrationTestCase
                 'query Node($id: ID!) { node(id: $id) { __typename ... on '
                     . NodeType::graphqlType($tag) . ' { '
                     . $this->leafSelection($schema, $tag) . ' } } }',
-                array(QueryResolver::SCOPES[$tag], Scope::ACCOUNT_READ),
+                array($this->requiredScope($tag), Scope::ACCOUNT_READ),
                 array('id' => $id)
             );
 
@@ -303,7 +330,7 @@ class ScopeGateTest extends IntegrationTestCase
         $this->makeEverythingPending();
 
         foreach ($this->pendingTags() as $tag) {
-            $scope = QueryResolver::SCOPES[$tag];
+            $scope = $this->requiredScope($tag);
             $response = $this->execute(
                 '{ pending { __typename } }',
                 $this->allScopesBut($scope)
@@ -342,6 +369,77 @@ class ScopeGateTest extends IntegrationTestCase
                 NodeType::graphqlType($tag), $types, $tag . ' is not pending'
             );
         }
+    }
+
+    /**
+     * node() and customer() must not disagree about the same object.
+     *
+     * The per-type gate tagged Customer ACCOUNT_READ flat, while
+     * resolveCustomer() has always required CUSTOMERS_READ - so a reseller
+     * holding ACCOUNT_READ and not CUSTOMERS_READ was refused one of their
+     * customers by customer(id: X) and handed the same customer by
+     * node(id: X). The identifier needed for the second is
+     * base64("Customer:N"), and a reseller's own customers are consecutive
+     * integers, so the narrower scope bought its holder nothing.
+     */
+    public function testAResellerWithAccountReadAloneCannotReachACustomerThroughNode(): void
+    {
+        $id = GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId());
+        $node = 'query Node($id: ID!) { node(id: $id) { id } }';
+
+        $response = $this->execute(
+            $node, array(Scope::ACCOUNT_READ), array('id' => $id), 'reseller'
+        );
+
+        self::assertSame(
+            ErrorCode::FORBIDDEN,
+            $response['errors'][0]['extensions']['code'] ?? null,
+            'ACCOUNT_READ alone reached another account through node()'
+        );
+
+        // The two halves of the disagreement, now agreeing. Query.customer
+        // refuses the same caller the same object for the same reason...
+        $viaCustomer = $this->execute(
+            'query C($id: ID!) { customer(id: $id) { id } }',
+            array(Scope::ACCOUNT_READ), array('id' => $id), 'reseller'
+        );
+
+        self::assertSame(
+            ErrorCode::FORBIDDEN,
+            $viaCustomer['errors'][0]['extensions']['code'] ?? null
+        );
+
+        // ...and the control, without which both assertions above would pass
+        // against a gate that simply refused this caller everything:
+        // CUSTOMERS_READ is the scope, and with it the object is reachable.
+        $allowed = $this->execute(
+            $node, array(Scope::CUSTOMERS_READ), array('id' => $id), 'reseller'
+        );
+
+        self::assertArrayNotHasKey(
+            'errors', $allowed, json_encode($allowed['errors'] ?? array())
+        );
+        self::assertSame($id, $allowed['data']['node']['id']);
+    }
+
+    /**
+     * And the half the conditional gate exists to keep: ACCOUNT_READ is the
+     * account scope, so it still reads the caller's own account - which is
+     * what Query.pending hands a customer about themselves.
+     */
+    public function testACustomerWithAccountReadAloneStillReachesTheirOwnAccount(): void
+    {
+        $id = GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId());
+
+        $response = $this->execute(
+            'query Node($id: ID!) { node(id: $id) { id } }',
+            array(Scope::ACCOUNT_READ), array('id' => $id), 'customer'
+        );
+
+        self::assertArrayNotHasKey(
+            'errors', $response, json_encode($response['errors'] ?? array())
+        );
+        self::assertSame($id, $response['data']['node']['id']);
     }
 
     /**
