@@ -1995,9 +1995,33 @@ saying one consistent thing.
 presumably meant for, rather than the `http` block. That is a template
 change, not a plugin change; nothing here can be fixed from outside core.
 
-**Numbering note.** Phase 2's plan reserves C7 for a different item (batched
-counting). C7–C9 above land first, in phase 0–1's own release, so phase 2's
-entry must be renumbered when that plan executes; it is not added here.
+---
+
+**C10 — Batched counting functions.**
+
+*Numbering.* Reserved as C7 in phase 2's plan; renumbered here because C7–C9
+above were claimed by phase 0–1's defects first (see the numbering note that
+used to stand in this spot).
+
+*Change.* Add a batched form of each per-customer counting function in
+`gui/include/Counting.php` — `get_customers_subdomains_count(array $domainIds)`
+and its five siblings — each returning a map keyed by the identifier it was
+given. Reimplement the existing singular functions in terms of them so there is
+one query per counting rule rather than two.
+
+*Why i-MSCP wants it anyway.* `gui/public/reseller/user_statistics.php:87`
+loops over every customer of a reseller and calls
+`getClientItemCountsAndLimits()` and `getClientTrafficAndDiskStats()` for each,
+which is eight queries a row; `admin/manage_users.php` and the reseller's
+customer list do the same shape of thing. A reseller with two hundred customers
+renders that page with well over a thousand queries. The counting rules are
+already in one file, which is what makes the batched form cheap to add and
+cheap to keep correct.
+
+*What the plugin deletes.* `Repository\Counts` in its entirety.
+
+*Shape.* Additive. The existing functions keep their signatures and their
+behaviour.
 
 ---
 
