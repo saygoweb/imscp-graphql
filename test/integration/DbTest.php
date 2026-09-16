@@ -45,6 +45,25 @@ class DbTest extends IntegrationTestCase
         );
     }
 
+    public function testThePanelUsesEmulatedPrepares(): void
+    {
+        // countQueries() counts server round trips, and that is only exact
+        // because PDO::ATTR_EMULATE_PREPARES makes prepare() free (see
+        // Repository\Db::countQueries()'s doc comment). Read the live
+        // attribute back from the panel's own PDO handle, not a constant:
+        // the panel's DatabaseMySQL.php carries a "# FIXME should be FALSE"
+        // on this very attribute, and the day someone acts on it, every
+        // query count Tasks 12-17 assert on would quietly start measuring
+        // something other than what it thinks it is. This test is the
+        // tripwire: it fails, by name, on that day, instead of leaving it
+        // to whoever first disbelieves a passing N+1 test.
+        self::assertTrue(
+            (bool)$this->db()->pdo()->getAttribute(\PDO::ATTR_EMULATE_PREPARES),
+            'the panel turned off emulated prepares; Db::countQueries() no '
+            . 'longer counts one statement per Db call and must be revisited'
+        );
+    }
+
     public function testRowsReturnsAListOfAssociativeRows(): void
     {
         $rows = $this->db()->rows(

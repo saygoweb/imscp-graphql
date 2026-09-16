@@ -105,6 +105,10 @@ class Db
      * step with a library the way a hand-written wrapper would: Anorm's
      * queries, the plugin's own and exec_query()'s are all on this connection
      * and all counted.
+     *
+     * This call is itself one of the statements it might be used to count,
+     * which is exactly why countQueries() measures its cost at run time
+     * rather than assuming it - see there.
      */
     public function questions(): int
     {
@@ -119,6 +123,25 @@ class Db
      * questions() costs a statement itself, so its cost is measured here
      * rather than assumed - the exact overhead depends on the server version
      * and is not worth encoding as a magic number.
+     *
+     * This counts *server round trips*, not method calls, which is only
+     * exact because the panel's connection sets PDO::ATTR_EMULATE_PREPARES
+     * (DatabaseMySQL.php's constructor). With emulation on, PDO::prepare()
+     * does no network I/O at all - it just builds the statement client-side
+     * - so rows()'s prepare()+execute() costs exactly one COM_QUERY, and one
+     * Db call is one counted statement. Every N+1 assertion from Task 12
+     * onward is built on that arithmetic.
+     *
+     * If that attribute is ever turned off - the panel's own
+     * DatabaseMySQL.php carries a "# FIXME should be FALSE" on it - prepare()
+     * becomes a real round trip (COM_STMT_PREPARE) ahead of execute()'s
+     * (COM_STMT_EXECUTE), so a Db call's true cost in statements would no
+     * longer be exactly one, and every query-count assertion from Task 12
+     * onward would be measuring something other than what it thinks it is.
+     * Nothing here would throw - countQueries() would just start returning a
+     * different, wrong number, quietly. DbTest::testThePanelUsesEmulatedPrepares()
+     * is the tripwire for that: it reads the live attribute back off the PDO
+     * handle and fails, by name, the day it changes.
      */
     public function countQueries(callable $fn): int
     {
