@@ -20,6 +20,8 @@ namespace iMSCP\Plugin\SGW_GraphQL\Support;
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+use InvalidArgumentException;
+
 /**
  * What a customer is allowed, in the panel's own terms.
  *
@@ -33,6 +35,15 @@ namespace iMSCP\Plugin\SGW_GraphQL\Support;
  * Spec section 7.5 requires this answer to be the panel's, verbatim and per
  * name, so that the API cannot disagree with the panel about what a customer
  * may do.
+ *
+ * customerHasFeature() reads its five config keys off $cfg = Registry::get(
+ * 'config'), an ArrayAccess object (gui/src/Config/ArrayConfig.php,
+ * extended by DbConfig.php): $cfg['KEY'] reaches offsetGet(), which calls
+ * get(), and get() throws when the key is missing (ArrayConfig.php:86 /
+ * DbConfig.php:390) rather than returning null. So the core does not fail
+ * open on an absent key - it fails loudly. assertConfigComplete() below
+ * transcribes that: a $config missing one of CONFIG_KEYS throws here too,
+ * instead of every key it gates quietly reading as "available".
  */
 final class CustomerFeatures
 {
@@ -54,10 +65,13 @@ final class CustomerFeatures
      * @param array $domain                 A row of the `domain` table
      * @param array $config                 The panel configuration, at least CONFIG_KEYS
      * @param bool  $resellerSupportSystem  reseller_props.support_system == 'yes'
+     * @throws InvalidArgumentException
      */
     public static function fromDomainRow(
         array $domain, array $config, bool $resellerSupportSystem
     ): self {
+        self::assertConfigComplete($config);
+
         return new self(array(
             'php'       => $domain['domain_php'] == 'yes',
 
@@ -83,6 +97,20 @@ final class CustomerFeatures
             'supportSystem' => $config['IMSCP_SUPPORT_SYSTEM']
                 ? $resellerSupportSystem : false
         ));
+    }
+
+    /**
+     * @throws InvalidArgumentException
+     */
+    private static function assertConfigComplete(array $config): void
+    {
+        $missing = array_diff(self::CONFIG_KEYS, array_keys($config));
+
+        if ($missing !== array()) {
+            throw new InvalidArgumentException(sprintf(
+                'The panel configuration is missing: %s.', implode(', ', $missing)
+            ));
+        }
     }
 
     /**

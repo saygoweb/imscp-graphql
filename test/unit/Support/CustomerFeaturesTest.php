@@ -21,6 +21,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Support;
  */
 
 use iMSCP\Plugin\SGW_GraphQL\Support\CustomerFeatures;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
 class CustomerFeaturesTest extends TestCase
@@ -173,6 +174,24 @@ class CustomerFeaturesTest extends TestCase
     public function testAnUnknownFeatureNameIsFalseRatherThanAWarning(): void
     {
         self::assertFalse($this->features()->has('protectedAreas'));
+    }
+
+    /**
+     * gui/include/Client.php:82-135 reads $cfg['KEY'] on the panel's own
+     * ArrayConfig/DbConfig, whose offsetGet() throws when the key is
+     * missing rather than returning null (gui/src/Config/ArrayConfig.php:86,
+     * gui/src/Config/DbConfig.php:390). A $config short one of CONFIG_KEYS
+     * must fail the same way here, loudly, rather than quietly reporting
+     * the feature it gates as available.
+     */
+    public function testAConfigMissingAKeyThrowsRatherThanFailingOpen(): void
+    {
+        $config = $this->config();
+        unset($config['WEB_STATISTIC_PACKAGES']);
+
+        self::expectException(InvalidArgumentException::class);
+
+        CustomerFeatures::fromDomainRow($this->domain(), $config, true);
     }
 
     public function testTheConfigKeysAreDeclared(): void

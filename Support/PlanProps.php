@@ -194,6 +194,17 @@ final class PlanProps
         return $targets;
     }
 
+    /**
+     * -1 is not handled here as a withheld state, unlike allowance(): both
+     * gui/public/reseller/hosting_plan_add.php:354 and
+     * gui/public/reseller/hosting_plan_edit.php:404 (and the equivalent
+     * traffic checks two lines above each) validate the disk and traffic
+     * fields with `imscp_limit_check($value, NULL)`, whose NULL $extra
+     * (gui/include/Input.php:345-366) drops the '-1|' alternative from the
+     * accepted pattern, leaving only "0|[1-9][0-9]*". Neither field can be
+     * written as -1 through the core UI, so 0 (unlimited) and n > 0 are the
+     * only values reachable here.
+     */
     private static function mibToBytes(int $mib): ?int
     {
         return $mib === 0 ? null : $mib * 1048576;
