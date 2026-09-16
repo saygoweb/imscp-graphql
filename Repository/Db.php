@@ -22,6 +22,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Repository;
 
 use iMSCP\Database\DatabaseMySQL;
 use PDO;
+use RuntimeException;
 
 /**
  * The panel's own PDO handle, and the small query helpers the read side needs
@@ -35,10 +36,16 @@ use PDO;
  */
 class Db
 {
-    /** @var PDO */
+    /** @var PDO|null Null only for a detached handle; see detached(). */
     private $pdo;
 
-    public function __construct(PDO $pdo)
+    /**
+     * @param PDO|null $pdo Required, not defaulted: a Db that silently has no
+     *                      connection because nobody passed one is a bug that
+     *                      only shows up as an empty result set. Detachment is
+     *                      something a caller asks for by name.
+     */
+    public function __construct(?PDO $pdo)
     {
         $this->pdo = $pdo;
     }
@@ -48,8 +55,28 @@ class Db
         return new self(DatabaseMySQL::getPDO());
     }
 
+    /**
+     * A handle with no connection.
+     *
+     * Every method that would talk to the database throws instead. This exists
+     * so the unit suite can build the whole resolver map - which is the test
+     * that a schema field has lost its resolver - without a database, while
+     * still failing loudly rather than returning nothing if a unit test ever
+     * reaches a query.
+     */
+    public static function detached(): self
+    {
+        return new self(null);
+    }
+
     public function pdo(): PDO
     {
+        if ($this->pdo === null) {
+            throw new RuntimeException(
+                'This Db is detached: it has no connection and cannot run a query.'
+            );
+        }
+
         return $this->pdo;
     }
 
@@ -58,7 +85,7 @@ class Db
      */
     public function rows(string $sql, array $bind = array()): array
     {
-        $statement = $this->pdo->prepare($sql);
+        $statement = $this->pdo()->prepare($sql);
         $statement->execute(array_values($bind));
 
         return $statement->fetchAll(PDO::FETCH_ASSOC);
