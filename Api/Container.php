@@ -452,7 +452,13 @@ final class Container
     {
         return array(
             new TlsMiddleware(
-                (bool)($this->config['require_tls'] ?? true), $this->tokens()
+                (bool)($this->config['require_tls'] ?? true),
+                $this->tokens(),
+                // (array) so that a single address written as a bare string
+                // still configures one proxy rather than being read as a list
+                // of its characters, and an absent key is the empty list —
+                // trusting nothing, which is the safe default.
+                (array)($this->config['trusted_proxies'] ?? array())
             ),
             new CorsMiddleware((array)($this->config['allowed_origins'] ?? array())),
             new AuthenticateMiddleware(

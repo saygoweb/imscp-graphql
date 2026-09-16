@@ -28,6 +28,20 @@ return array(
 
     // Transport
     'require_tls'             => true,
+
+    // The reverse proxies whose X-Forwarded-Proto (or X-Forwarded-SSL) header
+    // may be believed when deciding whether a request arrived over TLS, as
+    // addresses or CIDR ranges: array('127.0.0.1', '10.0.0.0/8'). Needed where
+    // nginx or Apache terminates TLS and proxies to PHP-FPM, because the
+    // backend then sees plain HTTP on port 80 and would otherwise refuse the
+    // request — and revoke the token it carried.
+    //
+    // Either header can be sent by anyone, so one is honoured only from an
+    // address listed here. Empty, the default, believes nobody and asks the
+    // connection itself: an operator who sets nothing is exactly as safe as
+    // before this key existed.
+    'trusted_proxies'         => array(),
+
     'allowed_origins'         => array(),   // never '*'
     'allow_session_auth'      => true,
     'allow_password_grant'    => true,

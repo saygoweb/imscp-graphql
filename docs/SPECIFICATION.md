@@ -440,6 +440,20 @@ token presented on such a request is revoked and its owner is told. That is
 harsh, and it is correct: the alternative is a token that has been sighted by
 every hop in between and is still valid.
 
+**Behind a proxy.** Where nginx or Apache terminates TLS and proxies to
+PHP-FPM, the backend sees scheme `http`, no `HTTPS` and port 80, so the
+connection alone cannot answer the question — and answering it wrongly is
+expensive in both directions: call a proxied HTTPS request insecure and the
+first correctly configured client has its token revoked, believe a client that
+merely claims to have been proxied and the requirement is gone. So
+`X-Forwarded-Proto` (and `X-Forwarded-SSL`) is honoured only when `REMOTE_ADDR`
+matches `trusted_proxies` in `config.php`, a list of addresses and CIDR ranges
+that is empty by default. Empty means nothing is believed and the connection is
+asked, which is exactly the behaviour before the key existed. The client's own
+leg is the *first* entry of a forwarded chain, not the last, and `SERVER_PORT`
+is not consulted at all: a port says what was listened on, never what was
+spoken on it.
+
 In the shipped deployment this revocation is a defence in depth, not a control
 that fires against a client using `http://` today: nginx 302-redirects plain
 HTTP to HTTPS before PHP runs at all, so the middleware never sees such a
@@ -1447,6 +1461,8 @@ return array(
 
     // Transport
     'require_tls'                 => true,
+    'trusted_proxies'             => array(),      // whose X-Forwarded-Proto
+                                                   // may be believed (§4)
     'allowed_origins'             => array(),      // never '*'
     'allow_session_auth'          => true,
     'allow_password_grant'        => true,
