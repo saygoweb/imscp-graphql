@@ -44,7 +44,23 @@ if [ -d /var/www/imscp ]; then
     # default 'php' may be 7.3, which fails composer's platform check for
     # dependencies resolved against 7.4.33.
     if [ -f vendor/bin/phpunit ] && [ -f test/phpunit.xml ]; then
-        php7.4 vendor/bin/phpunit --configuration test/phpunit.xml "$@"
+        if [ "$#" -eq 0 ]; then
+            # The unfiltered, full run. It is two PHPUnit processes rather
+            # than one: the unit suite runs without the panel (test/bootstrap.php)
+            # and test/unit/Frontend/GlobalStubs.php stands in for the panel's
+            # tohtml() so safeText()/safeAttr() have something to call; the
+            # integration suite bootstraps the real panel, whose own Input.php
+            # declares that same global function with no function_exists()
+            # guard. One process cannot load both without a fatal "cannot
+            # redeclare tohtml()", so the two suite groups are kept apart at
+            # the process level instead. A focused run — an explicit
+            # --testsuite or --filter — only ever touches one side, so it
+            # stays a single invocation, below.
+            php7.4 vendor/bin/phpunit --configuration test/phpunit.xml --testsuite unit,schema
+            php7.4 vendor/bin/phpunit --configuration test/phpunit.xml --testsuite integration
+        else
+            php7.4 vendor/bin/phpunit --configuration test/phpunit.xml "$@"
+        fi
     else
         echo "Note: PHPUnit not yet configured; skipping unit tests"
     fi

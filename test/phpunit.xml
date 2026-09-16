@@ -10,5 +10,15 @@
         <testsuite name="unit">
             <directory>unit</directory>
         </testsuite>
+        <testsuite name="schema">
+            <directory>schema</directory>
+        </testsuite>
+        <!--
+            Needs the panel bootstrapped and a database. It is skipped rather
+            than failed off the box, so the unit suite stays runnable anywhere.
+        -->
+        <testsuite name="integration">
+            <directory>integration</directory>
+        </testsuite>
     </testsuites>
 </phpunit>

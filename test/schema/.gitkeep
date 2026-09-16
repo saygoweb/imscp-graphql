@@ -1,0 +1,4 @@
+Placeholder so this directory survives git (which does not track empty
+directories). test/phpunit.xml declares a "schema" testsuite against this
+directory; Task 11 fills it with SchemaTest.php. Remove this file once that
+lands.
