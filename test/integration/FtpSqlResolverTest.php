@@ -166,6 +166,72 @@ class FtpSqlResolverTest extends IntegrationTestCase
         );
     }
 
+    public function testAUsersDatabasesStopAtTheOwningCustomer(): void
+    {
+        // Two customers holding a grant of the same sqlu_name. Reachable
+        // whenever i-MSCP's per-customer SQL-user prefix is turned off, and
+        // whenever an administrator or reseller writes a grant by hand.
+        //
+        // The leak this asserts against is not only the database name:
+        // shapeDatabase() carries __ownerId, so SqlDatabase.customer would
+        // then resolve the *other* customer's account, with no ownership
+        // check anywhere on the path.
+        $this->collidingGrant();
+
+        $user = $this->value(
+            $this->resolver->sqlUserReference($this->fixture->sqlUserId())
+        );
+        $databases = $this->value($this->resolver->resolveSqlUserDatabases(
+            $user, array(), $this->context(), $this->info()
+        ));
+
+        self::assertCount(1, $databases);
+        self::assertSame($this->fixture->sqlDatabaseId(), $databases[0]['__key']);
+        self::assertSame(
+            $this->fixture->customerId(), $databases[0]['__ownerId']
+        );
+    }
+
+    public function testTheStrangersOwnGrantStillListsTheirOwnDatabase(): void
+    {
+        // The other direction, so the fix is a filter and not a truncation:
+        // the colliding grant must still see its own customer's database.
+        $strangerUserId = $this->collidingGrant();
+
+        $user = $this->value($this->resolver->sqlUserReference($strangerUserId));
+        $databases = $this->value($this->resolver->resolveSqlUserDatabases(
+            $user, array(), $this->context(), $this->info()
+        ));
+
+        self::assertCount(1, $databases);
+        self::assertSame(
+            $this->fixture->otherCustomerId(), $databases[0]['__ownerId']
+        );
+    }
+
+    /**
+     * A second customer with a database of their own and a grant of the same
+     * sqlu_name as the fixture's.
+     *
+     * @return int the stranger's sql_user id
+     */
+    private function collidingGrant(): int
+    {
+        $pdo = $this->db->pdo();
+        $statement = $pdo->prepare(
+            'INSERT INTO sql_database (domain_id, sqld_name) VALUES (?, ?)'
+        );
+        $statement->execute(array($this->fixture->otherDomainId(), 'sgwt_stranger'));
+        $databaseId = (int)$pdo->lastInsertId();
+
+        $statement = $pdo->prepare(
+            'INSERT INTO sql_user (sqld_id, sqlu_name, sqlu_host) VALUES (?, ?, ?)'
+        );
+        $statement->execute(array($databaseId, 'sgwt_u1', 'localhost'));
+
+        return (int)$pdo->lastInsertId();
+    }
+
     public function testSixCustomersFtpSqlAndUserListsCostThreeQueries(): void
     {
         // One per rule, not one per customer.

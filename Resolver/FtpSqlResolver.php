@@ -403,36 +403,24 @@ final class FtpSqlResolver
 
         $db = $this->db;
 
-        // Keyed by the user's name rather than by this grant row: a MySQL user
-        // granted on three databases is three sql_user rows and one identity,
-        // and the schema asks which databases that identity may reach.
+        // Keyed by the grant's own database *and* the user's name, rather than
+        // by the name alone: a MySQL user granted on three databases is three
+        // sql_user rows and one identity, and the schema asks which databases
+        // that identity may reach - but sqlu_name is unique only within a
+        // customer. i-MSCP's per-customer prefix is a setting, and a grant
+        // written by hand by a reseller or an administrator ignores it, so two
+        // customers can hold the same name. Keyed by the name alone this
+        // handed one customer the other's database names - and shapeDatabase()
+        // carries __ownerId, so SqlDatabase.customer then resolved the other
+        // customer's account with no ownership check anywhere on the path.
+        //
+        // The grant's own database is the anchor: it fixes the domain, and a
+        // customer has exactly one domain row.
         return $this->loader->keyed(
             'sqldb:by-user-name',
-            (string)$source['__name'],
+            (int)$source['__sqldId'] . ':' . (string)$source['__name'],
             static function (array $keys) use ($db) {
-                $rows = $db->rows(
-                    '
-                        SELECT su.sqlu_name, sd.sqld_id, sd.domain_id,
-                            sd.sqld_name, d.domain_admin_id
-                        FROM sql_user AS su
-                        JOIN sql_database AS sd ON sd.sqld_id = su.sqld_id
-                        JOIN domain AS d ON d.domain_id = sd.domain_id
-                        WHERE su.sqlu_name IN (' . $db->placeholders(count($keys)) . ')
-                        ORDER BY sd.sqld_name
-                    ',
-                    $keys
-                );
-                $byName = array();
-
-                foreach ($keys as $key) {
-                    $byName[(string)$key] = array();
-                }
-
-                foreach ($rows as $row) {
-                    $byName[(string)$row['sqlu_name']][] = $row;
-                }
-
-                return $byName;
+                return self::loadDatabasesOfUsers($db, $keys);
             }
         )->then(static function ($rows) {
             $shaped = array();
@@ -443,5 +431,58 @@ final class FtpSqlResolver
 
             return $shaped;
         });
+    }
+
+    /**
+     * Every database of the anchor's owner on which a user of that name is
+     * granted, for each "anchorSqldId:sqluName" key.
+     *
+     * One query for the whole batch: the two halves of the key go into the
+     * IN lists separately and the rows are paired back up here, so a row
+     * belonging to a pair nobody asked for is dropped rather than served.
+     *
+     * @param string[] $keys
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private static function loadDatabasesOfUsers(Db $db, array $keys): array
+    {
+        $anchors = array();
+        $names = array();
+        $byKey = array();
+
+        foreach ($keys as $key) {
+            list($anchor, $name) = explode(':', (string)$key, 2);
+            $anchors[$anchor] = (int)$anchor;
+            $names[$name] = $name;
+            $byKey[(string)$key] = array();
+        }
+
+        $rows = $db->rows(
+            '
+                SELECT DISTINCT anchor.sqld_id AS anchor_id, su.sqlu_name,
+                    sd.sqld_id, sd.domain_id, sd.sqld_name, d.domain_admin_id
+                FROM sql_database AS anchor
+                JOIN sql_database AS sd ON sd.domain_id = anchor.domain_id
+                JOIN sql_user AS su ON su.sqld_id = sd.sqld_id
+                JOIN domain AS d ON d.domain_id = sd.domain_id
+                WHERE anchor.sqld_id IN (' . $db->placeholders(count($anchors)) . ')
+                    AND su.sqlu_name IN (' . $db->placeholders(count($names)) . ')
+                ORDER BY sd.sqld_name
+            ',
+            array_merge(array_values($anchors), array_values($names))
+        );
+
+        foreach ($rows as $row) {
+            // DISTINCT above is what keeps a name granted twice on the same
+            // database - once for 'localhost' and once for '%' - from listing
+            // that database twice.
+            $key = (int)$row['anchor_id'] . ':' . (string)$row['sqlu_name'];
+
+            if (isset($byKey[$key])) {
+                $byKey[$key][] = $row;
+            }
+        }
+
+        return $byKey;
     }
 }
