@@ -4,6 +4,63 @@ All notable changes to this plugin are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+The read model. `apiVersion` answers `1.1.0`: types and fields within the same
+major version.
+
+### Added
+
+- The whole customer graph now reads. `Customer` carries its contact details,
+  allowances, month-to-date usage, feature flags and provisioning state, and
+  from it hang domains, subdomains, domain aliases and the subdomains of an
+  alias, mail accounts, FTP users, SQL databases and users, DNS records, IP
+  addresses, the owning reseller and that reseller's hosting plans.
+- Six root fields: `node`, `customer`, `customers`, `reseller`, `resellers`
+  and `pending`, with opaque identifiers, filters and paging.
+- Batch loading on every edge, so a document costs one query per level rather
+  than one per parent. A query-count test executes a deep document against the
+  reference box and pins it at **31 queries**, then asserts that twelve
+  customers cost exactly what one does — an N+1 anywhere in the graph moves
+  that number, and slack is where an N+1 hides.
+- A per-type scope gate on `node` and `pending`. A plain value field has no
+  resolver of its own, so without the gate either root field served every
+  field of every type to any credential that could name an identifier.
+- `trusted_proxies` in `config.php`: the reverse proxies whose
+  `X-Forwarded-Proto` (or `X-Forwarded-SSL`) may be believed, as addresses or
+  CIDR ranges. Empty by default, which believes nobody.
+
+### Changed
+
+- **`Customer.reseller` is nullable.** A client that assumed it non-null must
+  handle null: `admin.created_by` is nullable, so a customer an administrator
+  created directly has no reseller to name. While the field was `Reseller!`
+  that null nulled the whole `Customer`, and inside
+  `CustomerConnection.nodes: [Customer!]!` it nulled the connection — one such
+  account broke `customers` for every customer in the page. No amount of
+  handling can conjure a reseller that does not exist, so the field says so.
+
+### Fixed
+
+- TLS is no longer mistaken for plain HTTP behind a proxy. Where nginx or
+  Apache terminates TLS and proxies to PHP-FPM, the backend sees scheme
+  `http`, no `HTTPS` and port 80, and the insecure branch does not merely
+  answer `403` — it revokes the bearer it was handed. A correctly configured
+  client destroyed its own token on its first valid request. The forwarded
+  scheme is now honoured, but only from an address in `trusted_proxies`, since
+  any client can send that header. `SERVER_PORT` is no longer consulted at
+  all: plaintext arriving on 443 used to count as proof of TLS.
+- A bearer token that is presented and refused — revoked, expired, or outside
+  its own address allow-list — is now a `401`. It used to fall through to the
+  panel session, which records no scopes and is therefore a *full* credential:
+  the holder of a token that had just been revoked carried on working with
+  more authority than the token ever granted. A request carrying no bearer at
+  all still authenticates from the session, as `allow_session_auth` intends.
+- `node(id: X)` asks `CUSTOMERS_READ` for a customer that is not the caller's
+  own account, as `customer(id: X)` always has. The two disagreed, and a
+  `Customer` identifier is `base64("Customer:N")`, so `ACCOUNT_READ` alone
+  granted a reseller exactly what `CUSTOMERS_READ` exists to gate.
+
 ## [0.1.0] — 2026-09-05
 
 The walking skeleton: an authenticated endpoint and the credentials to reach
