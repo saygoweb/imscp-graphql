@@ -7,3 +7,5 @@ log/
 vendor/
 composer.phar
 .ssh-config
+.serena/
+test/.phpunit.result.cache

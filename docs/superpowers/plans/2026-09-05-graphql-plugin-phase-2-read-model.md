@@ -38,7 +38,7 @@ Copied verbatim from the specification and from plan 1. **Every task's requireme
 - **PHP 7.4.x.** Typed properties, arrow functions and `??=` are available. Constructor promotion, `match`, enums, named arguments, nullsafe calls and union types are **not**. (Spec §2.5)
 - **All plugin source must also lint under PHP 8.3.** `test/lint/all.sh` runs `php7.4 -l` and `php8.3 -l` over every file and must stay green. (Spec §2.5)
 - **Namespace `iMSCP\Plugin\SGW_GraphQL`**, PSR-4 with the **plugin root as the namespace root**. There is no `src/` directory: `iMSCP\Plugin\SGW_GraphQL\Model\DomainModel` lives at `Model/DomainModel.php`. (Plan 1's deviation from spec §13, still in force.)
-- **Tests and lint run inside the Vagrant box**, via `tools/test.sh`. The host has no `php7.4`. Never claim a test passes without having run it in the box.
+- **Tests and lint run on the i-MSCP development server**, via `tools/test.sh`, which re-enters itself there. The host has no `php7.4` and no panel. By default that server is the docker container from `../imscp/docker/imscp`, which bind mounts this checkout, so `tools/test.sh` tests the working tree directly — no deploy step, no staged copy. Arguments are passed through to PHPUnit (`tools/test.sh --testsuite unit`). Never claim a test passes without having run it there.
 - **Two runtime dependencies only:** `webonyx/graphql-php ^15`, `saygoweb/anorm ^3.1`. Both are vendored and verified working on PHP 7.4. No third.
 - **Licence header on every PHP file**, GPL-2.0-or-later, copyright `2026 Cambell Prince <cambell.prince@gmail.com>`, matching `SGW_ApacheCache` exactly.
 - **British spelling** in all comments and user-facing strings (`authorise`, `behaviour`, `licence` as noun, `normalise`).

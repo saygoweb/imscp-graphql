@@ -1,18 +1,26 @@
 #!/bin/sh
 # Stage the working copy into the i-MSCP panel's plugins directory.
 #
-# Runs either on the host or inside the box, and works out which:
+# Runs either on the host or on the server, and works out which:
 #
-#   host:   tools/deploy.sh [box]   pushes the tree over 'vagrant ssh' and then
-#                                   re-enters itself in the box. No synced
-#                                   folder is needed, so this repository does
-#                                   not have to appear in the i-MSCP
-#                                   Vagrantfile. Default box: imscp_debian_trixie.
-#   in-box: sudo tools/deploy.sh    installs from the tree it is run from, the
-#                                   way the sibling plugins do.
+#   host:     tools/deploy.sh [box]   pushes the tree over 'vagrant ssh' and
+#                                     then re-enters itself in the box. No
+#                                     synced folder is needed, so this
+#                                     repository does not have to appear in the
+#                                     i-MSCP Vagrantfile. Default box:
+#                                     imscp_debian_trixie.
+#   on-server: sudo tools/deploy.sh   installs from the tree it is run from,
+#                                     the way the sibling plugins do.
 #
 # The panel runs as vu2000, and a virtiofs share would carry the host uid, so
 # the tree is copied into place rather than mounted there.
+#
+# None of that applies to the docker server, which is why this script has
+# nothing to do there: '../imscp/docker/imscp' bind mounts the whole plugins
+# directory and links this checkout into gui/plugins, so the panel already
+# serves the working tree. Run 'docker/imscp link' after adding the checkout to
+# IMSCP_PLUGINS in docker/.env, and this script only restarts the pool so that
+# opcache stops serving the previous bytecode.
 
 set -e
 
@@ -29,6 +37,15 @@ EXCLUDES="--exclude=.git --exclude=.github --exclude=.ssh-config
 
 if [ -d /var/www/imscp/gui/plugins ]; then
     [ "$(id -u)" -eq 0 ] || { echo "$0: must be run as root" >&2; exit 1; }
+
+    # The docker server links gui/plugins/$PLUGIN at a bind mount of this very
+    # tree. Copying over the link would replace the mount with a stale copy and
+    # break the thing that makes editing on the host take effect.
+    if [ -L "$DEST" ] && [ "$(readlink -f "$DEST")" = "$SRC" ]; then
+        systemctl restart imscp_panel
+        echo "$DEST is already linked to $SRC; restarted imscp_panel."
+        exit 0
+    fi
 
     # shellcheck disable=SC2086
     rsync -a --delete $EXCLUDES "$SRC/" "$DEST/"

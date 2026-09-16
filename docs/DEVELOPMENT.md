@@ -1,20 +1,73 @@
 # Development environment
 
-The plugin is developed against the Debian 13 (Trixie) Vagrant box in the
-i-MSCP repository. The box ships the panel on **PHP 7.3.33** from
-`packages.sury.org`; the plugin targets **7.4**, so moving the panel is a
-prerequisite. It needs no code changes — measured, 21 of 21 pages render
-unmodified — only `PHP_FPM_BIN_PATH` in
-`configs/debian/default/frontend/frontend.data.dist` and the version gate in
-`engine/PerlLib/iMSCP/Requirements.pm`. See
+The plugin is developed against an i-MSCP server that the i-MSCP repository
+brings up for you. There are two, and **docker is the one to use**: it is
+faster, it costs a tenth of the disk, and — the reason that matters here — it
+bind mounts this checkout into the panel, so the tests run against the working
+tree rather than a copy of it. The Vagrant boxes still work and are documented
+below for when a real virtual machine is the point.
+
+Either server ships the panel on **PHP 7.3.33** from `packages.sury.org`; the
+plugin targets **7.4**, so moving the panel is a prerequisite. It needs no code
+changes — measured, 21 of 21 pages render unmodified — only `PHP_FPM_BIN_PATH`
+in `configs/debian/default/frontend/frontend.data.dist`, the version gate in
+`engine/PerlLib/iMSCP/Requirements.pm`, and the `php`/`phar` alternatives in the
+autoinstaller package lists. See
 [SPECIFICATION.md §2.5](SPECIFICATION.md#25-the-frontend-runs-on-php-73-today-and-moves-to-74-first).
 
 Plugin source must lint under **both** `php7.4` and `php8.3`, so that the later
 8.3 migration costs this plugin nothing. `test/lint/` enforces it.
 
-## Bringing the box up
+## Bringing the server up — docker
 
-The box lives in the i-MSCP repository, not this one:
+The stack lives in the i-MSCP repository, not this one. `../imscp/docker/README.md`
+is its full documentation; the short version is:
+
+```shell
+cd ../imscp
+docker/imscp init          # pick host ports that are free on this machine
+docker/imscp up --build    # build, boot, install i-MSCP  (20-40 min first time)
+docker/imscp info          # where it is and how to log in
+```
+
+It needs Docker Engine with the `compose` plugin and a cgroup v2 host.
+
+### Mounting this checkout
+
+The directory holding the sibling plugin checkouts — by default the one the
+i-MSCP repository sits in — is mounted whole at `/var/www/imscp-plugins`, so
+this checkout is already *visible* inside the container. Making the panel serve
+it takes one line in `../imscp/docker/.env`:
+
+```shell
+IMSCP_PLUGINS="imscp-php-version imscp-letsencrypt imscp-graphql"
+```
+
+and then `docker/imscp link`, which symlinks each named checkout into
+`gui/plugins/` under the name its `makefile.json` gives it — so this one arrives
+as `/var/www/imscp/gui/plugins/SGW_GraphQL`. Adding a plugin costs a symlink,
+not a container rebuild. Install and enable it in the panel as usual, under
+*System tools → Plugin management*.
+
+Editing a file on the host changes what the panel serves on the next request.
+There is nothing to deploy: `tools/deploy.sh` notices the link and only restarts
+`imscp_panel`, so that opcache stops serving the previous bytecode.
+
+Check it is healthy:
+
+```shell
+docker/imscp exec sh -c 'php7.4 -v | head -1; systemctl is-active imscp_panel nginx mariadb'
+```
+
+The panel is at `http://localhost:8880` (`docker/imscp info` prints the
+credentials). Note **`http`**: the container installs with SSL off, because a
+self-signed certificate on localhost only adds a click-through. The plugin
+refuses plaintext by default, so reaching the endpoint on this server needs
+`require_tls => false` in the plugin's configuration.
+
+## Bringing the server up — Vagrant
+
+The boxes live in the i-MSCP repository too:
 
 ```shell
 cd ../imscp/Vagrant
@@ -37,7 +90,7 @@ On the reference box that reports PHP 7.3.33 and three `active` lines. The
 panel is at `https://panel.<your-hostname>:8443`, and the box's address comes
 from `vagrant ssh-config imscp_debian_trixie`.
 
-## Deploying the working copy
+## Deploying the working copy to a Vagrant box
 
 ```shell
 tools/deploy.sh                        # from the host
@@ -93,13 +146,32 @@ php7.4 /var/www/imscp/gui/bin/composer.phar install --no-dev
 ## Running the tests
 
 ```shell
-make.phar test          # unit and schema tests, inside the box
-test/api/smoke.sh       # integration, against the running box
+make.phar test          # lint, unit, schema and integration tests
+test/api/smoke.sh       # end-to-end, against a running Vagrant box
 ```
 
-`make.phar test` runs `tools/test.sh`, which pushes the tree over `vagrant ssh`
-and runs the lint script and the PHPUnit suite inside the box — see the note
-above about why the box, not the host: the host has no PHP 7.4.
+`make.phar test` runs `tools/test.sh`, which re-enters itself on the server and
+runs the lint script under both PHP versions and then the PHPUnit suite. The
+server, not the host, because the host has neither PHP 7.4 nor the panel the
+integration suite bootstraps.
+
+It picks the server the same way this document does: the docker container if one
+is running, otherwise a Vagrant box. On docker it runs the suite against this
+working tree through the bind mount — nothing is copied, so there is no staged
+second copy to wonder about — while the Vagrant path pushes the tree into
+`/tmp/SGW_GraphQL.test` and lets the staged copy test itself. Force one with
+`--docker` or `--vagrant [box]`, and set `IMSCP_DIR` if the i-MSCP repository is
+not at `../imscp`.
+
+Anything after those flags is passed through to PHPUnit:
+
+```shell
+tools/test.sh --testsuite unit
+tools/test.sh --filter GlobalId
+```
+
+The integration suite skips itself where there is no panel, so the unit suite
+stays runnable anywhere PHP 7.4 is.
 
 `test/api/smoke.sh` is different in kind: it drives the *deployed* endpoint
 over HTTPS exactly as a real client would, rather than exercising the code in
@@ -119,6 +191,14 @@ test/api/smoke.sh imscp_debian_bookworm  # or another box
 
 Set `IMSCP_VAGRANT_DIR` the same way as for `tools/deploy.sh` if the i-MSCP
 repository is not at `../imscp`.
+
+**It does not yet run against the docker server**, and needs two things before
+it can. The container's panel is PHP 7.3, which this plugin's dependency tree
+(resolved against 7.4.33) will not load — that is
+[saygoweb/imscp#12](https://github.com/saygoweb/imscp/pull/12). And the container
+installs with SSL off, so the run would need `require_tls => false`. Until both
+are settled, end-to-end coverage comes from a Vagrant box and everything else
+comes from docker.
 
 ## Reference plugins
 
