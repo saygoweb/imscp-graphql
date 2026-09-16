@@ -194,6 +194,19 @@ final class BatchLoader
             ));
         }
 
+        // The column is interpolated into backticks below, so it is checked
+        // here rather than at flush time: a refused call reports better than a
+        // promise rejected three levels into a document. The check is a
+        // syntactic one rather than a lookup in the model's mapper map,
+        // because building the probe that carries that map needs a live PDO -
+        // which Db::detached() refuses by design, and which byColumn()
+        // deliberately defers into the loader closure.
+        if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $column)) {
+            throw new InvalidArgumentException(sprintf(
+                '"%s" is not a column name.', $column
+            ));
+        }
+
         $db = $this->db;
         $bucket = 'col:' . $modelClass . '.' . $column;
 
@@ -237,6 +250,19 @@ final class BatchLoader
      */
     public function keyed(string $bucket, $key, callable $loader): Deferred
     {
+        if ($key === null) {
+            // A null key matches nothing - SQL's IN (NULL) is never true - so
+            // it is answered here instead of being enqueued. Enqueuing it
+            // costs a round trip to learn nothing, and worse: the pending
+            // entry's *value* is the key itself, so a null one is invisible to
+            // an isset() guard, never flushes, and is dragged along by the
+            // next flush of that bucket as a spurious NULL in the IN list.
+            // domain.domain_ip_id is the caller that makes this reachable.
+            return new Deferred(static function () {
+                return null;
+            });
+        }
+
         $index = (string)$key;
 
         if (!isset($this->results[$bucket])
@@ -247,7 +273,12 @@ final class BatchLoader
         }
 
         return new Deferred(function () use ($bucket, $index) {
-            if (isset($this->pendingKeys[$bucket][$index])) {
+            // array_key_exists, not isset, for the same reason the memo check
+            // above uses it: the guard asks "is this key still pending", and
+            // isset() would answer no for a pending entry whose value is null.
+            if (isset($this->pendingKeys[$bucket])
+                && array_key_exists($index, $this->pendingKeys[$bucket])
+            ) {
                 $this->flushKeys($bucket);
             }
 
@@ -326,19 +357,31 @@ final class BatchLoader
         $relationship = $this->relationships[$bucket];
         $isParent = $this->isParentEdge[$bucket];
 
-        unset(
-            $this->pendingModels[$bucket],
-            $this->relationships[$bucket],
-            $this->isParentEdge[$bucket]
-        );
-
         // Constructed per flush rather than held as a field: both loaders are
         // stateless, and holding one would be one more thing to reason about
         // when asking whether the strategy layer can be reached.
         $loader = $isParent ? new ManyHasOneBatchLoader() : new OneHasManyBatchLoader();
 
+        // The bucket is emptied only once Anorm has assigned every model its
+        // edge, and that ordering is the whole point. GraphQL\Deferred catches
+        // its executor's throw per promise, so a failed batch rejects only the
+        // promise that happened to trigger the flush. Emptying the bucket
+        // first would leave every sibling Deferred in the batch finding
+        // nothing pending, reading an edge property distributeBatchResults()
+        // never reached, and - because that property is an unassigned null -
+        // resolving to an empty list. One dropped connection would report nine
+        // of ten customers as having no mail accounts, inside a 200 response.
+        // Leaving the bucket in place instead makes the next sibling retry the
+        // flush and fail the same way, which is an answer the client can act
+        // on.
         $results = $loader->batchLoad($models, $relationship);
         $loader->distributeBatchResults($models, $results, $relationship);
+
+        unset(
+            $this->pendingModels[$bucket],
+            $this->relationships[$bucket],
+            $this->isParentEdge[$bucket]
+        );
 
         // Every model in this flush now carries its edge. Recording that is
         // what makes a second ask free; see edge()'s note on why the model is
@@ -355,13 +398,21 @@ final class BatchLoader
         $keys = array_values($this->pendingKeys[$bucket]);
         $loader = $this->loaders[$bucket];
 
+        // Called before the pending list is cleared, for the reason
+        // flushEdge() sets out: a throw here rejects only the one promise, and
+        // a sibling that found nothing pending would fall through to "no
+        // answer for this key" - null from keyed(), and array() once
+        // byColumn()'s ->then() has had it. A failed query must not read as
+        // "no rows".
+        $loaded = call_user_func($loader, $keys);
+
         unset($this->pendingKeys[$bucket], $this->loaders[$bucket]);
 
         if (!isset($this->results[$bucket])) {
             $this->results[$bucket] = array();
         }
 
-        foreach (call_user_func($loader, $keys) as $key => $value) {
+        foreach ($loaded as $key => $value) {
             $this->results[$bucket][(string)$key] = $value;
         }
 
