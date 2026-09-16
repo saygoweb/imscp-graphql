@@ -227,6 +227,68 @@ class CustomerResolverTest extends IntegrationTestCase
         self::assertTrue($features['supportSystem']);
     }
 
+    public function testAnAccountWithNoResellerAnswersNullAndCostsNoQuery(): void
+    {
+        // shape() keeps admin.created_by's null rather than flattening it, and
+        // the edge has to keep it too: (int)null is 0, and reference(0) is a
+        // query for a reseller that cannot exist.
+        $shape = CustomerResolver::shape(
+            array_merge($this->row(), array('created_by' => null)), 'decode_idna'
+        );
+
+        self::assertNull($shape['__resellerId']);
+
+        $resolver = $this->resolver;
+        $context = $this->context();
+        $info = $this->info();
+        $reseller = false;
+
+        $count = $this->db->countQueries(
+            function () use ($resolver, $shape, $context, $info, &$reseller) {
+                $reseller = $resolver->resolveReseller($shape, array(), $context, $info);
+
+                SyncPromise::runQueue();
+            }
+        );
+
+        self::assertNull($reseller);
+        self::assertSame(0, $count);
+    }
+
+    public function testAnAccountWithNoResellerHasNoSupportSystem(): void
+    {
+        // support_system lives on the reseller, so an account with no reseller
+        // has no row to read it from - which is what the panel's own
+        // customerHasFeature() concludes as well.
+        $shape = CustomerResolver::shape(
+            array_merge($this->row(), array('created_by' => null)), 'decode_idna'
+        );
+
+        $features = $this->value($this->resolver->resolveFeatures(
+            $shape, array(), $this->context(), $this->info()
+        ));
+
+        self::assertFalse($features['supportSystem']);
+        // The rest of the row still answers: this is one feature going false,
+        // not the block failing.
+        self::assertTrue($features['php']);
+    }
+
+    /**
+     * The fixture customer's joined row, as CustomerResolver::SELECT returns it.
+     *
+     * @return array<string, mixed>
+     */
+    private function row(): array
+    {
+        $rows = $this->db->rows(
+            CustomerResolver::SELECT . ' WHERE a.admin_id = ?',
+            array($this->fixture->customerId())
+        );
+
+        return $rows[0];
+    }
+
     public function testApiAccessFallsBackToThePluginsDefaultWithNoPermRow(): void
     {
         // api_perm is empty in production, so this is the branch every real

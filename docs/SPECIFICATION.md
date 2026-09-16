@@ -823,7 +823,8 @@ type Customer implements Node & Provisioned {
   "The reseller's own reference for this customer (admin.customer_id)."
   reference: String
   contact: ContactDetails!
-  reseller: Reseller!
+  "Null when the account's creator is not a reseller."
+  reseller: Reseller
   createdAt: DateTime!
   expiresAt: DateTime
   domain: Domain!
@@ -857,6 +858,11 @@ type CustomerFeatures {
 
 `features` is `customerHasFeature()`'s answer, verbatim and per name, so the
 API cannot disagree with the panel about what a customer is allowed.
+
+`reseller` is nullable because `admin.created_by` is: an account whose creator
+is not a reseller has none to name, and a non-null field would resolve that row
+to null, null the whole `Customer`, and — inside
+`CustomerConnection.nodes: [Customer!]!` — null the page around it as well.
 
 ### 7.6 Mail
 

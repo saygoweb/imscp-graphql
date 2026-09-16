@@ -20,7 +20,9 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Integration;
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+use GraphQL\Error\DebugFlag;
 use GraphQL\Executor\Promise\Adapter\SyncPromise;
+use GraphQL\GraphQL;
 use iMSCP\Plugin\SGW_GraphQL\Api\Container;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\QueryResolver;
@@ -40,6 +42,9 @@ class QueryResolverTest extends IntegrationTestCase
     /** @var QueryResolver */
     private $resolver;
 
+    /** @var Container */
+    private $container;
+
     protected function setUp(): void
     {
         $this->db = Db::fromPanel();
@@ -56,6 +61,7 @@ class QueryResolverTest extends IntegrationTestCase
             static function (int $adminId) { return true; },
             $this->db
         );
+        $this->container = $container;
         $maps = $container->resolverMaps();
         $this->resolver = $this->queryResolverOf($maps);
     }
@@ -193,6 +199,63 @@ class QueryResolverTest extends IntegrationTestCase
                 self::assertSame(ErrorCode::NOT_FOUND, $e->getErrorCode(), $id);
             }
         }
+    }
+
+    public function testAnAccountWithNoResellerDoesNotNullThePageAroundIt(): void
+    {
+        // admin.created_by is nullable, and an account whose creator is not a
+        // reseller has no Reseller to answer with. While the field was
+        // Reseller! that null nulled the whole Customer, and inside
+        // CustomerConnection.nodes: [Customer!]! it nulled the connection - so
+        // one such row broke Query.customers for every customer in the page.
+        $statement = $this->db->pdo()->prepare(
+            'UPDATE admin SET created_by = NULL WHERE admin_id = ?'
+        );
+        $statement->execute(array($this->fixture->siblingId()));
+
+        $response = $this->execute(
+            '{ customers { nodes { username reseller { username } } } }'
+        );
+
+        self::assertArrayNotHasKey(
+            'errors', $response, json_encode($response['errors'] ?? array())
+        );
+
+        $byName = array();
+
+        foreach ($response['data']['customers']['nodes'] as $node) {
+            $byName[$node['username']] = $node;
+        }
+
+        self::assertArrayHasKey(Fixture::PREFIX . 'sibling', $byName);
+        self::assertNull($byName[Fixture::PREFIX . 'sibling']['reseller']);
+        // The customer beside it in the same page still answers, which is the
+        // half of this that was broken.
+        self::assertSame(
+            Fixture::PREFIX . 'reseller',
+            $byName[Fixture::PREFIX . 'customer']['reseller']['username']
+        );
+    }
+
+    /**
+     * One document, executed against the real schema as the administrator.
+     *
+     * Through the executor rather than through the resolver, because what is
+     * being asserted is what a non-null field does to the page around it -
+     * which only the executor does.
+     *
+     * @return array<string, mixed>
+     */
+    private function execute(string $document): array
+    {
+        $result = GraphQL::executeQuery(
+            $this->container->schemaFactory()->create(),
+            $document,
+            null,
+            $this->context('admin')
+        );
+
+        return $result->toArray(DebugFlag::INCLUDE_DEBUG_MESSAGE);
     }
 
     public function testACustomerMayReadTheIdentityOfTheirOwnReseller(): void

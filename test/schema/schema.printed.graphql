@@ -287,7 +287,14 @@ type Customer implements Node & Provisioned {
   reference: String
 
   contact: ContactDetails!
-  reseller: Reseller!
+
+  """
+  Null when the account's creator is not a reseller — admin.created_by is
+  nullable, and an account created outside the reseller chain has no reseller
+  to name.
+  """
+  reseller: Reseller
+
   createdAt: DateTime!
 
   "Null when the account does not expire."

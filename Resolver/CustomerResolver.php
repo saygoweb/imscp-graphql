@@ -249,9 +249,22 @@ final class CustomerResolver
         );
     }
 
-    public function resolveReseller($source, array $args, $context, ResolveInfo $info): SyncPromise
+    /**
+     * @return SyncPromise|null
+     */
+    public function resolveReseller($source, array $args, $context, ResolveInfo $info)
     {
         TypeResolver::requireScope($context, Scope::ACCOUNT_READ);
+
+        if ($source['__resellerId'] === null) {
+            // admin.created_by is nullable, and shape() keeps that null rather
+            // than flattening it. (int)null is 0, which reads as a reseller
+            // that cannot exist: reference(0) finds nothing and answers null,
+            // and while the field was Reseller! that null nulled the whole
+            // Customer - and inside CustomerConnection.nodes: [Customer!]! the
+            // whole page with it.
+            return null;
+        }
 
         return call_user_func($this->resellerRef, (int)$source['__resellerId']);
     }
@@ -375,6 +388,17 @@ final class CustomerResolver
 
         $row = $source['__row'];
         $config = $this->config;
+
+        if ($source['__resellerId'] === null) {
+            // No reseller, so no reseller_props row to read support_system
+            // from, and the panel's own customerHasFeature() answers false for
+            // the same reason. Said here rather than left to (int)null = 0
+            // quietly missing the row.
+            return new Deferred(static function () use ($row, $config) {
+                return CustomerFeatures::fromDomainRow($row, $config, false)
+                    ->toArray();
+            });
+        }
 
         // support_system is the reseller's, not the customer's: a reseller who
         // does not offer the ticket system withholds it from every customer.
