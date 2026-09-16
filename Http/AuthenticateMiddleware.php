@@ -32,6 +32,10 @@ use Psr\Http\Message\ServerRequestInterface;
  * Every failure is the same 401 with the same body: a caller learning which
  * check failed learns nothing useful to them and something useful to an
  * attacker.
+ *
+ * The two credentials are alternatives, not a chain: a request that presents a
+ * bearer is answered by that bearer, whether it verifies or not. See
+ * __invoke().
  */
 final class AuthenticateMiddleware
 {
@@ -75,7 +79,27 @@ final class AuthenticateMiddleware
             return $next($request, $response);
         }
 
-        $identity = $this->fromBearerToken($request) ?? $this->fromSession($request);
+        // Which credential was *presented* decides which one is asked, and
+        // the two cases bearerToken() folds into one null - no Authorization
+        // header at all, and one that failed to verify - are told apart here
+        // before either is consulted.
+        //
+        // They used to share an outcome: a bearer that did not verify fell
+        // through to the session, silently. That is not a fallback, it is an
+        // escalation. A session records no scopes and Identity::hasScope()
+        // reads an empty list as a full credential, so the holder of a token
+        // that had just been revoked, had expired, or had been refused by its
+        // own address allow-list carried on working - with strictly more
+        // authority than the token ever granted, and with no 401 to tell them
+        // anything had changed.
+        //
+        // A credential that was presented and refused is refused. Only a
+        // request carrying no bearer at all may look at the session, which is
+        // what allow_session_auth is for and what the panel's own pages use.
+        $presented = TlsMiddleware::bearerToken($request);
+        $identity = $presented !== null
+            ? $this->fromBearerToken($request, $presented)
+            : $this->fromSession($request);
 
         if ($identity === null) {
             return $this->unauthenticated($response);
@@ -103,14 +127,15 @@ final class AuthenticateMiddleware
         return $next($request->withAttribute('identity', $identity), $response);
     }
 
-    private function fromBearerToken(ServerRequestInterface $request): ?Identity
-    {
-        $presented = TlsMiddleware::bearerToken($request);
-
-        if ($presented === null) {
-            return null;
-        }
-
+    /**
+     * @param string $presented The bearer the caller sent, already parsed out
+     *                          of the header by the one place that parses it.
+     *                          Passed in rather than re-read so that null here
+     *                          can only ever mean "presented and refused".
+     */
+    private function fromBearerToken(
+        ServerRequestInterface $request, string $presented
+    ): ?Identity {
         $clientIp = $request->getServerParams()['REMOTE_ADDR'] ?? '';
         $token = $this->tokens->verify($presented, $clientIp);
 

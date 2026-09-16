@@ -150,6 +150,115 @@ class AuthenticateMiddlewareTest extends TestCase
         self::assertSame(401, $response->getStatusCode());
     }
 
+    /**
+     * A bearer that was presented and refused must not become a session.
+     *
+     * fromBearerToken() answers null both for "no Authorization header" and
+     * for "one that failed to verify", and the ?? chain that used to join it
+     * to the session could not tell the two apart. So a token that had been
+     * revoked, had expired, or had been refused by its own address allow-list
+     * quietly authenticated from the panel session instead — which records no
+     * scopes, and an empty scope list is a *full* credential. The client whose
+     * narrowly scoped token had just been revoked carried on working, with
+     * more authority than the token ever granted, and never saw a 401.
+     *
+     * Every session precondition is satisfied here, so the only thing that can
+     * refuse this request is the rule under test.
+     */
+    public function testARefusedBearerTokenDoesNotFallBackToTheSession(): void
+    {
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $mw = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            true,
+            $this->accessCheckerMustNotBeCalled()
+        );
+
+        $response = $mw(
+            $this->request([
+                'HTTP_AUTHORIZATION' => 'Bearer imscp_abcdefgh_' . str_repeat('a', 43),
+                'CONTENT_TYPE'       => 'application/json',
+                'HTTP_X_IMSCP_CSRF'  => 'sekrit',
+            ]),
+            new Response(),
+            function ($rq, $rs) {
+                self::fail('a refused bearer must not authenticate from the session');
+            }
+        );
+
+        self::assertSame(401, $response->getStatusCode());
+    }
+
+    /**
+     * The same rule for a bearer that never had a chance of verifying: the
+     * header was presented, so the session is not consulted.
+     */
+    public function testAMalformedBearerTokenDoesNotFallBackToTheSessionEither(): void
+    {
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $mw = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            true,
+            $this->accessCheckerMustNotBeCalled()
+        );
+
+        $response = $mw(
+            $this->request([
+                'HTTP_AUTHORIZATION' => 'Bearer not-even-the-right-shape',
+                'CONTENT_TYPE'       => 'application/json',
+                'HTTP_X_IMSCP_CSRF'  => 'sekrit',
+            ]),
+            new Response(),
+            function ($rq, $rs) {
+                self::fail('a refused bearer must not authenticate from the session');
+            }
+        );
+
+        self::assertSame(401, $response->getStatusCode());
+    }
+
+    /**
+     * And the boundary on the other side, which the fix must not cross: a
+     * request carrying no bearer at all is still free to use the session.
+     * That is what allow_session_auth exists for and what the panel's own
+     * pages do, so breaking it would break the panel.
+     */
+    public function testARequestWithNoBearerAtAllStillUsesTheSession(): void
+    {
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $mw = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            true,
+            $this->alwaysAllowed()
+        );
+
+        $seen = null;
+        $mw(
+            $this->request([
+                'CONTENT_TYPE'      => 'application/json',
+                'HTTP_X_IMSCP_CSRF' => 'sekrit',
+            ]),
+            new Response(),
+            function ($req, $res) use (&$seen) {
+                $seen = $req->getAttribute('identity');
+
+                return $res;
+            }
+        );
+
+        self::assertInstanceOf(Identity::class, $seen);
+        self::assertSame(7, $seen->getAdminId());
+    }
+
     public function testAnAccountWhoseStatusIsNotOkIsRefused(): void
     {
         $mw = new AuthenticateMiddleware(
