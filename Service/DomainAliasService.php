@@ -24,6 +24,7 @@ use iMSCP\Event\Events;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Identity;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Scope;
 use iMSCP\Plugin\SGW_GraphQL\Repository\FtpGroups;
+use iMSCP\Plugin\SGW_GraphQL\Repository\VirtualHosts;
 use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Support\MailType;
 use iMSCP\Plugin\SGW_GraphQL\Support\NodeType;
@@ -262,10 +263,21 @@ final class DomainAliasService
         //   gui/include/Shared.php:1022-1232, which swallows its own failure
         //   (measurement M4) and so cannot be called.
         // CORE-DEBT(C11): C11 item 6 - names escaped for LIKE and the member
-        //   regex; FTP users limited to the owning customer.
+        //   regex; FTP users limited to the owning customer; a mount point
+        //   shared with another live host of the same domain (checkpoint B,
+        //   B2) left alone rather than swept as "everything under this path".
         $kit->writer()->run(function () use ($kit, $core, $account, $key, $name, $row, $params) {
             $db = $kit->db();
             $core->dispatch(Events::onBeforeDeleteDomainAlias, $params);
+
+            // Every subdomain hung off this alias (whatever its status - it
+            // is scheduled for deletion in this same operation), so its own
+            // mount point is never treated as "in use" by a surviving host.
+            $excludedMounts = array(array(VirtualHosts::KIND_ALS, $key));
+
+            foreach ($db->rows('SELECT subdomain_alias_id FROM subdomain_alias WHERE alias_id = ?', array($key)) as $subRow) {
+                $excludedMounts[] = array(VirtualHosts::KIND_ALSSUB, (int)$subRow['subdomain_alias_id']);
+            }
 
             $groups = new FtpGroups($db);
             $group = $groups->ofCustomer($account->getUsername());
@@ -315,11 +327,13 @@ final class DomainAliasService
             );
             $db->execute("UPDATE ssl_certs SET status = 'todelete' WHERE domain_id = ? AND domain_type = 'als'", array($key));
 
-            $mount = rtrim($core->normalisePath((string)$row['mountPoint']), '/');
-            $db->execute(
-                "UPDATE htaccess SET status = 'todelete' WHERE dmn_id = ? AND (path = ? OR path LIKE ?)",
-                array($account->getDomainId(), $mount, VhostRules::likeEscape($mount) . '/%')
-            );
+            if (!$kit->vhosts()->mountPointInUse($account->getDomainId(), (string)$row['mountPoint'], $excludedMounts)) {
+                $mount = rtrim($core->normalisePath((string)$row['mountPoint']), '/');
+                $db->execute(
+                    "UPDATE htaccess SET status = 'todelete' WHERE dmn_id = ? AND (path = ? OR path LIKE ?)",
+                    array($account->getDomainId(), $mount, VhostRules::likeEscape($mount) . '/%')
+                );
+            }
 
             $db->execute("UPDATE subdomain_alias SET subdomain_alias_status = 'todelete' WHERE alias_id = ?", array($key));
             $db->execute("UPDATE domain_aliasses SET alias_status = 'todelete' WHERE alias_id = ?", array($key));

@@ -221,6 +221,53 @@ class VirtualHosts
     }
 
     /**
+     * Whether some other, surviving vhost of the given main domain shares a
+     * mount point with the one about to be deleted.
+     *
+     * Checkpoint B, B1/B2: a delete that schedules "everything under this
+     * mount point" for removal must not reach a sibling host that happens to
+     * share the same mount - most sharply the main domain's own '/', which a
+     * bare rtrim() turns into the empty string and then into "everything".
+     *
+     * @param array<int, array{0: string, 1: int}> $excluded (kind, key) pairs
+     *   never counted as an "other" user - the host being deleted, and
+     *   whatever else the caller already knows is going with it.
+     */
+    public function mountPointInUse(int $domainId, string $mountPoint, array $excluded): bool
+    {
+        $normalise = static function (string $mount): string {
+            $trimmed = rtrim($mount, '/');
+
+            return $trimmed === '' ? '/' : $trimmed;
+        };
+
+        $wanted = $normalise($mountPoint);
+
+        $skip = array();
+        foreach ($excluded as $pair) {
+            $skip[$pair[0] . ':' . (int)$pair[1]] = true;
+        }
+
+        $rows = $this->forDomains(array($domainId));
+
+        foreach ($rows[$domainId] ?? array() as $row) {
+            if (isset($skip[$row['kind'] . ':' . $row['key']])) {
+                continue;
+            }
+
+            if ($row['status'] === 'todelete') {
+                continue;
+            }
+
+            if ($normalise($row['mountPoint']) === $wanted) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Every object of the given customers that the backend has not finished
      * with. Spec section 8.2, and Query.pending.
      *

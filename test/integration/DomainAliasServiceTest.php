@@ -279,6 +279,23 @@ class DomainAliasServiceTest extends ServiceTestCase
         self::assertSame('sgwtcustomer scheduled deletion of the ' . $alias . ' domain alias', $this->core->logs[0][0]);
     }
 
+    public function testDeletingAnAliasMountedAtTheRootLeavesEveryHtaccessRowAlone(): void
+    {
+        // Checkpoint B, B2: an alias sharing the main domain's own mount
+        // point ('/') must not schedule the whole customer's protected areas
+        // for deletion.
+        $this->db->execute("UPDATE domain_aliasses SET alias_mount = '/' WHERE alias_id = ?", array($this->fixture->aliasId()));
+        $inside = $this->insert('htaccess', array(
+            'dmn_id' => $this->fixture->domainId(), 'user_id' => '1', 'auth_type' => 'Basic',
+            'auth_name' => 'x', 'path' => '/shop/private', 'status' => 'ok'
+        ));
+
+        $this->service()->delete($this->caller('customer'), $this->aliasId());
+
+        self::assertSame('todelete', $this->aliasRow($this->fixture->aliasId())['alias_status']);
+        self::assertSame('ok', $this->db->value('SELECT status FROM htaccess WHERE id = ?', array($inside)));
+    }
+
     public function testCancellingAnOrderRemovesTheRowAndItsPhpIni(): void
     {
         $this->db->execute("UPDATE domain_aliasses SET alias_status = 'ordered' WHERE alias_id = ?", array($this->fixture->aliasId()));

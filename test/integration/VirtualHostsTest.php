@@ -231,4 +231,58 @@ class VirtualHostsTest extends IntegrationTestCase
         self::assertTrue($vhosts->nameInUse('blog.' . $this->fixture->aliasName()));
         self::assertFalse($vhosts->nameInUse('sgwt-nobody.test'));
     }
+
+    // ---- mountPointInUse (checkpoint B, B1/B2) ---------------------------
+
+    public function testMountPointInUseIsTrueForTheMainDomainsRoot(): void
+    {
+        // The main domain's own row is always mounted at '/' and is included
+        // unless excluded.
+        self::assertTrue($this->vhosts->mountPointInUse($this->fixture->domainId(), '/', array()));
+    }
+
+    public function testMountPointInUseIsFalseOnceTheOnlyOtherUserIsExcluded(): void
+    {
+        self::assertFalse($this->vhosts->mountPointInUse(
+            $this->fixture->domainId(), '/',
+            array(array(VirtualHosts::KIND_DMN, $this->fixture->domainId()))
+        ));
+    }
+
+    public function testMountPointInUseIsFalseWhenTheOnlyOtherUserIsToDelete(): void
+    {
+        // A second subdomain shares '/' with the main domain, but is already
+        // scheduled for deletion, so it does not count as "in use".
+        $id = $this->insert('subdomain', array(
+            'domain_id' => $this->fixture->domainId(), 'subdomain_name' => 'gone',
+            'subdomain_mount' => '/', 'subdomain_document_root' => '/htdocs',
+            'subdomain_url_forward' => 'no', 'subdomain_host_forward' => 'Off',
+            'subdomain_wildcard_alias' => 'no', 'subdomain_status' => 'todelete'
+        ));
+
+        self::assertFalse($this->vhosts->mountPointInUse(
+            $this->fixture->domainId(), '/',
+            array(array(VirtualHosts::KIND_DMN, $this->fixture->domainId()))
+        ));
+
+        // Sanity: while it is still 'ok', the same check is true.
+        $this->db->execute("UPDATE subdomain SET subdomain_status = 'ok' WHERE subdomain_id = ?", array($id));
+        self::assertTrue($this->vhosts->mountPointInUse(
+            $this->fixture->domainId(), '/',
+            array(array(VirtualHosts::KIND_DMN, $this->fixture->domainId()))
+        ));
+    }
+
+    private function insert(string $table, array $row): int
+    {
+        $columns = array_keys($row);
+
+        $this->db->execute(
+            'INSERT INTO `' . $table . '` (`' . implode('`, `', $columns) . '`) VALUES ('
+                . $this->db->placeholders(count($columns)) . ')',
+            array_values($row)
+        );
+
+        return $this->db->lastInsertId();
+    }
 }

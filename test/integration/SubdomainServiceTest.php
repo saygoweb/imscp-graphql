@@ -564,6 +564,52 @@ class SubdomainServiceTest extends ServiceTestCase
         ));
     }
 
+    public function testDeletingASubdomainWithASharedMountLeavesTheOtherHostsProtectedAreasAlone(): void
+    {
+        // Checkpoint B, B1: a second subdomain of the same domain also mounted
+        // at '/shop' (a shared mount point). Deleting the fixture's 'shop'
+        // subdomain must not touch '/shop/private' - it is still served by
+        // the surviving host.
+        $this->insert('subdomain', array(
+            'domain_id' => $this->fixture->domainId(), 'subdomain_name' => 'shop2',
+            'subdomain_mount' => '/shop', 'subdomain_document_root' => '/htdocs',
+            'subdomain_url_forward' => 'no', 'subdomain_host_forward' => 'Off',
+            'subdomain_wildcard_alias' => 'no', 'subdomain_status' => 'ok'
+        ));
+        $inside = $this->insert('htaccess', array(
+            'dmn_id' => $this->fixture->domainId(), 'user_id' => '1', 'auth_type' => 'Basic',
+            'auth_name' => 'x', 'path' => '/shop/private', 'status' => 'ok'
+        ));
+
+        $this->service()->delete($this->caller('customer'), $this->subdomainId());
+
+        self::assertSame('todelete', $this->subdomainRow($this->fixture->subdomainId())['subdomain_status']);
+        self::assertSame('ok', $this->db->value('SELECT status FROM htaccess WHERE id = ?', array($inside)));
+    }
+
+    public function testDeletingASubdomainMountedAtTheRootLeavesEveryHtaccessRowAlone(): void
+    {
+        // Checkpoint B, B1: a subdomain sharing the main domain's own mount
+        // point ('/') must not schedule the whole customer's protected areas
+        // for deletion. Without the fix, rtrim('/', '/') === '' turns the
+        // update into "path = '' OR path LIKE '/%'", matching everything.
+        $id = $this->insert('subdomain', array(
+            'domain_id' => $this->fixture->domainId(), 'subdomain_name' => 'root2',
+            'subdomain_mount' => '/', 'subdomain_document_root' => '/htdocs',
+            'subdomain_url_forward' => 'no', 'subdomain_host_forward' => 'Off',
+            'subdomain_wildcard_alias' => 'no', 'subdomain_status' => 'ok'
+        ));
+        $inside = $this->insert('htaccess', array(
+            'dmn_id' => $this->fixture->domainId(), 'user_id' => '1', 'auth_type' => 'Basic',
+            'auth_name' => 'x', 'path' => '/shop/private', 'status' => 'ok'
+        ));
+
+        $this->service()->delete($this->caller('customer'), GlobalId::encode(NodeType::SUBDOMAIN, $id));
+
+        self::assertSame('todelete', $this->subdomainRow($id)['subdomain_status']);
+        self::assertSame('ok', $this->db->value('SELECT status FROM htaccess WHERE id = ?', array($inside)));
+    }
+
     public function testAFailedSubdomainMayBeDeleted(): void
     {
         $this->db->execute(

@@ -299,7 +299,10 @@ final class SubdomainService
         //   618-806, which authorise on $_SESSION['user_id'] as the customer
         //   and exit on a miss (measurement M3). Retire when C1 lands.
         // CORE-DEBT(C11): C11 item 6 - names escaped for LIKE and for the
-        //   member regex, and protected areas matched by path segment.
+        //   member regex, protected areas matched by path segment, and a
+        //   mount point shared with another live host of the same domain
+        //   (checkpoint B, B1) left alone rather than swept as "everything
+        //   under this path".
         $kit->writer()->run(function () use ($kit, $core, $account, $isAlias, $key, $name, $type, $row, $params) {
             $db = $kit->db();
             $core->dispatch(Events::onBeforeDeleteSubdomain, $params);
@@ -330,11 +333,15 @@ final class SubdomainService
                 array($key, $type)
             );
 
-            $mount = rtrim($core->normalisePath((string)$row['mountPoint']), '/');
-            $db->execute(
-                "UPDATE htaccess SET status = 'todelete' WHERE dmn_id = ? AND (path = ? OR path LIKE ?)",
-                array($account->getDomainId(), $mount, VhostRules::likeEscape($mount) . '/%')
-            );
+            $kind = $isAlias ? VirtualHosts::KIND_ALSSUB : VirtualHosts::KIND_SUB;
+
+            if (!$kit->vhosts()->mountPointInUse($account->getDomainId(), (string)$row['mountPoint'], array(array($kind, $key)))) {
+                $mount = rtrim($core->normalisePath((string)$row['mountPoint']), '/');
+                $db->execute(
+                    "UPDATE htaccess SET status = 'todelete' WHERE dmn_id = ? AND (path = ? OR path LIKE ?)",
+                    array($account->getDomainId(), $mount, VhostRules::likeEscape($mount) . '/%')
+                );
+            }
 
             $db->execute(
                 $isAlias
