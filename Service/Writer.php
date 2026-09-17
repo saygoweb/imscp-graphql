@@ -59,20 +59,40 @@ final class Writer
 
         try {
             $result = $work();
-            $this->db->commit();
         } catch (Throwable $e) {
-            $this->db->rollBack();
-
-            if (self::isDuplicate($e)) {
-                throw new ApiException(
-                    ErrorCode::CONFLICT, 'An object with that name already exists.', array(), $e
-                );
+            try {
+                $this->db->rollBack();
+            } catch (Throwable $ignored) {
+                // A rollback failure must never replace the exception that
+                // caused it; there is nothing useful to do with it here.
             }
 
-            throw $e;
+            throw self::asConflict($e);
+        }
+
+        // Outside the try: Db::commit() decrements its own-counter depth
+        // before asking PDO to commit, so a failed commit has already left
+        // the count at what rollBack() would expect after a *successful*
+        // rollback. Rolling back here as well would decrement it a second
+        // time and undo the enclosing transaction level.
+        try {
+            $this->db->commit();
+        } catch (Throwable $e) {
+            throw self::asConflict($e);
         }
 
         return $result;
+    }
+
+    private static function asConflict(Throwable $e): Throwable
+    {
+        if (self::isDuplicate($e)) {
+            return new ApiException(
+                ErrorCode::CONFLICT, 'An object with that name already exists.', array(), $e
+            );
+        }
+
+        return $e;
     }
 
     /**

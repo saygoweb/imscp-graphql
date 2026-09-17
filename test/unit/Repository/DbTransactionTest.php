@@ -103,6 +103,19 @@ class DbTransactionTest extends TestCase
         (new Db($pdo))->rollBack();
     }
 
+    public function testRollBackAtDepthZeroRollsBackAnOpenPdoTransaction(): void
+    {
+        // commit() drops the depth to 0 before asking PDO to commit (see
+        // Db::commit()). If that commit() throws, the PDO transaction is
+        // still open but the depth already reads 0; a rollBack() that then
+        // trusts depth alone would do nothing and leave it open.
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('inTransaction')->willReturn(true);
+        $pdo->expects(self::once())->method('rollBack');
+
+        (new Db($pdo))->rollBack();
+    }
+
     public function testAnOwnerGivenAtConstructionOwnsTheCount(): void
     {
         // In the panel the owner is DatabaseMySQL. Db must not keep a second

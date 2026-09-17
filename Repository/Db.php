@@ -199,6 +199,13 @@ class Db
         }
 
         if ($this->depth === 0) {
+            // A failed commit() drops the depth to 0 before asking PDO to
+            // commit; if that throws, the PDO transaction is still open.
+            // Trusting the depth alone here would leave it open.
+            if ($this->pdo()->inTransaction()) {
+                $this->pdo()->rollBack();
+            }
+
             return;
         }
 

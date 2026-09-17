@@ -99,6 +99,45 @@ class WriterTest extends TestCase
         });
     }
 
+    public function testARollBackThatThrowsKeepsTheOriginalException(): void
+    {
+        // rollBack() runs on a failure path; a second exception from it must
+        // never replace the one that caused the rollback in the first place.
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('inTransaction')->willReturn(true);
+        $pdo->method('rollBack')->willThrowException(new RuntimeException('rollback also failed'));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('boom');
+
+        (new Writer(new Db($pdo)))->run(static function () {
+            throw new RuntimeException('boom');
+        });
+    }
+
+    public function testACommitThatThrowsIsRethrownAndRollBackIsNeverCalled(): void
+    {
+        // Db::commit() decrements its own-counter depth before asking PDO to
+        // commit. Rolling back after a failed commit would decrement the
+        // depth a second time and undo the enclosing transaction level.
+        $pdo = $this->createMock(PDO::class);
+        // Db::commit() drops its own-counter depth to 0 before asking PDO to
+        // commit, so a real PDO transaction can still be open when commit()
+        // throws; inTransaction() true makes sure this test would catch
+        // Writer calling rollBack() regardless, not merely pass because
+        // Db::rollBack() declined to act on it.
+        $pdo->method('inTransaction')->willReturn(true);
+        $pdo->method('commit')->willThrowException(new RuntimeException('commit failed'));
+        $pdo->expects(self::never())->method('rollBack');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('commit failed');
+
+        (new Writer(new Db($pdo)))->run(static function () {
+            return 42;
+        });
+    }
+
     public function testANotNullViolationIsNotAConflict(): void
     {
         // Measurement M8: 1048 shares SQLSTATE 23000 with 1062, and the panel
