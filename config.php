@@ -68,5 +68,13 @@ return array(
     'audit_retention_days'    => 90,
 
     // Error detail in responses. Never enable on a production panel.
-    'debug'                   => false
+    'debug'                   => false,
+
+    // Whether directories named in a mutation - an FTP home directory, a new
+    // document root - are checked to exist first. The panel checks by
+    // creating a temporary FTP account and logging in (spec section 3.2),
+    // which costs a connection per check and fails while ProFTPD restarts.
+    // Off, the backend creates or refuses the directory itself and says so in
+    // provisioning.message.
+    'validate_ftp_home_dir'   => true
 );

@@ -272,8 +272,9 @@ much as is safely reusable, listed explicitly.
 | `encode_idna()` / `decode_idna()` | Used directly. |
 | `Crypt::apr1MD5()`, `Crypt::sha512()` | Used directly. Passwords must be hashed exactly as the panel hashes them or the backend will not accept them. |
 | `PhpEditor` | Used directly, for the `php_ini` rows a new subdomain or customer needs. |
-| `customerHasFeature()`, `resellerHasFeature()`, `customerSqlDbLimitIsReached()` | Called only behind the identity shim of §6.4, and only after the plugin's own pre-checks have made their failure paths unreachable. |
-| `deleteSubdomain()`, `deleteSubdomainAlias()`, `deleteDomainAlias()`, `deleteCustomer()`, `delete_sql_database()`, `sql_delete_user()`, `change_domain_status()` | Called behind the identity shim, after the plugin has already confirmed ownership, so the `showBadRequestErrorPage()` inside them is unreachable. Each call site carries a comment saying which pre-check makes that true. |
+| `customerHasFeature()`, `resellerHasFeature()`, `customerSqlDbLimitIsReached()`, `get_domain_default_props()` | **Not called.** Each reads the customer from `$_SESSION['user_id']` or caches for the request without a key, so it answers for the caller rather than for the customer a reseller is acting on. Transcribed with `CORE-DEBT(C1)` markers. |
+| `deleteSubdomain()`, `deleteSubdomainAlias()`, `deleteDomainAlias()`, `delete_sql_database()`, `sql_delete_user()`, `change_domain_status()` | **Not called.** The first two authorise on `$_SESSION['user_id']` and exit on a miss; `deleteDomainAlias()` swallows its own failure; the SQL two interleave DDL with row writes. Transcribed with `CORE-DEBT` markers. |
+| Everything the API path does call | Through one class, `Service\PanelCore`, and only functions that take every identity explicitly, report failure by value or exception, cannot reach `exit`, and issue no DDL. `test/unit/Security/CoreCallsTest.php` holds the list and fails on any other. |
 | `set_page_message()`, `redirectTo()`, `showBadRequestErrorPage()`, `TemplateEngine`, the whole `View.php` layer | Never called from the API path. |
 | `VirtualFileSystem` | Used for the FTP home-directory existence check, but behind a config switch (§14) — it creates a temporary FTP account and opens an FTP connection for every check, which is a heavy price on an API. |
 
@@ -622,10 +623,7 @@ documented shim.
 §2.4 established that a core helper can terminate the request with a
 non-GraphQL JSON body. Three layers deal with it:
 
-1. **Pre-checks.** Every call into a core helper is preceded by the plugin's
-   own ownership, feature and quota checks, chosen so the helper's own
-   failure path is unreachable. Each such call site carries a comment naming
-   the pre-check that makes that true.
+1. **No exiting helper is called.** The API path calls a global panel function only through `Service\PanelCore`, and only functions that cannot reach `exit` (§3.2). `CoreCallsTest` enforces the list by tokenising the source, so a helper that can exit cannot be reached by accident.
 2. **A shutdown guard.** The GraphQL handler registers a shutdown function.
    If the script terminates while a GraphQL operation is in flight, it emits a
    well-formed GraphQL error envelope with `code: INTERNAL` and logs the fact
@@ -1489,7 +1487,8 @@ return array(
     'audit_retention_days'        => 90,
     'debug'                       => false,        // error detail in responses
 
-    // The FTP home-directory check opens an FTP connection per call (§3.2).
+    // Directory existence checks - FTP home directories and document roots
+    // alike - open an FTP connection per call (§3.2).
     'validate_ftp_home_dir'       => true
 );
 ```
