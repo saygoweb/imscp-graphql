@@ -586,6 +586,12 @@ state ERROR, not as an error here.
 
 An object whose provisioning is not settled cannot be changed: CONFLICT, with
 extensions.retryAfterSeconds. A failed (ERROR) object can still be deleted.
+
+Every field of this type is non-null, so an error in any one of them has no
+nullable ancestor to stop at: it propagates to the root and nulls the whole
+response's data, including fields that ran - and committed - before it. The
+work those earlier fields did still happened; read it back with node(id:) or
+pending rather than from this response.
 """
 type Mutation {
   "Forwarding, document root and wildcard of a customer's main domain."

@@ -88,7 +88,13 @@ class VirtualHostMutationsTest extends AuthzTestCase
 
     public function testEachMutationInADocumentCommitsOnItsOwn(): void
     {
-        // Spec section 8.5: the first is done even though the second fails.
+        // Spec section 8.5: the first is done even though the second fails -
+        // but 'done' is a database fact, not something this response can show.
+        // Both fields return Subdomain! (non-null), and second's field error
+        // has no nullable ancestor to stop at, so it propagates all the way to
+        // the response root and nulls the whole of `data` - first's own,
+        // already-committed result included. Only the database row and the
+        // error's own path prove first ran at all.
         $result = $this->execute(
             'mutation($a: SubdomainCreateInput!, $b: SubdomainCreateInput!) {
                 first: subdomainCreate(input: $a) { label }
@@ -101,8 +107,11 @@ class VirtualHostMutationsTest extends AuthzTestCase
             $this->fixture->identity('customer')
         );
 
-        self::assertSame('once', $result['data']['first']['label']);
-        self::assertNull($result['data']['second']);
+        self::assertSame('1', (string)$this->db->value(
+            "SELECT COUNT(*) FROM subdomain WHERE domain_id = ? AND subdomain_name = 'once'",
+            array($this->fixture->domainId())
+        ));
+        self::assertNull($result['data'] ?? null);
         self::assertSame('CONFLICT', $result['errors'][0]['extensions']['code']);
         self::assertSame(array('second'), $result['errors'][0]['path']);
     }
