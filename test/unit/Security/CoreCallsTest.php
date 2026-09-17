@@ -30,14 +30,29 @@ use PHPUnit\Framework\TestCase;
  * here with the reason it cannot exit, or the test fails. A new panel
  * function reaching the API path is therefore a visible diff to this file,
  * with its justification beside it, and never an accident.
+ *
+ * The scan is syntactic, over tokens, not semantic: it sees a name written
+ * at the call site. A name assembled at run time - by concatenation, string
+ * interpolation, or a variable holding anything other than a literal handed
+ * straight to call_user_func()/call_user_func_array() - is invisible to it.
+ * That gap is closed by the port rule (D10: only PanelCore may call a panel
+ * function at all) and by review, not by this test.
  */
 class CoreCallsTest extends TestCase
 {
-    /** The directories the API request path is built from. */
+    /**
+     * The directories the API request path is built from.
+     *
+     * Model/ is deliberately not here: its classes call no functions at all,
+     * and Task 16 deletes the directory.
+     */
     const SCANNED = array(
         'Api', 'Auth', 'Http', 'Repository', 'Resolver', 'Schema', 'Security',
         'Service', 'Support'
     );
+
+    /** Root-level files the API request path is also built from. */
+    const SCANNED_FILES = array('SGW_GraphQL.php');
 
     /**
      * Lower-case function name => why it may be called. Each takes every
@@ -62,7 +77,11 @@ class CoreCallsTest extends TestCase
         'createdefaultmailaccounts'     => 'Explicit ids; throws DatabaseException; nests its transaction (D11).',
         'get_alias_order_email'         => 'Explicit reseller id; returns the template.',
         'send_mail'                     => 'Throws on bad input; returns bool.',
-        'delete_autoreplies_log_entries' => 'One DELETE; no arguments, no session.'
+        'delete_autoreplies_log_entries' => 'One DELETE; no arguments, no session.',
+        'tr'                            => 'Returns a translation; used by the plugin class\'s '
+            . 'navigation labels, never exits.',
+        'l10n_addtranslations'          => 'Registers the plugin\'s own translation resources on '
+            . 'a Zend_Translate adapter, from explicit arguments; no session, no exit.'
     );
 
     /**
@@ -109,11 +128,13 @@ class CoreCallsTest extends TestCase
 
     public function testOnlyPanelCoreCallsThePanelFunctionsThisPlanAdds(): void
     {
-        // Plan 1 and 2's five calls predate Service\PanelCore and stay where
+        // Plan 1 and 2's five calls, plus the plugin class's own tr() and
+        // l10n_addTranslations() calls (SGW_GraphQL.php, in SCANNED_FILES
+        // since this checkpoint), predate Service\PanelCore and stay where
         // they are. Everything since goes through the port.
         $predating = array(
             'exec_query', 'write_log', 'getfirstdayofmonth', 'getlastdayofmonth',
-            'parsemaildirsize'
+            'parsemaildirsize', 'tr', 'l10n_addtranslations'
         );
         $outside = array();
 
@@ -137,10 +158,16 @@ class CoreCallsTest extends TestCase
         // 'deleteSubdomain' handed to call_user_func() would slip past a scan
         // for call syntax. Container::toUnicode() already returns
         // 'decode_idna' this way, so the check is not hypothetical.
+        // testEveryGlobalCallOnTheApiPathIsAllowed's callsIn() now catches a
+        // FORBIDDEN name passed as literally the first argument of
+        // call_user_func()/call_user_func_array() too; this scan is kept
+        // beside it as the literal-string net the ruling asked for, which
+        // also catches a FORBIDDEN name written as a string for any other
+        // reason (e.g. stored in an array, or compared against).
         $found = array();
 
-        foreach ($this->files() as $relative => $tokens) {
-            foreach ($tokens as $token) {
+        foreach ($this->files() as $relative => $source) {
+            foreach (token_get_all($source) as $token) {
                 if (is_array($token) && $token[0] === T_CONSTANT_ENCAPSED_STRING
                     && in_array(strtolower(trim($token[1], '\'"')), self::FORBIDDEN, true)
                 ) {
@@ -152,68 +179,71 @@ class CoreCallsTest extends TestCase
         self::assertSame(array(), $found);
     }
 
+    public function testCallsInRecordsADirectCall(): void
+    {
+        $calls = $this->callsIn("<?php\nexec_query('x');\n", 'Example.php');
+
+        self::assertSame(array('Example.php:2'), $calls['exec_query'] ?? null);
+    }
+
+    public function testCallsInRecordsAFullyQualifiedCall(): void
+    {
+        $calls = $this->callsIn("<?php\n\\write_log('x', 1);\n", 'Example.php');
+
+        self::assertSame(array('Example.php:2'), $calls['write_log'] ?? null);
+    }
+
+    public function testCallsInIgnoresAMethodCallAndAStaticCall(): void
+    {
+        $calls = $this->callsIn(
+            "<?php\n\$thing->write_log();\nFoo::write_log();\n", 'Example.php'
+        );
+
+        self::assertArrayNotHasKey('write_log', $calls);
+    }
+
+    public function testCallsInIgnoresConstruction(): void
+    {
+        $calls = $this->callsIn("<?php\nnew Foo();\n", 'Example.php');
+
+        self::assertArrayNotHasKey('foo', $calls);
+    }
+
+    public function testCallsInRecordsACallableStringPassedToCallUserFunc(): void
+    {
+        $calls = $this->callsIn(
+            "<?php\ncall_user_func('deleteSubdomain', 1);\n", 'Example.php'
+        );
+
+        self::assertSame(array('Example.php:2'), $calls['deletesubdomain'] ?? null);
+    }
+
+    public function testCallsInRecordsACallableStringPassedToCallUserFuncArray(): void
+    {
+        $calls = $this->callsIn(
+            "<?php\ncall_user_func_array('deleteSubdomain', array(1));\n", 'Example.php'
+        );
+
+        self::assertSame(array('Example.php:2'), $calls['deletesubdomain'] ?? null);
+    }
+
+    public function testCallsInFlagsAUseFunctionImport(): void
+    {
+        $calls = $this->callsIn("<?php\nuse function foo as bar;\n", 'Example.php');
+
+        self::assertSame(array('Example.php:2'), $calls['foo'] ?? null);
+    }
+
     /**
      * @return array<string, string[]> lower-case name => "path:line" sites
      */
     private function calls(): array
     {
-        $internal = array_flip(get_defined_functions()['internal']);
-        $skipBefore = array(T_OBJECT_OPERATOR, T_DOUBLE_COLON, T_FUNCTION, T_NEW, T_CONST);
-
-        if (defined('T_NULLSAFE_OBJECT_OPERATOR')) {
-            $skipBefore[] = constant('T_NULLSAFE_OBJECT_OPERATOR');
-        }
-
         $calls = array();
 
-        foreach ($this->files() as $relative => $tokens) {
-            $significant = array_values(array_filter($tokens, static function ($token) {
-                return !is_array($token)
-                    || !in_array($token[0], array(T_WHITESPACE, T_COMMENT, T_DOC_COMMENT), true);
-            }));
-
-            foreach ($significant as $i => $token) {
-                $name = null;
-
-                if (is_array($token) && $token[0] === T_STRING) {
-                    $name = $token[1];
-                } elseif (defined('T_NAME_FULLY_QUALIFIED') && is_array($token)
-                    && $token[0] === constant('T_NAME_FULLY_QUALIFIED')
-                ) {
-                    // PHP 8 tokenises \write_log as one token.
-                    $name = ltrim($token[1], '\\');
-
-                    if (strpos($name, '\\') !== false) {
-                        continue;
-                    }
-                }
-
-                if ($name === null || ($significant[$i + 1] ?? null) !== '(') {
-                    continue;
-                }
-
-                $previous = $significant[$i - 1] ?? null;
-
-                if (is_array($previous) && in_array($previous[0], $skipBefore, true)) {
-                    continue;
-                }
-
-                if (is_array($previous) && $previous[0] === T_NS_SEPARATOR) {
-                    // "\foo(" is a global call; "Bar\foo(" and "new \Foo(" are not.
-                    $before = $significant[$i - 2] ?? null;
-
-                    if (is_array($before) && in_array($before[0], array(T_STRING, T_NEW), true)) {
-                        continue;
-                    }
-                }
-
-                $lower = strtolower($name);
-
-                if (isset($internal[$lower])) {
-                    continue;
-                }
-
-                $calls[$lower][] = $relative . ':' . $token[2];
+        foreach ($this->files() as $relative => $source) {
+            foreach ($this->callsIn($source, $relative) as $name => $sites) {
+                $calls[$name] = array_merge($calls[$name] ?? array(), $sites);
             }
         }
 
@@ -223,12 +253,128 @@ class CoreCallsTest extends TestCase
     }
 
     /**
-     * @return array<string, array> relative path => tokens
+     * Every call to a global function in one PHP source string, plus every
+     * `use function` import (see the class docblock) - the unit this class's
+     * own scanner-behaviour tests exercise directly.
+     *
+     * @return array<string, string[]> lower-case name => "label:line" sites
+     */
+    private function callsIn(string $source, string $label): array
+    {
+        $internal = array_flip(get_defined_functions()['internal']);
+        $skipBefore = array(T_OBJECT_OPERATOR, T_DOUBLE_COLON, T_FUNCTION, T_NEW, T_CONST);
+
+        if (defined('T_NULLSAFE_OBJECT_OPERATOR')) {
+            $skipBefore[] = constant('T_NULLSAFE_OBJECT_OPERATOR');
+        }
+
+        $significant = array_values(array_filter(token_get_all($source), static function ($token) {
+            return !is_array($token)
+                || !in_array($token[0], array(T_WHITESPACE, T_COMMENT, T_DOC_COMMENT), true);
+        }));
+
+        $calls = array();
+
+        foreach ($significant as $i => $token) {
+            if (is_array($token) && $token[0] === T_USE) {
+                // "use function foo as bar;" imports a symbol under a local
+                // name of the importer's choosing, which would defeat every
+                // check above: a call written as write_log(...) would no
+                // longer mean the panel's write_log() at all. The plugin
+                // uses no such import, so any one found is recorded as a
+                // call to the function it names - the same rule a direct
+                // call to that name is held to - rather than attempting to
+                // track the alias through the rest of the file.
+                $next = $significant[$i + 1] ?? null;
+
+                if (is_array($next) && $next[0] === T_FUNCTION) {
+                    $importedName = $significant[$i + 2] ?? null;
+
+                    if (is_array($importedName) && $importedName[0] === T_STRING) {
+                        $calls[strtolower($importedName[1])][] = $label . ':' . $token[2];
+                    }
+                }
+
+                continue;
+            }
+
+            $name = null;
+
+            if (is_array($token) && $token[0] === T_STRING) {
+                $name = $token[1];
+            } elseif (defined('T_NAME_FULLY_QUALIFIED') && is_array($token)
+                && $token[0] === constant('T_NAME_FULLY_QUALIFIED')
+            ) {
+                // PHP 8 tokenises \write_log as one token.
+                $name = ltrim($token[1], '\\');
+
+                if (strpos($name, '\\') !== false) {
+                    continue;
+                }
+            }
+
+            if ($name === null || ($significant[$i + 1] ?? null) !== '(') {
+                continue;
+            }
+
+            $previous = $significant[$i - 1] ?? null;
+
+            if (is_array($previous) && in_array($previous[0], $skipBefore, true)) {
+                continue;
+            }
+
+            if (is_array($previous) && $previous[0] === T_NS_SEPARATOR) {
+                // "\foo(" is a global call; "Bar\foo(" and "new \Foo(" are not.
+                $before = $significant[$i - 2] ?? null;
+
+                if (is_array($before) && in_array($before[0], array(T_STRING, T_NEW), true)) {
+                    continue;
+                }
+            }
+
+            $lower = strtolower($name);
+
+            if ($lower === 'call_user_func' || $lower === 'call_user_func_array') {
+                // The callee is a string literal handed as the first
+                // argument, which the token scan above cannot see: it only
+                // records the call to call_user_func() itself, below. That
+                // string is a call to the function it names, held to the
+                // same rule a direct call would be.
+                $firstArg = $significant[$i + 2] ?? null;
+
+                if (is_array($firstArg) && $firstArg[0] === T_CONSTANT_ENCAPSED_STRING) {
+                    $calledName = strtolower(trim($firstArg[1], '\'"'));
+                    $calls[$calledName][] = $label . ':' . $firstArg[2];
+                }
+            }
+
+            if (isset($internal[$lower])) {
+                continue;
+            }
+
+            $calls[$lower][] = $label . ':' . $token[2];
+        }
+
+        ksort($calls);
+
+        return $calls;
+    }
+
+    /**
+     * @return array<string, string> relative path => PHP source
      */
     private function files(): array
     {
         $root = dirname(__DIR__, 3);
         $files = array();
+
+        foreach (self::SCANNED_FILES as $relative) {
+            $path = $root . '/' . $relative;
+
+            if (is_file($path)) {
+                $files[$relative] = file_get_contents($path);
+            }
+        }
 
         foreach (self::SCANNED as $directory) {
             if (!is_dir($root . '/' . $directory)) {
@@ -245,7 +391,7 @@ class CoreCallsTest extends TestCase
                 }
 
                 $relative = substr((string)$file, strlen($root) + 1);
-                $files[$relative] = token_get_all(file_get_contents((string)$file));
+                $files[$relative] = file_get_contents((string)$file);
             }
         }
 
