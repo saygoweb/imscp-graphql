@@ -57,7 +57,7 @@ if [ -d /var/www/imscp ]; then
             # --testsuite or --filter — only ever touches one side, so it
             # stays a single invocation, below.
             php7.4 vendor/bin/phpunit --configuration test/phpunit.xml --testsuite unit,schema
-            php7.4 vendor/bin/phpunit --configuration test/phpunit.xml --testsuite integration
+            php7.4 vendor/bin/phpunit --configuration test/phpunit.xml --testsuite integration,authz
         else
             php7.4 vendor/bin/phpunit --configuration test/phpunit.xml "$@"
         fi

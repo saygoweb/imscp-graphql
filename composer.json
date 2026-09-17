@@ -43,6 +43,7 @@
     "autoload-dev": {
         "psr-4": {
             "iMSCP\\Plugin\\SGW_GraphQL\\Test\\Integration\\": "test/integration",
+            "iMSCP\\Plugin\\SGW_GraphQL\\Test\\Authz\\": "test/authz",
             "iMSCP\\Plugin\\SGW_GraphQL\\Test\\": "test/"
         }
     }

@@ -20,5 +20,12 @@
         <testsuite name="integration">
             <directory>integration</directory>
         </testsuite>
+        <!--
+            Spec section 17's authorisation matrix. Needs the panel and a
+            database, like the integration suite, and runs in its process.
+        -->
+        <testsuite name="authz">
+            <directory>authz</directory>
+        </testsuite>
     </testsuites>
 </phpunit>
