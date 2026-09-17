@@ -45,6 +45,8 @@ use iMSCP\Plugin\SGW_GraphQL\Schema\SchemaFactory;
 use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Security\OwnershipResolver;
 use iMSCP\Plugin\SGW_GraphQL\Service\Core;
+use iMSCP\Plugin\SGW_GraphQL\Service\DetachedCore;
+use iMSCP\Plugin\SGW_GraphQL\Service\DetachedDirectoryProbe;
 use iMSCP\Plugin\SGW_GraphQL\Service\DirectoryProbe;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlServer;
@@ -184,11 +186,28 @@ final class Container
      *                                   close. A test that does not care about
      *                                   the access check must say so itself,
      *                                   at the call site.
-     * @param Core|null           $core      Defaults to a PanelCore that never
-     *                                       pokes the daemon. Constructing one
-     *                                       touches nothing, so the unit suite
-     *                                       can build the whole map.
-     * @param DirectoryProbe|null $probe     Defaults to answering "exists".
+     * @param Core|null           $core      Defaults to a DetachedCore that
+     *                                       throws on every method. A real
+     *                                       PanelCore(false) still dispatches
+     *                                       events to whatever listeners the
+     *                                       test process happens to have
+     *                                       registered, writes the panel's
+     *                                       log (which may mail) and sends
+     *                                       the alias-order mail - side
+     *                                       effects a test that never asked
+     *                                       for a mutation must not trigger
+     *                                       by accident. Constructing the
+     *                                       default touches nothing, so the
+     *                                       unit suite can still build the
+     *                                       whole map with it; a test that
+     *                                       runs a mutation must pass a Core.
+     * @param DirectoryProbe|null $probe     Defaults to a
+     *                                       DetachedDirectoryProbe that
+     *                                       throws on use, rather than
+     *                                       silently agreeing "exists" the
+     *                                       way production's VFS check might
+     *                                       not. A test that runs a mutation
+     *                                       must pass a DirectoryProbe.
      * @param SqlServer|null      $sqlServer Defaults to none; a test that runs
      *                                       an SQL mutation must pass a fake.
      */
@@ -206,8 +225,8 @@ final class Container
             $db ?? Db::detached(),
             $panelConfig,
             true,
-            $core ?? new PanelCore(false),
-            $probe ?? new UncheckedDirectoryProbe(),
+            $core ?? new DetachedCore(),
+            $probe ?? new DetachedDirectoryProbe(),
             $sqlServer
         );
     }

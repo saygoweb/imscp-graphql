@@ -26,6 +26,7 @@ use iMSCP\Plugin\SGW_GraphQL\Http\AuthenticateMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\CorsMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\GraphQLHandler;
 use iMSCP\Plugin\SGW_GraphQL\Http\TlsMiddleware;
+use LogicException;
 use PHPUnit\Framework\TestCase;
 use Slim\Http\Environment;
 use Slim\Http\Request;
@@ -303,5 +304,30 @@ class ContainerTest extends TestCase
         self::assertSame($probe, $container->toolkit()->probe());
         self::assertSame($container->toolkit(), $container->toolkit(), 'built once');
         self::assertNull($container->sqlServer());
+    }
+
+    /**
+     * A test that builds a Container without naming a Core or DirectoryProbe
+     * is not exercising a mutation, so its toolkit's ports must fail loudly
+     * the moment anything actually calls them, rather than a PanelCore
+     * quietly dispatching to real listeners or a probe quietly answering
+     * "exists".
+     */
+    public function testForTestingWithNoPortsYieldsAToolkitThatThrowsOnUse(): void
+    {
+        $toolkit = $this->container()->toolkit();
+
+        $this->expectException(LogicException::class);
+
+        $toolkit->core()->writeLog('should not run', E_USER_NOTICE);
+    }
+
+    public function testForTestingWithNoProbeYieldsAToolkitThatThrowsOnUse(): void
+    {
+        $toolkit = $this->container()->toolkit();
+
+        $this->expectException(LogicException::class);
+
+        $toolkit->probe()->exists('customer', '/', 'shop');
     }
 }
