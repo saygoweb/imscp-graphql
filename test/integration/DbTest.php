@@ -108,4 +108,79 @@ class DbTest extends IntegrationTestCase
         self::assertSame(0, $this->db()->countQueries(function () {
         }));
     }
+
+    public function testAServiceTransactionNestsInsideTheFixturesAndIsUndoneWithIt(): void
+    {
+        // The arrangement every service test in this plan relies on: the
+        // fixture's transaction is the real one, the service's is a savepoint
+        // inside it, and the service's commit is a savepoint release that the
+        // fixture's rollback still undoes.
+        $db = $this->db();
+        $fixture = new Fixture($db);
+        $fixture->seed();
+
+        try {
+            $db->beginTransaction();
+            $db->execute(
+                "UPDATE domain SET domain_subd_limit = 77 WHERE domain_id = ?",
+                array($fixture->domainId())
+            );
+            $db->commit();
+
+            self::assertSame(
+                '77',
+                (string)$db->value(
+                    'SELECT domain_subd_limit FROM domain WHERE domain_id = ?',
+                    array($fixture->domainId())
+                ),
+                'the committed savepoint is visible inside the fixture'
+            );
+
+            $domainId = $fixture->domainId();
+        } finally {
+            $fixture->rollBack();
+        }
+
+        self::assertNull(
+            $db->value('SELECT domain_id FROM domain WHERE domain_id = ?', array($domainId)),
+            'the fixture rollback undid the service commit as well'
+        );
+    }
+
+    public function testACoreHelperThatOpensItsOwnTransactionNestsToo(): void
+    {
+        // M2's failure, turned round: DatabaseMySQL::beginTransaction() inside
+        // the fixture is a savepoint, not a refused second transaction.
+        $db = $this->db();
+        $fixture = new Fixture($db);
+        $fixture->seed();
+
+        try {
+            $panel = \iMSCP\Database\DatabaseMySQL::getInstance();
+            $panel->beginTransaction();
+            $panel->commit();
+            $this->addToAssertionCount(1);
+        } finally {
+            $fixture->rollBack();
+        }
+    }
+
+    public function testTheFixtureUnwindsATransactionAFailingTestLeftOpen(): void
+    {
+        $db = $this->db();
+        $fixture = new Fixture($db);
+        $fixture->seed();
+        $domainId = $fixture->domainId();
+
+        // A service that began and then died before rolling back.
+        $db->beginTransaction();
+        $db->beginTransaction();
+
+        $fixture->rollBack();
+
+        self::assertFalse($db->pdo()->inTransaction());
+        self::assertNull(
+            $db->value('SELECT domain_id FROM domain WHERE domain_id = ?', array($domainId))
+        );
+    }
 }

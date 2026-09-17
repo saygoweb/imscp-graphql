@@ -46,13 +46,20 @@ namespace iMSCP\Database {
     if (!class_exists(__NAMESPACE__ . '\DatabaseMySQL', false)) {
         /**
          * Minimal stand-in for the real DatabaseMySQL. Only the static
-         * getPDO() Repository\Db::fromPanel() calls is exercised here, and it
-         * returns null - Db's constructor accepts a null PDO for exactly this
-         * ("a detached handle"), and no test in this class ever queries
-         * through the Db that fromPlugin() builds.
+         * getPDO() and getInstance() Repository\Db::fromPanel() calls are
+         * exercised here, and both return null - Db's constructor accepts a
+         * null PDO for exactly this ("a detached handle") and a null
+         * transaction owner falls back to counting for itself, and no test
+         * in this class ever queries or opens a transaction through the Db
+         * that fromPlugin() builds.
          */
         class DatabaseMySQL
         {
+            public static function getInstance()
+            {
+                return null;
+            }
+
             public static function getPDO()
             {
                 return null;

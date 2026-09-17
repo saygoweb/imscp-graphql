@@ -62,7 +62,12 @@ final class Fixture
             return;
         }
 
-        $this->db->pdo()->beginTransaction();
+        // Through Db, not the PDO: a service under test opens its own
+        // transaction through the same counter, and that one must become a
+        // savepoint inside this one (decision D11). Opened on the PDO, the
+        // panel's counter would read 0 and the service's begin would be
+        // refused (M2).
+        $this->db->beginTransaction();
         $this->open = true;
 
         $now = 1767225600;   // 2026-01-01T00:00:00Z, fixed so dates are assertable
@@ -231,7 +236,23 @@ final class Fixture
         }
 
         $this->open = false;
-        $this->db->pdo()->rollBack();
+
+        // Unwound through reflection rather than by calling Db::rollBack()
+        // once. A test that fails between a service's begin and its rollback
+        // leaves DatabaseMySQL's counter above one; a single rollBack() would
+        // then only roll back to a savepoint and leave the real transaction
+        // open for the next test to seed into - which would pass, on rows a
+        // previous test left behind. Zeroing the count and rolling the PDO
+        // back undoes everything, whatever depth a failure left.
+        $panel = \iMSCP\Database\DatabaseMySQL::getInstance();
+        $counter = new \ReflectionProperty($panel, 'transactionCounter');
+        $counter->setAccessible(true);
+        $counter->setValue($panel, 0);
+
+        if ($this->db->pdo()->inTransaction()) {
+            $this->db->pdo()->rollBack();
+        }
+
         $this->ids = array();
     }
 
