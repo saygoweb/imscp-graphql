@@ -617,3 +617,110 @@ type Query {
   "Everything the caller owns that the backend has not finished with."
   pending: [Node!]!
 }
+
+"""
+Changes to what the caller may reach.
+
+Each field is one object in one transaction (spec section 8.1). Fields in one
+document run in the order they are written, and they are NOT one transaction:
+each commits on its own, so a document whose third mutation fails leaves the
+first two done. Send one mutation per request unless that is what you want.
+
+A mutation returns as soon as its intent is recorded. The object it returns
+has provisioning.state PENDING - or ORDERED, for a customer's new domain alias
+- until the i-MSCP backend has done the work, which takes seconds. Poll
+node(id:) or pending to watch it settle; a backend failure appears there as
+state ERROR, not as an error here.
+
+An object whose provisioning is not settled cannot be changed: CONFLICT, with
+extensions.retryAfterSeconds. A failed (ERROR) object can still be deleted.
+"""
+type Mutation {
+  "Forwarding, document root and wildcard of a customer's main domain."
+  domainUpdate(id: ID!, input: DomainUpdateInput!): Domain!
+
+  subdomainCreate(input: SubdomainCreateInput!): Subdomain!
+  subdomainUpdate(id: ID!, input: SubdomainUpdateInput!): Subdomain!
+
+  """
+  Schedules the subdomain for deletion, with its FTP users, mail accounts,
+  certificates and protected areas.
+  """
+  subdomainDelete(id: ID!): Subdomain!
+
+  """
+  A customer's new alias is ORDERED until their reseller approves it. One
+  created by the reseller or an administrator is PENDING.
+  """
+  domainAliasCreate(input: DomainAliasCreateInput!): DomainAlias!
+
+  domainAliasUpdate(id: ID!, input: DomainAliasUpdateInput!): DomainAlias!
+
+  """
+  An ORDERED alias is withdrawn at once. Any other is scheduled for deletion
+  with everything under it.
+  """
+  domainAliasDelete(id: ID!): DomainAlias!
+}
+
+input ForwardingInput {
+  """
+  http, https or ftp. Normalised as the panel normalises it: host lower-cased,
+  path given a trailing slash. A host may not forward to its own root.
+  """
+  url: String!
+  type: ForwardType!
+
+  "PROXY only: pass the original Host header through."
+  keepHost: Boolean = false
+}
+
+"""
+An absent field keeps its current value; forwarding: null removes forwarding.
+A forwarded host serves no document root, so documentRoot is refused unless
+forwarding is off after the update.
+"""
+input DomainUpdateInput {
+  "/htdocs, or a directory inside it that already exists - the same terms VirtualHost.documentRoot reads in."
+  documentRoot: String
+  forwarding: ForwardingInput
+  wildcard: Boolean
+}
+
+input SubdomainCreateInput {
+  "The Domain or DomainAlias to hang it off."
+  parentId: ID!
+
+  "The label alone, e.g. 'shop'. Unicode or punycode. 'www' is not allowed."
+  label: String!
+
+  "Serve the directory of another of the same customer's hosts instead of creating one. That host must be settled and not forwarded."
+  sharedMountPointOf: ID
+  forwarding: ForwardingInput
+  wildcard: Boolean = false
+}
+
+"As DomainUpdateInput."
+input SubdomainUpdateInput {
+  documentRoot: String
+  forwarding: ForwardingInput
+  wildcard: Boolean
+}
+
+input DomainAliasCreateInput {
+  "The customer's main domain."
+  domainId: ID!
+
+  "Unicode or punycode. A leading www. is dropped."
+  name: DomainName!
+  sharedMountPointOf: ID
+  forwarding: ForwardingInput
+  wildcard: Boolean = false
+}
+
+"As DomainUpdateInput."
+input DomainAliasUpdateInput {
+  documentRoot: String
+  forwarding: ForwardingInput
+  wildcard: Boolean
+}

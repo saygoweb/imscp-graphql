@@ -38,6 +38,7 @@ use iMSCP\Plugin\SGW_GraphQL\Resolver\MailResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\QueryResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\ResellerResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\TypeResolver;
+use iMSCP\Plugin\SGW_GraphQL\Resolver\VirtualHostMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\VirtualHostResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\ViewerResolver;
 use iMSCP\Plugin\SGW_GraphQL\Schema\ResolverMap;
@@ -48,8 +49,11 @@ use iMSCP\Plugin\SGW_GraphQL\Service\Core;
 use iMSCP\Plugin\SGW_GraphQL\Service\DetachedCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\DetachedDirectoryProbe;
 use iMSCP\Plugin\SGW_GraphQL\Service\DirectoryProbe;
+use iMSCP\Plugin\SGW_GraphQL\Service\DomainAliasService;
+use iMSCP\Plugin\SGW_GraphQL\Service\DomainService;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlServer;
+use iMSCP\Plugin\SGW_GraphQL\Service\SubdomainService;
 use iMSCP\Plugin\SGW_GraphQL\Service\Toolkit;
 use iMSCP\Plugin\SGW_GraphQL\Service\UncheckedDirectoryProbe;
 use iMSCP\Plugin\SGW_GraphQL\Service\VfsDirectoryProbe;
@@ -376,6 +380,10 @@ final class Container
             $ftpSql, $resellers
         );
 
+        // The write side. Services share one Toolkit, and resolvers read back
+        // through the same loader and read resolvers as the queries above.
+        $kit = $this->toolkit();
+
         $this->maps = array(
             'ViewerResolver'      => (new ViewerResolver($this->apiVersion()))->map(),
             'TypeResolver'        => (new TypeResolver())->map(),
@@ -385,7 +393,11 @@ final class Container
             'DnsResolver'         => $dns->map(),
             'FtpSqlResolver'      => $ftpSql->map(),
             'ResellerResolver'    => $resellers->map(),
-            'QueryResolver'       => $query->map()
+            'QueryResolver'       => $query->map(),
+            'VirtualHostMutations' => (new VirtualHostMutations(
+                $loader, new SubdomainService($kit), new DomainAliasService($kit),
+                new DomainService($kit), $virtualHosts, $toUnicode
+            ))->map()
         );
 
         return $this->maps;
