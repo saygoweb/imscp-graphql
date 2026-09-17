@@ -1,6 +1,6 @@
 # SGW_GraphQL — Phase 3 Implementation Plan: customer mutations
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to implement this plan task-by-task. Inline execution is **not** permitted for this plan — see [Execution mandate](#execution-mandate). Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to implement this plan task-by-task, **in waves**: no per-task review; a `code-review` at `medium` at each of the five checkpoints instead. Inline execution is **not** permitted for this plan — see [Execution mandate](#execution-mandate). Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A customer, the customer's reseller, and an administrator can create, change and delete everything a customer owns over `POST /api/graphql`: subdomains, domain aliases, the main domain's forwarding, mail accounts, catch-alls and autoresponders, FTP users, SQL databases and users, and custom DNS records. Every write follows spec §8.1 in order, dispatches the panel's own events, and is covered by the authorisation matrix of spec §17, which is written before the first mutation exists.
 
@@ -324,11 +324,53 @@ Task 3 is `sonnet`, not `opus`, although every write goes through it: its inputs
 
 ## Execution mandate
 
-Every task runs in a **fresh subagent** via `superpowers:subagent-driven-development`, at the model its heading names. Do not execute tasks inline in the orchestrating session. Between tasks the orchestrator reviews the diff against the task's **Interfaces** block before dispatching the next.
+Every task runs in a **fresh subagent** via `superpowers:subagent-driven-development`, at the model its heading names. Do not execute tasks inline in the orchestrating session.
 
 Dispatch each subagent with: the task text; the [Global Constraints](#global-constraints); the [Interfaces inherited](#interfaces-inherited-from-plans-1-and-2); [The shape of every mutation](#the-shape-of-every-mutation); the [Interfaces this plan creates](#interfaces-this-plan-creates) section below; and the path of the spec. A subagent sees only its own task.
 
-Tasks run in order. Tasks 1–4 before any service; Task 5 before 6–8; each entity's service task before its schema task.
+### Waves and checkpoints
+
+The tasks are grouped into six waves. **There is no review subagent after each task.** Review happens at five checkpoints, each a `code-review` at level `medium` over everything the wave committed, placed where a defect would otherwise be copied into the tasks that follow.
+
+| Wave | Tasks | Delivers | Checkpoint |
+| --- | --- | --- | --- |
+| 1 — The write path | 1, 2, 3 | Transactions, the core port and its enforcement, Guard, Writer, Toolkit | **A** |
+| 2 — The matrix and the rules | 4, 5 | The authorisation matrix (all rows skipped), the pure vhost rules | — rolled into B |
+| 3 — Virtual hosts | 6, 7, 8 | The first services, the `Mutation` type, the first 42 matrix rows live | **B** |
+| 4 — Mail and FTP | 9, 10, 11 | Nine more mutations | **C** |
+| 5 — SQL and DNS | 12, 13, 14, 15 | The last eight mutations; every matrix row live | **D** |
+| 6 — Close | 16, 17, 18 | Anorm removed, the end-to-end run, the documents | **E** |
+
+Why these places:
+
+- **A** follows the three tasks every write in the plan goes through. A hole in `CoreCallsTest`'s scanner, in Guard's order or in `Writer`'s rollback is inherited by fifteen tasks; this is the cheapest point to find it.
+- **B** follows the first complete vertical slice — service, schema, resolver, matrix rows — and the pattern Waves 4 and 5 copy nine more times. It also covers Wave 2: the matrix is only worth its rows running, which happens in Task 8.
+- **C** and **D** each follow a family of services whose rules are independent of the previous family's, so each review reads one domain (mail and FTP; SQL DDL and DNS) rather than everything at once.
+- **E** reviews the removal of a dependency, a script that commits on a real box, and documents that must match the code.
+
+**Within a wave**, tasks run strictly in order, one at a time. None runs in parallel, even where two touch disjoint files (4 and 5, 12 and 14): `tools/test.sh` tests the checkout the docker container bind mounts, so a second worktree is invisible to the test server, and two agents in one checkout race on the index.
+
+**Between tasks**, the orchestrator does not review code. It checks three things and moves on:
+
+1. The subagent's report includes the tail of its last `tools/test.sh` run, showing lint `PASS` and both PHPUnit processes green.
+2. The task's commit exists (`git log --oneline -1`).
+3. Every name in the task's **Produces** block exists: `git grep -n` for each class and public method.
+
+If any of the three fails, send the subagent back to its own task before dispatching the next.
+
+**At each checkpoint**, in the orchestrating session:
+
+1. Run `tools/test.sh` twice. Both runs must be green; the second catches a test that leaves state behind.
+2. Invoke the `code-review` skill with arguments `medium phase3-wave-N..HEAD`, where `phase3-wave-N` is the tag set at the start of the wave (or waves) under review. Pass the checkpoint's **Focus** list with it.
+3. For each finding, read the code and decide. Fix every finding that holds, in a commit whose subject begins `Fix checkpoint X:` and whose body says what was wrong and why the fix is the right one. Several findings may share a commit when they share a cause.
+4. Run `tools/test.sh` again after the fixes.
+5. Tag the start of the next wave with an **annotated** tag whose message lists the findings that were declined and why: `git tag -a phase3-wave-M -m "Checkpoint X: declined …"`. A checkpoint with nothing declined says so.
+
+Do not start the next wave with a checkpoint's findings unresolved: a finding in a pattern is cheaper to fix before the next wave copies it than after.
+
+Before Wave 1: `git tag -a phase3-wave-1 -m "Plan 3 committed; wave 1 starts here"`.
+
+---
 
 ---
 
@@ -528,6 +570,12 @@ DnsRecordData::quotedAndUnquoted(string $string): array
 | `test/unit/…`, `test/integration/…`, `test/authz/…`, `test/Double/…` | The tests and doubles, named in each task | all |
 
 ---
+## Wave 1: The write path
+
+Tasks 1–3. Everything a mutation goes through, before any mutation exists. Ends at Checkpoint A.
+
+---
+
 ## Task 1: Transactions through the panel's counter — `sonnet`
 
 Decision D11, measurements M1 and M2. After this task a service can open a transaction that a core helper nests inside, and a test fixture can wrap a service's whole transaction and still undo it.
@@ -4150,6 +4198,44 @@ get_domain_default_props(), which caches one row for the whole request."
 ```
 
 ---
+
+## Checkpoint A: `code-review medium` over Wave 1
+
+Run by the orchestrating session, as the [Execution mandate](#waves-and-checkpoints) sets out.
+
+**Focus:**
+
+- `CoreCallsTest`: can a global call slip past the tokeniser — a namespaced fallback call, a callable string, `call_user_func('name')`, a function imported with `use function`? Is `ALLOWED` any wider than `PanelCore` needs?
+- `Guard::target()`: is ownership always resolved before scope, and does every refusal before ownership come out `NOT_FOUND`? Does `parse()` agree with `QueryResolver::decode()` on every malformed input?
+- `Writer::run()`: a commit that throws, a rollback that throws, a duplicate hidden two exceptions deep.
+- `Db`'s own counter against `DatabaseMySQL`'s: can they disagree about depth? Does `Fixture::rollBack()` leave the panel's counter consistent for the next test?
+- `Container::forTesting()`: does any default fail open — a probe that says yes where production would ask, a core that pokes the daemon?
+
+- [ ] **Step 1: The suite, twice**
+
+Run: `tools/test.sh`, then again.
+Expected: both green.
+
+- [ ] **Step 2: Review**
+
+Invoke the `code-review` skill with arguments `medium phase3-wave-1..HEAD`, passing the **Focus** list above.
+
+- [ ] **Step 3: Resolve the findings**
+
+Fix each finding that holds, in commits whose subjects begin `Fix checkpoint A:`, then run `tools/test.sh` until green.
+
+- [ ] **Step 4: Open the next wave**
+
+Run: `git tag -a phase3-wave-2 -m "Checkpoint A: <declined findings and why, or: none declined>"`
+
+---
+
+## Wave 2: The matrix and the rules
+
+Tasks 4–5. Test infrastructure and pure functions. No checkpoint of its own: Checkpoint B reviews it with Wave 3, when the matrix's first rows run.
+
+---
+
 ## Task 4: The authorisation matrix, before any mutation exists — `sonnet`
 
 Spec §17: *"A matrix: for every mutation, and for each of {owner, another customer of the same reseller, another reseller's customer, the owning reseller, another reseller, administrator}, assert the exact outcome. This is the test that matters most, and it is written before the resolvers it tests."*
@@ -5399,6 +5485,12 @@ A document root is taken in the terms the read model returns it -
 so that a client can write back what it read. likeEscape() exists because
 names may contain '_', which LIKE reads as a wildcard."
 ```
+
+---
+
+## Wave 3: Virtual hosts
+
+Tasks 6–8. The first vertical slice, and the pattern Waves 4 and 5 repeat. Ends at Checkpoint B.
 
 ---
 
@@ -8641,6 +8733,45 @@ so a second mutation in a document cannot read the first one's memo."
 ```
 
 ---
+
+## Checkpoint B: `code-review medium` over Waves 2 and 3
+
+Run by the orchestrating session, as the [Execution mandate](#waves-and-checkpoints) sets out.
+
+**Focus:**
+
+- The matrix: does any row pass without executing the mutation — a skip that should be a failure, an outcome of `OK` read off a `null` field, a `prepare` that makes every actor succeed?
+- `SubdomainService`, `DomainAliasService`, `DomainService` against [The shape of every mutation](#the-shape-of-every-mutation): the order of the six refusals in every method.
+- Cross-tenant reach: `sharedMountPointOf`, the FTP group and user matching in deletes (C11 item 6), every `LIKE` and regex built from a name.
+- `VhostInput::update()`: can a partial update produce a row the pages could never write — a document root set on a forwarded host, a proxy without its port rule?
+- The resolvers: the loader reset (D18) in every one, and no read-scope gate on the returned object (D19). Anything wrong here is copied nine times in Waves 4 and 5; fix the pattern now.
+- Events: names from the `Events` constants and parameters matching the page, in every service.
+
+- [ ] **Step 1: The suite, twice**
+
+Run: `tools/test.sh`, then again.
+Expected: both green.
+
+- [ ] **Step 2: Review**
+
+Invoke the `code-review` skill with arguments `medium phase3-wave-2..HEAD`, passing the **Focus** list above.
+
+- [ ] **Step 3: Resolve the findings**
+
+Fix each finding that holds, in commits whose subjects begin `Fix checkpoint B:`, then run `tools/test.sh` until green.
+
+- [ ] **Step 4: Open the next wave**
+
+Run: `git tag -a phase3-wave-4 -m "Checkpoint B: <declined findings and why, or: none declined>"`
+
+---
+
+## Wave 4: Mail and FTP
+
+Tasks 9–11. Ends at Checkpoint C.
+
+---
+
 ## Task 9: Mail accounts and autoresponders — `sonnet`
 
 `mailAccountCreate`, `mailAccountUpdate`, `mailAccountDelete` and `mailAutoresponderSet` as a service. Catch-alls and the GraphQL surface are Task 10.
@@ -11127,6 +11258,44 @@ back the absolute path."
 ```
 
 ---
+
+## Checkpoint C: `code-review medium` over Wave 4
+
+Run by the orchestrating session, as the [Execution mandate](#waves-and-checkpoints) sets out.
+
+**Focus:**
+
+- Mailbox quota arithmetic: bytes and MiB, the pool excluding the account itself, a lowered account total, overflow.
+- `MailService::delete()`: the forward and catch-all clean-up confined to the owning customer (C11 item 4), the RLIKE pattern built from an address.
+- Secrets: a password reaching a log line, an error message or `extensions` — events carry it in clear by the page's design; nothing else may.
+- Autoresponder state: when the status is written, when the daemon is poked, when neither.
+- `FtpService`: group membership on create and delete, the quota row, home directories that normalise outside the web root.
+
+- [ ] **Step 1: The suite, twice**
+
+Run: `tools/test.sh`, then again.
+Expected: both green.
+
+- [ ] **Step 2: Review**
+
+Invoke the `code-review` skill with arguments `medium phase3-wave-4..HEAD`, passing the **Focus** list above.
+
+- [ ] **Step 3: Resolve the findings**
+
+Fix each finding that holds, in commits whose subjects begin `Fix checkpoint C:`, then run `tools/test.sh` until green.
+
+- [ ] **Step 4: Open the next wave**
+
+Run: `git tag -a phase3-wave-5 -m "Checkpoint C: <declined findings and why, or: none declined>"`
+
+---
+
+## Wave 5: SQL and DNS
+
+Tasks 12–15. Ends at Checkpoint D, after which every matrix row runs.
+
+---
+
 ## Task 12: The SQL server — `opus`
 
 `MariaDbSqlServer`: the DDL behind SQL databases and users, tested against the live MariaDB **outside any transaction**, because every statement it issues implicitly commits (measurement M5).
@@ -14137,6 +14306,44 @@ it, and ownedBy says whose it is."
 ```
 
 ---
+
+## Checkpoint D: `code-review medium` over Wave 5
+
+Run by the orchestrating session, as the [Execution mandate](#waves-and-checkpoints) sets out.
+
+**Focus:**
+
+- `MariaDbSqlServer`: identifier quoting, the grant pattern's escaping, statements bound versus interpolated.
+- `SqlService`: compensation when the row fails after the DDL succeeded; a user's last grant versus one of several; the limit asked before `CREATE USER` (C11 item 3); `existingUserId` confined to the database's customer.
+- `DnsRecordData`: the zone check anchored (C11 item 5), TXT quoting and splitting against M20's vectors, 16-bit fields.
+- `DnsService`: a plugin-owned record refused on every path, and the before-delete event carrying the id.
+- The matrix: 144 rows and 72 scope rows run, none skipped.
+
+- [ ] **Step 1: The suite, twice**
+
+Run: `tools/test.sh`, then again.
+Expected: both green.
+
+- [ ] **Step 2: Review**
+
+Invoke the `code-review` skill with arguments `medium phase3-wave-5..HEAD`, passing the **Focus** list above.
+
+- [ ] **Step 3: Resolve the findings**
+
+Fix each finding that holds, in commits whose subjects begin `Fix checkpoint D:`, then run `tools/test.sh` until green.
+
+- [ ] **Step 4: Open the next wave**
+
+Run: `git tag -a phase3-wave-6 -m "Checkpoint D: <declined findings and why, or: none declined>"`
+
+---
+
+## Wave 6: Close
+
+Tasks 16–18. Ends at Checkpoint E, the last.
+
+---
+
 ## Task 16: Remove Anorm — `sonnet`
 
 Decision D17, and plan 2's own rule: *"If phase 3's mutations do not use the models either, the right move is to drop the dependency then, not to keep finding uses for it."* No write in Tasks 6–15 uses a model, for the reasons measurement M23 records. The read path's one Anorm load becomes a `keyed()` load of the same shape and the same cost.
@@ -15218,6 +15425,35 @@ specification records what phase 3 decided that it had left open."
 
 ---
 
+## Checkpoint E: `code-review medium` over Wave 6
+
+Run by the orchestrating session, as the [Execution mandate](#waves-and-checkpoints) sets out.
+
+**Focus:**
+
+- The Anorm removal: nothing left that names a model, `byColumn()`, `related()` or `parent()`; `QueryCountTest` still 31; composer files consistent.
+- `test/api/provision.php`: it commits on a real box — does its sweep touch only `sgwe2e*`, and can a failure leave anything it will not sweep next time?
+- `CHANGELOG.md`, `docs/API.md` and the specification's amendments against the code as it now is: every mutation named, every error extension described, nothing promised that is not built.
+
+- [ ] **Step 1: The suite, twice**
+
+Run: `tools/test.sh`, then again.
+Expected: both green.
+
+- [ ] **Step 2: Review**
+
+Invoke the `code-review` skill with arguments `medium phase3-wave-6..HEAD`, passing the **Focus** list above.
+
+- [ ] **Step 3: Resolve the findings**
+
+Fix each finding that holds, in commits whose subjects begin `Fix checkpoint E:`, then run `tools/test.sh` until green.
+
+- [ ] **Step 4: Open the next wave**
+
+Run: `git tag -a phase3-done -m "Checkpoint E: <declined findings and why, or: none declined>"`
+
+---
+
 ## Self-review
 
 Written after the eighteen tasks, reading the specification again against them. Section 2 records defects found while checking the tasks' code and tests against the box and the vendored libraries, **all fixed in the tasks above**; each entry says what the defect was, because the fix is only obvious once the failure is.
@@ -15301,7 +15537,11 @@ D10–D20, at the top of the plan. Four of them change the specification, and th
 - **C11 item 10**, `createDefaultMailAccounts()`'s transaction leak on a database error → core track. `Writer::run()` does not defend against it: doing so means reaching into `DatabaseMySQL`'s protected counter in production, which is a worse trade than the rare failure. The fixture does reach in, in tests, where it is the right trade.
 - **The alias order email's recipient** (C11 item 9) → the panel, first.
 
-### 6. What would make this plan fail
+### 6. Review strategy
+
+Per-task review subagents are replaced by five `code-review medium` checkpoints ([Waves and checkpoints](#waves-and-checkpoints)). The trade is deliberate: each task already carries its own tests, the matrix gates every mutation, and a checkpoint reviewing a coherent slice sees cross-task problems — a pattern repeated wrongly, an interface two tasks read differently — that a review of one task cannot. What it gives up is the early catch of a defect *inside* a wave; the checkpoints are placed so no wave is longer than four tasks, and the two waves whose output everything else copies (1 and 3) end in one.
+
+### 7. What would make this plan fail
 
 In the order they are likely:
 
