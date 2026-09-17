@@ -2046,6 +2046,29 @@ behaviour.
 
 ---
 
+**C11 — Defects in the page scripts that the API does not reproduce.**
+
+*Numbering.* Like C7–C10, found by this plugin's work rather than by reading for duplication: phase 3 transcribed every customer write, and these are the places the transcription had to choose between copying a defect and implementing what the page evidently intends. The API does the latter, marks the site `CORE-DEBT(C11)`, and each item below is a separate issue for `saygoweb/imscp`.
+
+*The list.*
+
+1. `client/mail_add.php:266-279` inserts `quota = NULL` for a forward-only account; `mail_users.quota` is `NOT NULL`, so MariaDB refuses the row with error 1048, and line 289 reports that SQLSTATE 23000 as *"Mail account already exists."* Forward-only accounts cannot be created in the panel at all.
+2. `client/subdomain_edit.php:380-388` updates `subdomain_alias.subdomain_wildcard_alias`, a column that table does not have, so a subdomain of an alias cannot be edited; line 354 also reads the wildcard flag as `0|1` where the column is `enum('yes','no')`.
+3. `client/sql_user_add.php` checks the SQL user limit in `generatePage()`, which runs only after `addSqlUser()` has written and redirected. The limit is never enforced on a submit.
+4. `client/mail_delete.php:88-121` overwrites `$row` in the loop that is meant to remove the deleted address from other accounts' forward and catch-all lists, so it removes nothing. Its log call (line 163) has its arguments swapped. When fixed, it should scan the owning customer's accounts, not every customer's.
+5. `client/dns_edit.php:157-163` tests `strpos(...) == 0`, which is also true for `false`, so the first character of every record name is stripped before validation. `client/dns_delete.php:39` dispatches `onBeforeDeleteCustomDNSrecord` with an unassigned `$dnsRecordId`.
+6. `deleteSubdomain()`, `deleteSubdomainAlias()` and `deleteDomainAlias()` (`include/Client.php`, `include/Shared.php`) match FTP users with `LIKE CONCAT('%@', name)` and FTP group members with a regex built from the name, unescaped. Names may contain `_`, which `LIKE` reads as a wildcard: deleting `a_b.test` schedules `axb.test`'s FTP users — another customer's — for deletion. Protected areas are matched with `LIKE mount%`, so deleting `/shop` also schedules `/shopping`.
+7. `client/sql_database_add.php:57` asks `SHOW DATABASES LIKE ?` with the name unescaped, so a name containing `_` is refused whenever any database matches it as a pattern.
+8. `client/alias_order_delete.php` deletes an ordered alias's row and leaves the `php_ini` row `alias_add.php` created for it.
+9. `client/alias_add.php:45-80` sends the reseller's *"your customer is awaiting approval"* template to the customer's own address. (The API keeps this behaviour, because changing who receives mail is the panel's decision to make first.)
+10. `include/Shared.php:63` `createDefaultMailAccounts()` catches only `PDOException`, but `DatabaseMySQL::execute()` throws `DatabaseException`, so on a database error its own savepoint is neither rolled back nor released and the caller's transaction depth is left one too high.
+
+*Why i-MSCP wants it anyway.* Each is a user-visible failure or a cross-tenant write in the panel as shipped.
+
+*What the plugin deletes.* Nothing directly: the API already behaves correctly. Each fix lets the corresponding C3 extraction be a straight move rather than a move plus a behaviour change.
+
+---
+
 ### 21.2 Keeping the debt visible
 
 Duplication that nobody can find is duplication that never gets retired. Two

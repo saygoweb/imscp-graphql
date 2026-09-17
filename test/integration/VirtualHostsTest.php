@@ -220,4 +220,15 @@ class VirtualHostsTest extends IntegrationTestCase
 
         self::assertSame(0, $count);
     }
+
+    public function testANameIsInUseAsAnyOfTheFourKinds(): void
+    {
+        $vhosts = new \iMSCP\Plugin\SGW_GraphQL\Repository\VirtualHosts($this->db);
+
+        self::assertTrue($vhosts->nameInUse($this->fixture->domainName()));
+        self::assertTrue($vhosts->nameInUse($this->fixture->aliasName()));
+        self::assertTrue($vhosts->nameInUse($this->fixture->subdomainName()));
+        self::assertTrue($vhosts->nameInUse('blog.' . $this->fixture->aliasName()));
+        self::assertFalse($vhosts->nameInUse('sgwt-nobody.test'));
+    }
 }

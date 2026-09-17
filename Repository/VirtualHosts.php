@@ -194,6 +194,33 @@ class VirtualHosts
     }
 
     /**
+     * Whether a fully qualified ASCII name is already any vhost's, of any
+     * kind and in any state.
+     *
+     * Spec section 8.4 relies on unique keys to turn a retried create into
+     * CONFLICT, but none of subdomain, subdomain_alias or domain_aliasses has
+     * one on its name (measurement M9). This is that check, asked explicitly.
+     */
+    public function nameInUse(string $asciiName): bool
+    {
+        return $this->db->row(
+            "
+                SELECT 1 FROM domain WHERE domain_name = ?
+                UNION ALL
+                SELECT 1 FROM domain_aliasses WHERE alias_name = ?
+                UNION ALL
+                SELECT 1 FROM subdomain AS s JOIN domain AS d ON d.domain_id = s.domain_id
+                WHERE CONCAT(s.subdomain_name, '.', d.domain_name) = ?
+                UNION ALL
+                SELECT 1 FROM subdomain_alias AS sa JOIN domain_aliasses AS al ON al.alias_id = sa.alias_id
+                WHERE CONCAT(sa.subdomain_alias_name, '.', al.alias_name) = ?
+                LIMIT 1
+            ",
+            array($asciiName, $asciiName, $asciiName, $asciiName)
+        ) !== null;
+    }
+
+    /**
      * Every object of the given customers that the backend has not finished
      * with. Spec section 8.2, and Query.pending.
      *

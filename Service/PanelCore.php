@@ -217,11 +217,10 @@ final class PanelCore implements Core
     {
         // CORE-DEBT(C1): transcribed from gui/public/client/alias_add.php:45-80,
         //   which reads the customer from $_SESSION['user_id'].
-        // The page also sends the reseller's "your customer is awaiting
-        //   approval" template to the customer's own address. Transcribed as
-        //   found; a changed recipient is a behaviour change the panel should
-        //   make first, so this is deliberately not fixed here, and is filed
-        //   with C11 once section 21 carries that item.
+        // CORE-DEBT(C11): C11 item 9 - the page sends the reseller's "your
+        //   customer is awaiting approval" template to the customer's own
+        //   address; kept deliberately, because changing who receives mail
+        //   is the panel's decision to make first.
         $row = exec_query(
             'SELECT admin_name, created_by, fname, lname, email FROM admin WHERE admin_id = ?',
             array($customerAdminId)
