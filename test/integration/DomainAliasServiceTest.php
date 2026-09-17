@@ -296,6 +296,35 @@ class DomainAliasServiceTest extends ServiceTestCase
         self::assertSame('ok', $this->db->value('SELECT status FROM htaccess WHERE id = ?', array($inside)));
     }
 
+    public function testDeletingAnAliasDoesNotReachAnotherAliasesFtpUsers(): void
+    {
+        // Checkpoint B, B3: the old member/user match was
+        // '@(?:.+\.)*sgwtalias\.test$' / 'LIKE %@%.sgwtalias.test', which also
+        // matches a login on a completely separate alias ending in
+        // '.sgwtalias.test'. Note: the fixture's alias SUBDOMAIN is 'blog',
+        // whose full name is also blog.sgwtalias.test - use a different name
+        // here ('news.sgwtalias.test') to keep the two cases apart.
+        $this->insert('domain_aliasses', array(
+            'domain_id' => $this->fixture->domainId(), 'alias_name' => 'news.sgwtalias.test',
+            'alias_status' => 'ok', 'alias_mount' => '/news', 'alias_document_root' => '/htdocs',
+            'alias_ip_id' => $this->fixture->ipId(), 'url_forward' => 'no', 'host_forward' => 'Off',
+            'wildcard_alias' => 'no', 'external_mail' => 'off'
+        ));
+        $this->insert('ftp_users', array(
+            'userid' => 'c@news.sgwtalias.test', 'admin_id' => $this->fixture->customerId(), 'passwd' => 'x',
+            // A gid no real customer on the box has (checkpoint B note).
+            'uid' => 64004, 'gid' => 64004, 'shell' => '/bin/sh', 'homedir' => '/x', 'status' => 'ok'
+        ));
+        $this->insert('ftp_group', array(
+            'groupname' => 'sgwtcustomer', 'gid' => 64004, 'members' => 'c@news.sgwtalias.test'
+        ));
+
+        $this->service()->delete($this->caller('customer'), $this->aliasId());
+
+        self::assertSame('ok', $this->db->value('SELECT status FROM ftp_users WHERE userid = ?', array('c@news.sgwtalias.test')));
+        self::assertSame('c@news.sgwtalias.test', $this->db->value("SELECT members FROM ftp_group WHERE groupname = 'sgwtcustomer'"));
+    }
+
     public function testCancellingAnOrderRemovesTheRowAndItsPhpIni(): void
     {
         $this->db->execute("UPDATE domain_aliasses SET alias_status = 'ordered' WHERE alias_id = ?", array($this->fixture->aliasId()));

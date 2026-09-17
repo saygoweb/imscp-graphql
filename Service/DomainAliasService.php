@@ -266,16 +266,25 @@ final class DomainAliasService
         //   regex; FTP users limited to the owning customer; a mount point
         //   shared with another live host of the same domain (checkpoint B,
         //   B2) left alone rather than swept as "everything under this path".
+        //   The panel's own member regex, '@(?:.+\.)*<alias>$', and its LIKE
+        //   pattern, '%@%.<alias>', both over-match: they also reach a login
+        //   on a completely different alias that merely ends in ".<alias>"
+        //   (checkpoint B, B3). The API matches the alias's own name and the
+        //   names of its own subdomain aliases, exactly.
         $kit->writer()->run(function () use ($kit, $core, $account, $key, $name, $row, $params) {
             $db = $kit->db();
             $core->dispatch(Events::onBeforeDeleteDomainAlias, $params);
 
-            // Every subdomain hung off this alias (whatever its status - it
-            // is scheduled for deletion in this same operation), so its own
-            // mount point is never treated as "in use" by a surviving host.
+            // The exact host names this alias owns: itself, and every
+            // subdomain hung off it (whatever its status - it is scheduled
+            // for deletion in this same operation). Also this alias's own
+            // subdomains' mount points, so they are never treated as "in
+            // use" by a surviving host either.
+            $names = array($name);
             $excludedMounts = array(array(VirtualHosts::KIND_ALS, $key));
 
-            foreach ($db->rows('SELECT subdomain_alias_id FROM subdomain_alias WHERE alias_id = ?', array($key)) as $subRow) {
+            foreach ($db->rows('SELECT subdomain_alias_id, subdomain_alias_name FROM subdomain_alias WHERE alias_id = ?', array($key)) as $subRow) {
+                $names[] = $subRow['subdomain_alias_name'] . '.' . $name;
                 $excludedMounts[] = array(VirtualHosts::KIND_ALSSUB, (int)$subRow['subdomain_alias_id']);
             }
 
@@ -283,8 +292,15 @@ final class DomainAliasService
             $group = $groups->ofCustomer($account->getUsername());
 
             if ($group !== null) {
-                $groups->removeMembers($group, static function (string $member) use ($name) {
-                    return (bool)preg_match('/@(?:.+\.)*' . preg_quote($name, '/') . '$/', $member);
+                $suffixes = array_map(static function (string $n) { return '@' . $n; }, $names);
+                $groups->removeMembers($group, static function (string $member) use ($suffixes) {
+                    foreach ($suffixes as $suffix) {
+                        if (substr($member, -strlen($suffix)) === $suffix) {
+                            return true;
+                        }
+                    }
+
+                    return false;
                 });
             }
 
@@ -298,13 +314,17 @@ final class DomainAliasService
                 ",
                 array($key)
             );
+            $ftpLikes = array();
+            $ftpBind = array($account->getAdminId());
+
+            foreach ($names as $n) {
+                $ftpLikes[] = 'userid LIKE ?';
+                $ftpBind[] = '%@' . VhostRules::likeEscape($n);
+            }
+
             $db->execute(
-                "UPDATE ftp_users SET status = 'todelete' WHERE admin_id = ? AND (userid LIKE ? OR userid LIKE ?)",
-                array(
-                    $account->getAdminId(),
-                    '%@' . VhostRules::likeEscape($name),
-                    '%@%.' . VhostRules::likeEscape($name)
-                )
+                "UPDATE ftp_users SET status = 'todelete' WHERE admin_id = ? AND (" . implode(' OR ', $ftpLikes) . ')',
+                $ftpBind
             );
             $db->execute(
                 "
