@@ -285,4 +285,23 @@ class ContainerTest extends TestCase
 
         self::assertSame([7], $seen, 'the access checker the container was given must be the one called, exactly once, with the real admin id');
     }
+
+    public function testTheToolkitCarriesTheInjectedPorts(): void
+    {
+        $core = new \iMSCP\Plugin\SGW_GraphQL\Service\PanelCore(false);
+        $probe = new \iMSCP\Plugin\SGW_GraphQL\Service\UncheckedDirectoryProbe();
+
+        $container = Container::forTesting(
+            dirname(__DIR__, 3), array(),
+            function (string $sql, array $bind = []) { return null; },
+            function (int $adminId) { return null; },
+            function (int $adminId) { return true; },
+            null, array(), $core, $probe
+        );
+
+        self::assertSame($core, $container->toolkit()->core());
+        self::assertSame($probe, $container->toolkit()->probe());
+        self::assertSame($container->toolkit(), $container->toolkit(), 'built once');
+        self::assertNull($container->sqlServer());
+    }
 }

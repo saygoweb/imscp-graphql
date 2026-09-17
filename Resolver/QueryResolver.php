@@ -27,13 +27,12 @@ use iMSCP\Plugin\SGW_GraphQL\Auth\Identity;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Scope;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
 use iMSCP\Plugin\SGW_GraphQL\Repository\VirtualHosts;
+use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Security\OwnershipResolver;
 use iMSCP\Plugin\SGW_GraphQL\Support\ApiException;
-use iMSCP\Plugin\SGW_GraphQL\Support\ErrorCode;
 use iMSCP\Plugin\SGW_GraphQL\Support\GlobalId;
 use iMSCP\Plugin\SGW_GraphQL\Support\NodeType;
 use iMSCP\Plugin\SGW_GraphQL\Support\ProvisioningFilter;
-use InvalidArgumentException;
 
 /**
  * The six root fields of spec section 7.10.
@@ -511,50 +510,15 @@ final class QueryResolver
         return $ids;
     }
 
-    /**
-     * @throws ApiException NOT_FOUND for anything that is not a usable identifier
-     */
     private static function decode(string $encoded, ?string $expected = null): GlobalId
     {
-        try {
-            // decodeKey() rather than decode(): ftp_users' key is a string
-            // (decision D2), and decode() would reject it. getId() still
-            // refuses a non-numeric key, so a caller expecting an integer
-            // cannot be handed a string one by accident.
-            $globalId = GlobalId::decodeKey($encoded, $expected);
-        } catch (\Exception $e) {
-            // A malformed identifier is NOT_FOUND, not BAD_USER_INPUT: spec
-            // section 6.3 wants an unreachable object and a nonexistent one to
-            // be indistinguishable, and "this is not a valid id" is a third
-            // answer a caller could use to tell them apart.
-            throw self::notFound();
-        }
-
-        if (!NodeType::isKnown($globalId->getType())) {
-            throw self::notFound();
-        }
-
-        if (!NodeType::isStringKeyed($globalId->getType())) {
-            try {
-                // The shape check, asked of the one class that defines it
-                // rather than repeated here. Without it a non-numeric key for
-                // an integer-keyed type survives decodeKey() and throws out of
-                // OwnershipResolver::bindValue() instead - an INTERNAL, which
-                // is the third distinguishable answer the comment above says
-                // must not exist.
-                $globalId->getId();
-            } catch (InvalidArgumentException $e) {
-                throw self::notFound();
-            }
-        }
-
-        return $globalId;
-    }
-
-    private static function notFound(): ApiException
-    {
-        return new ApiException(
-            ErrorCode::NOT_FOUND, 'No such object, or it is not yours to read.'
+        // One parser for reads and writes, so that the two cannot come to
+        // disagree about what counts as naming nothing. See Guard::parse().
+        return Guard::parse(
+            $encoded,
+            $expected !== null
+                ? array($expected)
+                : array_merge(NodeType::CUSTOMER_OWNED, NodeType::RESELLER_OWNED, NodeType::SERVER_OWNED)
         );
     }
 }

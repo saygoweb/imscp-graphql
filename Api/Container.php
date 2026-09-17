@@ -26,6 +26,7 @@ use iMSCP\Plugin\SGW_GraphQL\Http\AuthenticateMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\CorsMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\GraphQLHandler;
 use iMSCP\Plugin\SGW_GraphQL\Http\TlsMiddleware;
+use iMSCP\Plugin\SGW_GraphQL\Repository\Accounts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\BatchLoader;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Counts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
@@ -41,7 +42,16 @@ use iMSCP\Plugin\SGW_GraphQL\Resolver\VirtualHostResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\ViewerResolver;
 use iMSCP\Plugin\SGW_GraphQL\Schema\ResolverMap;
 use iMSCP\Plugin\SGW_GraphQL\Schema\SchemaFactory;
+use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Security\OwnershipResolver;
+use iMSCP\Plugin\SGW_GraphQL\Service\Core;
+use iMSCP\Plugin\SGW_GraphQL\Service\DirectoryProbe;
+use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
+use iMSCP\Plugin\SGW_GraphQL\Service\SqlServer;
+use iMSCP\Plugin\SGW_GraphQL\Service\Toolkit;
+use iMSCP\Plugin\SGW_GraphQL\Service\UncheckedDirectoryProbe;
+use iMSCP\Plugin\SGW_GraphQL\Service\VfsDirectoryProbe;
+use iMSCP\Plugin\SGW_GraphQL\Service\Writer;
 use iMSCP\Plugin\SGW_GraphQL\SGW_GraphQL;
 use PDO;
 
@@ -83,10 +93,22 @@ final class Container
     /** @var array<string, array<string, callable>>|null */
     private $maps;
 
+    /** @var Core */
+    private $core;
+
+    /** @var DirectoryProbe */
+    private $probe;
+
+    /** @var SqlServer|null Null until Task 12 wires MariaDbSqlServer. */
+    private $sqlServer;
+
+    /** @var Toolkit|null */
+    private $toolkit;
+
     private function __construct(
         string $pluginDir, array $config, callable $query, callable $accountLoader,
         callable $apiAccessChecker, Db $db, array $panelConfig,
-        bool $apiAccessByDefault
+        bool $apiAccessByDefault, Core $core, DirectoryProbe $probe, ?SqlServer $sqlServer
     ) {
         $this->pluginDir = $pluginDir;
         $this->config = $config;
@@ -96,6 +118,9 @@ final class Container
         $this->db = $db;
         $this->panelConfig = $panelConfig;
         $this->apiAccessByDefault = $apiAccessByDefault;
+        $this->core = $core;
+        $this->probe = $probe;
+        $this->sqlServer = $sqlServer;
     }
 
     public static function fromPlugin(SGW_GraphQL $plugin): self
@@ -140,7 +165,13 @@ final class Container
             },
             Db::fromPanel(),
             self::panelConfig(),
-            $allowedByDefault
+            $allowedByDefault,
+            new PanelCore(true),
+            // Spec section 14, decision D20.
+            (bool)$plugin->getConfigParam('validate_ftp_home_dir', true)
+                ? new VfsDirectoryProbe()
+                : new UncheckedDirectoryProbe(),
+            null
         );
     }
 
@@ -153,10 +184,18 @@ final class Container
      *                                   close. A test that does not care about
      *                                   the access check must say so itself,
      *                                   at the call site.
+     * @param Core|null           $core      Defaults to a PanelCore that never
+     *                                       pokes the daemon. Constructing one
+     *                                       touches nothing, so the unit suite
+     *                                       can build the whole map.
+     * @param DirectoryProbe|null $probe     Defaults to answering "exists".
+     * @param SqlServer|null      $sqlServer Defaults to none; a test that runs
+     *                                       an SQL mutation must pass a fake.
      */
     public static function forTesting(
         string $pluginDir, array $config, callable $query, callable $accountLoader,
-        callable $apiAccessChecker, ?Db $db = null, array $panelConfig = array()
+        callable $apiAccessChecker, ?Db $db = null, array $panelConfig = array(),
+        ?Core $core = null, ?DirectoryProbe $probe = null, ?SqlServer $sqlServer = null
     ): self {
         return new self(
             $pluginDir, $config, $query, $accountLoader, $apiAccessChecker,
@@ -166,7 +205,10 @@ final class Container
             // silently work against whatever connection was lying about.
             $db ?? Db::detached(),
             $panelConfig,
-            true
+            true,
+            $core ?? new PanelCore(false),
+            $probe ?? new UncheckedDirectoryProbe(),
+            $sqlServer
         );
     }
 
@@ -177,6 +219,41 @@ final class Container
         }
 
         return $this->tokens;
+    }
+
+    /**
+     * The collaborators every write service takes, built once per request.
+     *
+     * Its OwnershipResolver, VirtualHosts and Counts are its own rather than
+     * the read resolvers': a write must decide on the database as it is now,
+     * and sharing the read side's memoised instances would let a mutation
+     * decide on what an earlier field of the same document happened to load.
+     */
+    public function toolkit(): Toolkit
+    {
+        if ($this->toolkit === null) {
+            $db = $this->db;
+
+            $this->toolkit = new Toolkit(
+                $db,
+                $this->core,
+                new Guard(new OwnershipResolver(static function (string $sql, array $bind = array()) use ($db) {
+                    return $db->rows($sql, $bind);
+                })),
+                new Accounts($db),
+                new VirtualHosts($db),
+                new Counts($db, self::countsDefaultMailAccounts($this->panelConfig)),
+                new Writer($db),
+                $this->probe
+            );
+        }
+
+        return $this->toolkit;
+    }
+
+    public function sqlServer(): ?SqlServer
+    {
+        return $this->sqlServer;
     }
 
     /**
