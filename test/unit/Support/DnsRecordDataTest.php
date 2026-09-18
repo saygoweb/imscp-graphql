@@ -244,6 +244,35 @@ class DnsRecordDataTest extends TestCase
         );
     }
 
+    public function testALongTxtSplitDoesNotBreakAnEscapedQuote(): void
+    {
+        // D2: byte 254 is the backslash, byte 255 the quote it escapes -
+        // exactly where a naive substr($data, $i, 255) would cut, leaving a
+        // lone backslash to escape the chunk's own closing quote.
+        $data = str_repeat('a', 254) . '\\"' . str_repeat('a', 44);
+        self::assertSame(300, strlen($data));
+
+        $result = DnsRecordData::formatTxt($data);
+
+        self::assertSame(
+            '"' . str_repeat('a', 254) . '" "\\"' . str_repeat('a', 44) . '"',
+            $result
+        );
+
+        foreach (explode(' ', $result) as $chunk) {
+            self::assertMatchesRegularExpression('/^".*"$/', $chunk);
+            $content = substr($chunk, 1, -1);
+            self::assertLessThanOrEqual(255, strlen($content));
+
+            $backslashes = 0;
+            for ($i = strlen($content) - 1; $i >= 0 && $content[$i] === '\\'; $i--) {
+                $backslashes++;
+            }
+
+            self::assertSame(0, $backslashes % 2, 'the closing quote must be a real delimiter, not escaped');
+        }
+    }
+
     /**
      * @dataProvider refusedTxt
      */

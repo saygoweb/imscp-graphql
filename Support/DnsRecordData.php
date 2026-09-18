@@ -158,15 +158,47 @@ final class DnsRecordData
         // RFC 4408 section 3.1.3: a character-string is at most 255 bytes.
         if (strlen($data) > 255) {
             $chunks = array();
+            $offset = 0;
+            $length = strlen($data);
 
-            for ($i = 0, $length = strlen($data); $i < $length; $i += 255) {
-                $chunks[] = '"' . substr($data, $i, 255) . '"';
+            while ($offset < $length) {
+                $take = min(255, $length - $offset);
+
+                // D2: never split between a backslash and the character it
+                // escapes. An odd run of trailing backslashes means the
+                // last one is unpaired, and cutting the chunk there would
+                // let it escape the closing quote added below. Shortening
+                // is always safe here, because there is more data ahead to
+                // carry that byte into the next chunk; only checked when
+                // this chunk is not the last, since a genuine trailing
+                // backslash at the very end has nowhere to go.
+                if ($offset + $take < $length && self::endsWithOddBackslashes(substr($data, $offset, $take))) {
+                    $take--;
+                }
+
+                $chunks[] = '"' . substr($data, $offset, $take) . '"';
+                $offset += $take;
             }
 
             return implode(' ', $chunks);
         }
 
         return '"' . $data . '"';
+    }
+
+    /**
+     * Whether $piece ends with an odd number of backslashes - the last one,
+     * if so, is unpaired and would escape whatever follows it.
+     */
+    private static function endsWithOddBackslashes(string $piece): bool
+    {
+        $count = 0;
+
+        for ($i = strlen($piece) - 1; $i >= 0 && $piece[$i] === '\\'; $i--) {
+            $count++;
+        }
+
+        return $count % 2 === 1;
     }
 
     /**
