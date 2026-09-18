@@ -160,7 +160,12 @@ function settle(): array
     do {
         backend();
         $pending = run('{ pending { id __typename ... on Provisioned { provisioning { state raw } } } }');
-        $items = $pending['data']['pending'] ?? array();
+
+        if (isset($pending['errors']) || !array_key_exists('pending', (array)($pending['data'] ?? array()))) {
+            die2('the pending query failed: ' . json_encode($pending['errors'] ?? $pending));
+        }
+
+        $items = $pending['data']['pending'];
 
         if ($items === array()) {
             return array();
@@ -205,7 +210,12 @@ function sweep(): void
         array('subdomainDelete', NodeType::SUBDOMAIN, $db->rows("SELECT subdomain_id AS k, subdomain_status AS s FROM subdomain WHERE domain_id = ? AND subdomain_name LIKE 'sgwe2e%'", array($domainId))),
         array('mailAccountDelete', NodeType::MAIL_ACCOUNT, $db->rows("SELECT mail_id AS k, status AS s FROM mail_users WHERE domain_id = ? AND mail_acc LIKE 'sgwe2e%'", array($domainId))),
         array('ftpUserDelete', NodeType::FTP_USER, $db->rows("SELECT userid AS k, status AS s FROM ftp_users WHERE admin_id = ? AND userid LIKE 'sgwe2e%'", array((int)$account['admin_id']))),
-        array('sqlDatabaseDelete', NodeType::SQL_DATABASE, $db->rows("SELECT sqld_id AS k, 'ok' AS s FROM sql_database WHERE domain_id = ? AND sqld_name LIKE 'sgwe2e%'", array($domainId))),
+        // MYSQL_PREFIX ('infront'/'behind') puts the domain id before or after PREFIX
+        // (SqlService::prefixed()), so the name is only ever a substring of what we
+        // asked for. The '%' on both sides is what makes a prefixed or suffixed name
+        // still match here; it stays selective because every query is also scoped to
+        // this domain_id.
+        array('sqlDatabaseDelete', NodeType::SQL_DATABASE, $db->rows("SELECT sqld_id AS k, 'ok' AS s FROM sql_database WHERE domain_id = ? AND sqld_name LIKE '%sgwe2e%'", array($domainId))),
         array('dnsRecordDelete', NodeType::DNS_RECORD, $db->rows("SELECT domain_dns_id AS k, domain_dns_status AS s FROM domain_dns WHERE domain_id = ? AND domain_dns LIKE 'sgwe2e%'", array($domainId)))
     );
 
@@ -216,7 +226,16 @@ function sweep(): void
             }
 
             $id = NodeType::isStringKeyed($tag) ? GlobalId::encodeKey($tag, (string)$row['k']) : GlobalId::encode($tag, (int)$row['k']);
-            run('mutation($id: ID!) { ' . $mutation . '(id: $id) { id } }', array('id' => $id));
+            $result = run('mutation($id: ID!) { ' . $mutation . '(id: $id) { id } }', array('id' => $id));
+
+            if (isset($result['errors'][0])) {
+                die2(sprintf(
+                    'SWEEP FAILED %s %s: %s (%s)',
+                    $mutation, $row['k'], $result['errors'][0]['message'],
+                    $result['errors'][0]['extensions']['code'] ?? 'no code'
+                ));
+            }
+
             printf("  swept %s %s\n", $mutation, $row['k']);
         }
     }
@@ -272,14 +291,22 @@ if ((int)$account['domain_ftpacc_limit'] >= 0) {
     echo "  skip  FTP is withheld from this customer\n";
 }
 
+// MYSQL_PREFIX may make the panel rename what we asked for (SqlService::prefixed());
+// read back the names the server actually gave these objects and use those
+// everywhere below, rather than rebuilding them from PREFIX.
+$sqlDbName = PREFIX . '_db';
+$sqlUserName = PREFIX . '_u';
+$sqlUserHost = 'localhost';
+
 if ((int)$account['domain_sqld_limit'] >= 0 && (int)$account['domain_sqlu_limit'] >= 0) {
     $result = run(
         'mutation($input: SqlDatabaseCreateInput!) { sqlDatabaseCreate(input: $input) { id name } }',
         array('input' => array('domainId' => $domainId, 'name' => PREFIX . '_db'))
     );
     $created['sqlDatabase'] = $result['data']['sqlDatabaseCreate']['id'] ?? null;
+    $sqlDbName = $result['data']['sqlDatabaseCreate']['name'] ?? $sqlDbName;
     check('sqlDatabaseCreate creates the database at once',
-        (int)$db->value('SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?', array(PREFIX . '_db')) === 1,
+        (int)$db->value('SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?', array($sqlDbName)) === 1,
         json_encode($result['errors'] ?? null));
 
     $result = run(
@@ -287,10 +314,12 @@ if ((int)$account['domain_sqld_limit'] >= 0 && (int)$account['domain_sqlu_limit'
         array('input' => array('databaseId' => $created['sqlDatabase'], 'name' => PREFIX . '_u', 'host' => 'localhost', 'password' => 'E2e0Password'))
     );
     $created['sqlUser'] = $result['data']['sqlUserCreate']['id'] ?? null;
+    $sqlUserName = $result['data']['sqlUserCreate']['name'] ?? $sqlUserName;
+    $sqlUserHost = $result['data']['sqlUserCreate']['host'] ?? $sqlUserHost;
 
     try {
-        $pdo = new PDO('mysql:unix_socket=' . $db->value('SELECT @@socket'), PREFIX . '_u', 'E2e0Password');
-        check('the SQL user can log in and see its database', in_array(PREFIX . '_db', $pdo->query('SHOW DATABASES')->fetchAll(PDO::FETCH_COLUMN), true));
+        $pdo = new PDO('mysql:unix_socket=' . $db->value('SELECT @@socket'), $sqlUserName, 'E2e0Password');
+        check('the SQL user can log in and see its database', in_array($sqlDbName, $pdo->query('SHOW DATABASES')->fetchAll(PDO::FETCH_COLUMN), true));
     } catch (PDOException $e) {
         check('the SQL user can log in and see its database', false, $e->getMessage() . ' ' . json_encode($result['errors'] ?? null));
     }
@@ -351,8 +380,8 @@ check('the backend settled every deletion within ' . SETTLE_SECONDS . 's', $stuc
 check('the database is back where it started', counts() === $before, json_encode(array('before' => $before, 'after' => counts())));
 check('no vhost file is left', !is_file(VHOST_DIR . '/' . PREFIX . '.' . $domain . '.conf'));
 check('no maildir is left', !is_dir($mailRoot . '/' . $domain . '/' . PREFIX));
-check('no SQL database is left', (int)$db->value('SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?', array(PREFIX . '_db')) === 0);
-check('no SQL user is left', (int)$db->value("SELECT COUNT(*) FROM mysql.user WHERE User = ?", array(PREFIX . '_u')) === 0);
+check('no SQL database is left', (int)$db->value('SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?', array($sqlDbName)) === 0);
+check('no SQL user is left', (int)$db->value("SELECT COUNT(*) FROM mysql.user WHERE User = ?", array($sqlUserName)) === 0);
 
 printf("\n%d passed, %d failed\n", $passed, $failed);
 exit($failed === 0 ? 0 : 1);
