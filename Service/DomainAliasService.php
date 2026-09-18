@@ -443,23 +443,21 @@ final class DomainAliasService
 
         $target = $kit->guard()->target($caller, $id, array(NodeType::DOMAIN_ALIAS), Scope::DOMAINS_WRITE, 'id');
 
-        $row = $kit->db()->row(
-            'SELECT a.alias_id, a.alias_name, a.alias_status FROM domain_aliasses AS a WHERE a.alias_id = ?',
-            array($target->getKey())
-        );
-
-        if ($row === null) {
-            throw Guard::notFound();
-        }
+        // The normalised row, as delete() reads it, rather than three columns
+        // of its own: the order's row is removed outright, so this is also the
+        // snapshot domainAliasReject returns - a non-null DomainAlias that
+        // cannot be read back afterwards. cancelOrder(), the customer's side
+        // of the same removal, has always returned one; this is the same rule.
+        $row = $kit->vhost(NodeType::DOMAIN_ALIAS, $target->getKey());
 
         // B13: role before state - see approve()'s own note.
         if ($caller->getRole() !== Identity::ROLE_RESELLER && $caller->getRole() !== Identity::ROLE_ADMIN) {
             throw Guard::forbidden('Only a reseller or an administrator may reject an alias order.');
         }
 
-        Guard::requireState((string)$row['alias_status'], array(Provisioning::STATE_ORDERED));
+        Guard::requireState((string)$row['status'], array(Provisioning::STATE_ORDERED));
 
-        $aliasId = (int)$row['alias_id'];
+        $aliasId = (int)$row['key'];
 
         $kit->writer()->run(function () use ($kit, $aliasId) {
             $kit->db()->execute("DELETE FROM php_ini WHERE domain_id = ? AND domain_type = 'als'", array($aliasId));
@@ -468,7 +466,7 @@ final class DomainAliasService
 
         $kit->core()->writeLog(sprintf('An alias order has been rejected by %s.', $caller->getUsername()), E_USER_NOTICE);
 
-        return new ObjectRef(NodeType::DOMAIN_ALIAS, $aliasId);
+        return new ObjectRef(NodeType::DOMAIN_ALIAS, $aliasId, $row);
     }
 
     /**

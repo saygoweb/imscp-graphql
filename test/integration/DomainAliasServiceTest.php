@@ -399,11 +399,15 @@ class DomainAliasServiceTest extends ServiceTestCase
         $aliasId = $this->orderedAlias('sgwordered.test');
         $this->insert('php_ini', array('domain_id' => $aliasId, 'domain_type' => 'als', 'admin_id' => $this->fixture->customerId()));
 
-        $this->service()->reject($this->caller('reseller'), GlobalId::encode(NodeType::DOMAIN_ALIAS, $aliasId));
+        $ref = $this->service()->reject($this->caller('reseller'), GlobalId::encode(NodeType::DOMAIN_ALIAS, $aliasId));
 
         self::assertSame(
             0, (int)$this->db->value('SELECT COUNT(*) FROM domain_aliasses WHERE alias_id = ?', array($aliasId))
         );
+        // As the customer's own cancellation does: the row is gone, so
+        // domainAliasReject's non-null DomainAlias is the snapshot.
+        self::assertSame('ordered', $ref->getSnapshot()['status']);
+        self::assertSame('sgwordered.test', $ref->getSnapshot()['name']);
         self::assertSame(
             0,
             (int)$this->db->value(

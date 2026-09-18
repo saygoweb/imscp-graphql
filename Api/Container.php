@@ -32,6 +32,7 @@ use iMSCP\Plugin\SGW_GraphQL\Repository\BatchLoader;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Counts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
 use iMSCP\Plugin\SGW_GraphQL\Repository\VirtualHosts;
+use iMSCP\Plugin\SGW_GraphQL\Resolver\CustomerMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\CustomerResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\DnsMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\DnsResolver;
@@ -51,6 +52,7 @@ use iMSCP\Plugin\SGW_GraphQL\Schema\SchemaFactory;
 use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Security\OwnershipResolver;
 use iMSCP\Plugin\SGW_GraphQL\Service\Core;
+use iMSCP\Plugin\SGW_GraphQL\Service\CustomerService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DetachedCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\DetachedDirectoryProbe;
 use iMSCP\Plugin\SGW_GraphQL\Service\DirectoryProbe;
@@ -58,6 +60,7 @@ use iMSCP\Plugin\SGW_GraphQL\Service\DnsService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DomainAliasService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DomainService;
 use iMSCP\Plugin\SGW_GraphQL\Service\FtpService;
+use iMSCP\Plugin\SGW_GraphQL\Service\HostingPlanService;
 use iMSCP\Plugin\SGW_GraphQL\Service\MailService;
 use iMSCP\Plugin\SGW_GraphQL\Service\MariaDbSqlServer;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
@@ -433,7 +436,11 @@ final class Container
                 // never reads mysql.data.
                 return $this->sqlServer();
             }), $ftpSql))->map(),
-            'DnsMutations' => (new DnsMutations($loader, new DnsService($kit), $dns))->map()
+            'DnsMutations' => (new DnsMutations($loader, new DnsService($kit), $dns))->map(),
+            'CustomerMutations' => (new CustomerMutations(
+                $loader, new CustomerService($kit), new HostingPlanService($kit),
+                new DomainAliasService($kit), $customers, $resellers, $virtualHosts, $toUnicode
+            ))->map()
         );
 
         return $this->maps;

@@ -25,6 +25,11 @@ use iMSCP\Plugin\SGW_GraphQL\Auth\Scope;
 /**
  * Spec section 8.1 steps 2 and 3 for every mutation: scope is asked after
  * ownership, and the write scope is all a write needs (decision D19).
+ *
+ * "The owner" is the row's own account - the customer for a customer-level
+ * mutation, the reseller for phase 4's reseller and administrator verbs - and
+ * the stranger's expectation is the row's own too, because a create has no
+ * object to hide and so answers FORBIDDEN where an object would be NOT_FOUND.
  */
 class ScopeMatrixTest extends AuthzTestCase
 {
@@ -35,7 +40,7 @@ class ScopeMatrixTest extends AuthzTestCase
     {
         $this->skipUnlessInSchema($field);
 
-        $result = $this->runEntry($field, 'customer', array(Scope::ACCOUNT_READ));
+        $result = $this->runEntry($field, MutationCatalogue::all()[$field]['owner'], array(Scope::ACCOUNT_READ));
 
         self::assertSame('FORBIDDEN', self::outcome($result, $field), json_encode($result));
         self::assertSame(
@@ -53,7 +58,14 @@ class ScopeMatrixTest extends AuthzTestCase
 
         $result = $this->runEntry($field, 'otherCustomer', array(Scope::ACCOUNT_READ));
 
-        self::assertSame('NOT_FOUND', self::outcome($result, $field), json_encode($result));
+        // The row's own answer for this stranger, which the missing scope must
+        // not change: an object it may not reach stays NOT_FOUND even though
+        // the scope check would have refused it too.
+        self::assertSame(
+            MutationCatalogue::all()[$field]['expected']['otherCustomer'],
+            self::outcome($result, $field),
+            json_encode($result)
+        );
     }
 
     /**
@@ -63,7 +75,8 @@ class ScopeMatrixTest extends AuthzTestCase
     {
         $this->skipUnlessInSchema($field);
 
-        $result = $this->runEntry($field, 'customer', array(MutationCatalogue::all()[$field]['scope']));
+        $entry = MutationCatalogue::all()[$field];
+        $result = $this->runEntry($field, $entry['owner'], array($entry['scope']));
 
         self::assertSame('OK', self::outcome($result, $field), json_encode($result));
     }

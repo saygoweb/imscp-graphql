@@ -135,11 +135,18 @@ class HostingPlanServiceTest extends ServiceTestCase
     {
         $ref = $this->service()->create($this->caller('reseller'), $this->input());
 
-        $this->service()->delete($this->caller('reseller'), GlobalId::encode(NodeType::HOSTING_PLAN, $ref->getKey()));
+        $deleted = $this->service()->delete(
+            $this->caller('reseller'), GlobalId::encode(NodeType::HOSTING_PLAN, $ref->getKey())
+        );
 
         self::assertSame(
             0, (int)$this->db->value('SELECT COUNT(*) FROM hosting_plans WHERE id = ?', array($ref->getKey()))
         );
+        // hosting_plans has no status column to leave the plan readable behind
+        // a 'todelete' (M15), and hostingPlanDelete returns a non-null
+        // HostingPlan, so the row itself comes back as the snapshot.
+        self::assertSame('sgwt-plan', $deleted->getSnapshot()['name']);
+        self::assertSame($this->fixture->resellerId(), (int)$deleted->getSnapshot()['reseller_id']);
     }
 
     public function testAnotherResellersPlanIsNotFound(): void

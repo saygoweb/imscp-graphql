@@ -23,21 +23,21 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Authz;
 /**
  * Spec section 17's matrix: every mutation, as every one of the six accounts.
  *
- * The owner, the owner's reseller and an administrator succeed. Everybody
- * else - a sibling customer of the same reseller, another reseller's
- * customer, another reseller - gets NOT_FOUND, never FORBIDDEN (spec 6.3):
- * the object is not theirs to know about.
+ * For a customer-level mutation the owner, the owner's reseller and an
+ * administrator succeed, and everybody else - a sibling customer of the same
+ * reseller, another reseller's customer, another reseller - gets NOT_FOUND,
+ * never FORBIDDEN (spec 6.3): the object is not theirs to know about.
+ *
+ * Phase 4's verbs are the reseller's, not the customer's, and the same six
+ * accounts answer differently for them: a customer that reaches its own
+ * account, or its own alias order, is refused the verb rather than the object,
+ * and that is FORBIDDEN. So the expectation belongs to the row, not to this
+ * class - each catalogue entry carries its own, and this asserts that one.
  */
 class AuthorisationMatrixTest extends AuthzTestCase
 {
-    const EXPECTED = array(
-        'customer'      => 'OK',
-        'sibling'       => 'NOT_FOUND',
-        'otherCustomer' => 'NOT_FOUND',
-        'reseller'      => 'OK',
-        'otherReseller' => 'NOT_FOUND',
-        'admin'         => 'OK'
-    );
+    /** The six fixture accounts, in the order the matrix reads. */
+    const ACTORS = array('customer', 'sibling', 'otherCustomer', 'reseller', 'otherReseller', 'admin');
 
     /**
      * @dataProvider cases
@@ -49,7 +49,7 @@ class AuthorisationMatrixTest extends AuthzTestCase
         $result = $this->runEntry($field, $actor);
 
         self::assertSame(
-            self::EXPECTED[$actor],
+            MutationCatalogue::all()[$field]['expected'][$actor],
             self::outcome($result, $field),
             json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
@@ -60,7 +60,7 @@ class AuthorisationMatrixTest extends AuthzTestCase
         $cases = array();
 
         foreach (array_keys(MutationCatalogue::all()) as $field) {
-            foreach (array_keys(self::EXPECTED) as $actor) {
+            foreach (self::ACTORS as $actor) {
                 $cases[$field . ' as ' . $actor] = array($field, $actor);
             }
         }

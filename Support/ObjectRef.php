@@ -25,9 +25,11 @@ namespace iMSCP\Plugin\SGW_GraphQL\Support;
  * longer exists to be read back - what it looked like.
  *
  * A snapshot is only ever set for an object whose row the mutation removed
- * outright: an SQL database or user (spec section 2.1: synchronous), or an
- * alias order that never reached the backend. Everything else is still there
- * with a to... status, and is read back through the read model.
+ * outright: an SQL database or user (spec section 2.1: synchronous), a hosting
+ * plan (M15: a panel-only table with no status column), or an alias order that
+ * never reached the backend - rejected by its reseller or cancelled by the
+ * customer. Everything else is still there with a to... status, and is read
+ * back through the read model.
  */
 final class ObjectRef
 {

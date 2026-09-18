@@ -730,6 +730,46 @@ type Mutation {
   dnsRecordUpdate(id: ID!, input: DnsRecordUpdateInput!): DnsRecord!
 
   dnsRecordDelete(id: ID!): DnsRecord!
+
+  """
+  Create a customer, with its main domain, in one call. An administrator must
+  name the reseller; a reseller may only name itself. Exactly one of
+  hostingPlanId and allowances says what the customer is allowed.
+  """
+  customerCreate(input: CustomerCreateInput!): Customer!
+
+  "Partial: an absent field keeps its value. Reseller and administrator only."
+  customerUpdate(id: ID!, input: CustomerUpdateInput!): Customer!
+
+  "Schedules the customer and everything it owns for deletion."
+  customerDelete(id: ID!): Customer!
+
+  """
+  ENABLED from DISABLED and DISABLED from ENABLED. Any other transition, and a
+  customer that is not settled, is CONFLICT.
+  """
+  customerSetState(id: ID!, state: AccountState!): Customer!
+
+  "Withdrawing access refuses the account's next API request; its tokens are left alone."
+  customerSetApiAccess(id: ID!, allowed: Boolean!): Customer!
+
+  "Reseller and administrator only. A plan is written at once: there is no provisioning state."
+  hostingPlanCreate(input: HostingPlanInput!): HostingPlan!
+
+  """
+  A whole replacement of the plan's allowances, its name, its description and
+  its availability. The plan keeps the reseller it belongs to.
+  """
+  hostingPlanUpdate(id: ID!, input: HostingPlanInput!): HostingPlan!
+
+  "Removes the plan. Customers already created from it are untouched."
+  hostingPlanDelete(id: ID!): HostingPlan!
+
+  "Reseller and administrator only. Approves an alias in the ORDERED state."
+  domainAliasApprove(id: ID!): DomainAlias!
+
+  "Removes the order. Nothing has been built for it, so nothing is scheduled."
+  domainAliasReject(id: ID!): DomainAlias!
 }
 
 input ForwardingInput {
@@ -958,4 +998,140 @@ input DnsRecordUpdateInput {
   name: String!
   ttl: Int!
   data: DnsRecordDataInput!
+}
+
+"Whether an account is in service. A customer is one or the other; there is no third state."
+enum AccountState {
+  ENABLED
+  DISABLED
+}
+
+"""
+Only the email is required, as the panel's own form requires only that. On
+customerUpdate the details are partial: a field the input does not name keeps
+the value the customer has today.
+"""
+input ContactDetailsInput {
+  email: String!
+  firstName: String
+  lastName: String
+  company: String
+  street1: String
+  street2: String
+  city: String
+  state: String
+  postcode: String
+  country: String
+  phone: String
+  fax: String
+
+  "M, F or U. Defaults to U."
+  gender: String
+}
+
+"""
+Limits use spec section 2.3's vocabulary: -1 withholds the feature, 0 is
+unlimited, n is n. `traffic`, `disk` and `mailQuota` are all bytes, like every
+other BigInt here - i-MSCP stores `traffic` and `disk` in MiB, and the
+conversion happens at the boundary, the same as it does on the way out of
+`PlanProps::storage()`. A `traffic` or `disk` value that is not a whole number
+of MiB is `BAD_USER_INPUT` rather than silently truncated. A mail quota may not
+exceed a finite disk limit, and may not be unlimited while the disk limit is
+not.
+
+On `customerCreate` and on both hosting plan mutations every limit must be
+named - the six services, `traffic`, `disk` and `mailQuota` - because an absent
+limit is not 0 (unlimited); the panel's own form requires them all too. Only
+`customerUpdate` takes a partial one, where what it names is merged over the
+customer's current allowances before any of this is applied.
+"""
+input CustomerAllowancesInput {
+  subdomains: Int
+  domainAliases: Int
+  mailAccounts: Int
+  ftpUsers: Int
+  sqlDatabases: Int
+  sqlUsers: Int
+  traffic: BigInt
+  disk: BigInt
+  mailQuota: BigInt
+  php: Boolean
+  phpEditor: Boolean
+  cgi: Boolean
+  customDns: Boolean
+  externalMail: Boolean
+
+  "Defaults to true, as the panel's own form does."
+  webFolderProtection: Boolean
+
+  "Empty or absent grants no backup at all."
+  backup: [BackupTarget!]
+  phpiniAllowUrlFopen: Boolean
+  phpiniDisplayErrors: Boolean
+  phpiniDisableFunctions: Boolean
+  phpMailFunction: Boolean
+  phpiniPostMaxSize: Int
+  phpiniUploadMaxFileSize: Int
+  phpiniMaxExecutionTime: Int
+  phpiniMaxInputTime: Int
+  phpiniMemoryLimit: Int
+}
+
+input CustomerCreateInput {
+  username: String!
+  password: Secret!
+  domainName: DomainName!
+
+  "One of the reseller's own IP addresses."
+  ipAddressId: ID!
+  contact: ContactDetailsInput!
+
+  "In the future. Absent or null is an account that never expires."
+  expiresAt: DateTime
+
+  "An administrator must give this; a reseller may only name itself."
+  resellerId: ID
+
+  "Exactly one of hostingPlanId and allowances."
+  hostingPlanId: ID
+
+  "Exactly one of hostingPlanId and allowances. Every limit must be named."
+  allowances: CustomerAllowancesInput
+
+  "Send i-MSCP's welcome message, which carries the password in clear. Defaults to false."
+  sendWelcomeEmail: Boolean = false
+}
+
+"""
+Partial: an absent field keeps its value, and the update must name at least
+one. `allowances` is merged over what the customer has today, so naming one
+limit changes one limit; `hostingPlanId` replaces them all, and at most one of
+the two may be given. `expiresAt: null` is how "never expires" is said.
+"""
+input CustomerUpdateInput {
+  password: Secret
+  contact: ContactDetailsInput
+  expiresAt: DateTime
+  ipAddressId: ID
+  hostingPlanId: ID
+  allowances: CustomerAllowancesInput
+}
+
+"""
+Whole, on create and on update alike: `allowances` must name every limit, and
+an update writes what it is given over the plan as it stands - except that
+`description` and `available`, absent, keep the plan's current values.
+"""
+input HostingPlanInput {
+  name: String!
+  description: String
+  available: Boolean = true
+  allowances: CustomerAllowancesInput!
+
+  """
+  An administrator must give this on hostingPlanCreate; a reseller may only
+  name itself. hostingPlanUpdate takes the reseller the plan already belongs
+  to, and ignores this.
+  """
+  resellerId: ID
 }

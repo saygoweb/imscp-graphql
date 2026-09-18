@@ -170,7 +170,22 @@ final class HostingPlanService
         $core = $kit->core();
 
         $target = $kit->guard()->target($caller, $id, array(NodeType::HOSTING_PLAN), Scope::CUSTOMERS_WRITE, 'id');
-        $name = (string)$kit->db()->value('SELECT name FROM hosting_plans WHERE id = ?', array($target->getKey()));
+
+        // The row itself, read before it goes: hostingPlanDelete returns a
+        // non-null HostingPlan, and this table has no status column to leave
+        // the plan readable behind a `todelete` (M15). The snapshot is what
+        // Support\ObjectRef exists for, in the same shape
+        // Resolver\ResellerResolver::planShape() reads.
+        $snapshot = $kit->db()->row(
+            'SELECT id, reseller_id, name, description, props, status FROM hosting_plans WHERE id = ?',
+            array($target->getKey())
+        );
+
+        if ($snapshot === null) {
+            throw Guard::notFound();
+        }
+
+        $name = (string)$snapshot['name'];
 
         $kit->writer()->run(function () use ($kit, $target) {
             $kit->db()->execute(
@@ -183,7 +198,7 @@ final class HostingPlanService
             sprintf('A hosting plan (%s) has been deleted by %s', $name, $caller->getUsername()), E_USER_NOTICE
         );
 
-        return new ObjectRef(NodeType::HOSTING_PLAN, $target->getKey());
+        return new ObjectRef(NodeType::HOSTING_PLAN, $target->getKey(), $snapshot);
     }
 
     /**

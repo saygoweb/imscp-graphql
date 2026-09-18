@@ -31,32 +31,55 @@ use PHPUnit\Framework\TestCase;
  */
 class CatalogueCoverageTest extends TestCase
 {
-    /** Spec section 7.11's customer-level mutations, less D16's two. */
-    const CUSTOMER_MUTATIONS = array(
-        'dnsRecordCreate', 'dnsRecordDelete', 'dnsRecordUpdate', 'domainAliasCreate',
-        'domainAliasDelete', 'domainAliasUpdate', 'domainUpdate', 'ftpUserCreate',
-        'ftpUserDelete', 'ftpUserUpdate', 'mailAccountCreate', 'mailAccountDelete',
+    /**
+     * Spec section 7.11's customer-level mutations, less D16's two, and phase
+     * 4's ten reseller and administrator verbs.
+     */
+    const MUTATIONS = array(
+        'customerCreate', 'customerDelete', 'customerSetApiAccess', 'customerSetState',
+        'customerUpdate', 'dnsRecordCreate', 'dnsRecordDelete', 'dnsRecordUpdate',
+        'domainAliasApprove', 'domainAliasCreate', 'domainAliasDelete',
+        'domainAliasReject', 'domainAliasUpdate', 'domainUpdate', 'ftpUserCreate',
+        'ftpUserDelete', 'ftpUserUpdate', 'hostingPlanCreate', 'hostingPlanDelete',
+        'hostingPlanUpdate', 'mailAccountCreate', 'mailAccountDelete',
         'mailAccountUpdate', 'mailAutoresponderSet', 'mailCatchallCreate',
         'mailCatchallDelete', 'sqlDatabaseCreate', 'sqlDatabaseDelete', 'sqlUserCreate',
         'sqlUserDelete', 'sqlUserSetPassword', 'subdomainCreate', 'subdomainDelete',
         'subdomainUpdate'
     );
 
-    public function testTheCatalogueIsExactlyTheCustomerMutations(): void
+    /** The six fixture accounts every row must answer for. */
+    const ACTORS = array('customer', 'sibling', 'otherCustomer', 'reseller', 'otherReseller', 'admin');
+
+    public function testTheCatalogueIsExactlyTheMutations(): void
     {
         $fields = array_keys(MutationCatalogue::all());
         sort($fields);
 
-        self::assertSame(self::CUSTOMER_MUTATIONS, $fields);
+        self::assertSame(self::MUTATIONS, $fields);
     }
 
     public function testEveryEntryIsWellFormed(): void
     {
         foreach (MutationCatalogue::all() as $field => $entry) {
-            self::assertSame(array('scope', 'document', 'prepare', 'variables'), array_keys($entry), $field);
+            self::assertSame(
+                array('scope', 'document', 'prepare', 'variables', 'owner', 'expected'),
+                array_keys($entry),
+                $field
+            );
             self::assertStringContainsString($field . '(', $entry['document'], $field);
             self::assertIsCallable($entry['prepare'], $field);
             self::assertIsCallable($entry['variables'], $field);
+            self::assertContains($entry['owner'], self::ACTORS, $field);
+            // Every account, and every outcome one of the three the matrix
+            // reads: a row that forgot an actor would silently skip it.
+            self::assertSame(self::ACTORS, array_keys($entry['expected']), $field);
+            self::assertSame(
+                array(), array_diff($entry['expected'], array('OK', 'NOT_FOUND', 'FORBIDDEN')), $field
+            );
+            // The owner is the account the row says succeeds; ScopeMatrixTest
+            // runs its three cases as that one.
+            self::assertSame('OK', $entry['expected'][$entry['owner']], $field);
         }
     }
 
