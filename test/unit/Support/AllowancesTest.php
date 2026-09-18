@@ -32,7 +32,7 @@ class AllowancesTest extends TestCase
     {
         $allowances = Allowances::fromInput(array(
             'subdomains' => 5, 'domainAliases' => 3, 'mailAccounts' => 20, 'ftpUsers' => 10,
-            'sqlDatabases' => 4, 'sqlUsers' => 4, 'traffic' => 10240, 'disk' => 5120,
+            'sqlDatabases' => 4, 'sqlUsers' => 4, 'traffic' => 10240 * 1048576, 'disk' => 5120 * 1048576,
             'mailQuota' => 104857600, 'php' => true, 'cgi' => false, 'customDns' => true,
             'externalMail' => false, 'backup' => array('DOMAIN'), 'phpEditor' => true
         ));
@@ -47,6 +47,37 @@ class AllowancesTest extends TestCase
         self::assertSame('dmn', $columns['allowbackup']);
         self::assertSame('yes', $columns['web_folder_protection'], 'the panel default is on');
         self::assertSame('yes', $columns['phpini_perm_system']);
+    }
+
+    /** A4: the props store MiB; the input is bytes, like every other BigInt. */
+    public function testDiskAndTrafficAreBytesInAndMibInTheProps(): void
+    {
+        $allowances = Allowances::fromInput(array('traffic' => 10240 * 1048576, 'disk' => 5120 * 1048576));
+
+        self::assertSame(10240, $allowances->storage('traffic'), 'the props field is MiB');
+        self::assertSame(5120, $allowances->storage('disk'));
+        // domain_traffic_limit/domain_disk_limit are MiB too - the panel's
+        // own columns, unconverted; only the API boundary is bytes.
+        self::assertSame(10240, $allowances->domainColumns()['domain_traffic_limit']);
+        self::assertSame(5120, $allowances->domainColumns()['domain_disk_limit']);
+    }
+
+    public function testAWithheldOrUnlimitedDiskOrTrafficPassesThrough(): void
+    {
+        $allowances = Allowances::fromInput(array('traffic' => -1, 'disk' => 0));
+
+        self::assertSame(-1, $allowances->storage('traffic'));
+        self::assertSame(0, $allowances->storage('disk'));
+    }
+
+    public function testADiskOrTrafficLimitThatIsNotAWholeNumberOfMibIsRefused(): void
+    {
+        $this->expectRefusal('input.allowances.disk', function (): void {
+            Allowances::fromInput(array('disk' => 1048576 + 1));
+        });
+        $this->expectRefusal('input.allowances.traffic', function (): void {
+            Allowances::fromInput(array('traffic' => 1048576 - 1));
+        });
     }
 
     public function testNoBackupTargetIsTheStringTheColumnExpects(): void
@@ -85,7 +116,7 @@ class AllowancesTest extends TestCase
         self::assertSame($props, $fromPlan->toProps()->toString());
         self::assertSame($fromPlan->domainColumns(), Allowances::fromInput(array(
             'subdomains' => 5, 'domainAliases' => 3, 'mailAccounts' => 20, 'ftpUsers' => 10,
-            'sqlDatabases' => 4, 'sqlUsers' => 4, 'traffic' => 10240, 'disk' => 5120,
+            'sqlDatabases' => 4, 'sqlUsers' => 4, 'traffic' => 10240 * 1048576, 'disk' => 5120 * 1048576,
             'mailQuota' => 104857600, 'php' => true, 'cgi' => false, 'customDns' => true,
             'externalMail' => false, 'backup' => array('DOMAIN'), 'phpEditor' => true
         ))->domainColumns());

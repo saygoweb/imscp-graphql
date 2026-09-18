@@ -64,9 +64,11 @@ final class Allowances
 
     /**
      * CustomerAllowancesInput. Every limit is -1, 0 or a positive integer;
-     * disk and traffic are MiB, as the props store them; the mail quota is
-     * bytes, because every BigInt in this schema is bytes (D3) and
-     * hosting_plan_add.php:457 already converts at the boundary.
+     * disk, traffic and the mail quota are all bytes, because every BigInt in
+     * this schema is bytes (D3) - the same unit PlanProps::storage() already
+     * promises on the way out. disk and traffic are converted to MiB here,
+     * the way the props store them, the way PlanProps::storage() converts
+     * them back on the way out.
      *
      * @throws \iMSCP\Plugin\SGW_GraphQL\Support\ApiException BAD_USER_INPUT
      */
@@ -78,8 +80,8 @@ final class Allowances
             $fields[$field] = (string)self::limitValue($input, $name);
         }
 
-        $fields['traffic'] = (string)self::limitValue($input, 'traffic');
-        $fields['disk'] = (string)self::limitValue($input, 'disk');
+        $fields['traffic'] = (string)self::mibFromBytes($input, 'traffic');
+        $fields['disk'] = (string)self::mibFromBytes($input, 'disk');
         $fields['mailQuota'] = (string)self::mailQuota($input);
 
         foreach (array('php', 'cgi', 'customDns', 'externalMail') as $name) {
@@ -184,6 +186,31 @@ final class Allowances
         }
 
         return $value;
+    }
+
+    /**
+     * A3/D3: disk and traffic arrive as bytes, like every other BigInt, but
+     * the props store them in MiB (the same unit PlanProps::mibToBytes()
+     * converts back from). -1 (withheld) and 0 (unlimited) pass through
+     * unconverted; a positive value that is not a whole number of MiB is
+     * refused rather than truncated.
+     */
+    private static function mibFromBytes(array $input, string $name): int
+    {
+        $bytes = self::limitValue($input, $name);
+
+        if ($bytes <= 0) {
+            return $bytes;
+        }
+
+        if ($bytes % 1048576 !== 0) {
+            throw Guard::badInput(
+                'input.allowances.' . $name,
+                sprintf('A %s limit is a whole number of MiB, given in bytes.', $name)
+            );
+        }
+
+        return intdiv($bytes, 1048576);
     }
 
     private static function mailQuota(array $input): int

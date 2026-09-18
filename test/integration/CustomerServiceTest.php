@@ -45,7 +45,7 @@ class CustomerServiceTest extends ServiceTestCase
             ),
             'allowances' => array(
                 'subdomains' => 2, 'domainAliases' => 1, 'mailAccounts' => 5, 'ftpUsers' => 2,
-                'sqlDatabases' => 1, 'sqlUsers' => 1, 'traffic' => 1024, 'disk' => 512,
+                'sqlDatabases' => 1, 'sqlUsers' => 1, 'traffic' => 1024 * 1048576, 'disk' => 512 * 1048576,
                 'mailQuota' => 0, 'php' => true, 'cgi' => false, 'customDns' => false,
                 'externalMail' => false, 'backup' => array(), 'phpEditor' => false
             ),
@@ -319,7 +319,7 @@ class CustomerServiceTest extends ServiceTestCase
 
         $e = $this->refused(ErrorCode::LIMIT_EXCEEDED, function (): void {
             $this->service()->create($this->caller('reseller'), $this->input(array(
-                'allowances' => array('disk' => 50) + $this->input()['allowances']
+                'allowances' => array('disk' => 50 * 1048576) + $this->input()['allowances']
             )));
         });
 

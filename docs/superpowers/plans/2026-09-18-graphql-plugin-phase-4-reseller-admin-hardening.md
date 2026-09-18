@@ -3178,8 +3178,11 @@ input ContactDetailsInput {
 
 """
 Limits use spec section 2.3's vocabulary: -1 withholds the feature, 0 is
-unlimited, n is n. `traffic` and `disk` are MiB, as i-MSCP stores them;
-`mailQuota` is bytes, like every other BigInt here.
+unlimited, n is n. `traffic`, `disk` and `mailQuota` are all bytes, like
+every other BigInt here - i-MSCP stores `traffic` and `disk` in MiB, and
+the conversion happens at the boundary, the same as it does on the way out
+of `PlanProps::storage()`. A value that is not a whole number of MiB is
+`BAD_USER_INPUT` rather than silently truncated.
 """
 input CustomerAllowancesInput {
   subdomains: Int
@@ -3188,8 +3191,8 @@ input CustomerAllowancesInput {
   ftpUsers: Int
   sqlDatabases: Int
   sqlUsers: Int
-  traffic: Int
-  disk: Int
+  traffic: BigInt
+  disk: BigInt
   mailQuota: BigInt
   php: Boolean
   phpEditor: Boolean
