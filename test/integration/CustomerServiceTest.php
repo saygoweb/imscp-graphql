@@ -248,6 +248,23 @@ class CustomerServiceTest extends ServiceTestCase
         });
     }
 
+    public function testWwwIsStrippedFromTheDomainName(): void
+    {
+        // A7: user_add1.php:55-58 - "www is considered as an alias of the domain".
+        $ref = $this->service()->create($this->caller('reseller'), $this->input(array(
+            'domainName' => 'www.sgwwww.test'
+        )));
+
+        $domain = $this->db->row('SELECT domain_name FROM domain WHERE domain_admin_id = ?', array($ref->getKey()));
+        self::assertSame('sgwwww.test', $domain['domain_name']);
+
+        $this->refused(ErrorCode::CONFLICT, function (): void {
+            $this->service()->create($this->caller('reseller'), $this->input(array(
+                'domainName' => 'sgwwww.test', 'username' => 'sgwwww2.test'
+            )));
+        });
+    }
+
     public function testAnInvalidDomainNameIsRefused(): void
     {
         $e = $this->refused(ErrorCode::BAD_USER_INPUT, function (): void {

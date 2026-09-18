@@ -71,7 +71,17 @@ final class CustomerService
 
         // 6. The panel's order: the name, then the allowances, then the IP,
         // then the contact details.
-        $name = mb_strtolower(trim((string)($input['domainName'] ?? '')));
+        //
+        // CORE-DEBT(C3): user_add1.php:55-58 strips every leading "www." -
+        // "www is considered as an alias of the domain" - before encode_idna()
+        // and before the existence check. VhostRules::stripWww() already does
+        // this for the alias path; it strips a leading "www." only, in a
+        // loop, so "www.www.example.com" reduces all the way. The page's own
+        // loop instead strips while "www." appears anywhere in the string,
+        // which for a name with "www." off the front - "foo.www.example.com" -
+        // strips leading characters that are not "www." at all. That shape
+        // is unreachable through a normal domain name and is not matched here.
+        $name = VhostRules::stripWww(mb_strtolower(trim((string)($input['domainName'] ?? ''))));
         $ascii = $core->toAscii($name);
         $reason = $ascii === '' ? 'Invalid domain name.' : $core->domainNameError($ascii);
 
