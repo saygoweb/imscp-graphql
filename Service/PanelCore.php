@@ -149,6 +149,16 @@ final class PanelCore implements Core
         return (string)Crypt::sha512($password);
     }
 
+    /**
+     * M4: an account's password is APR-1, not the sha512 a mailbox or an FTP
+     * user gets. The difference is not a style choice - the panel's own login
+     * compares against this.
+     */
+    public function hashAccountPassword(string $password): string
+    {
+        return (string)Crypt::apr1MD5($password);
+    }
+
     public function domainExists(string $name, int $resellerId): bool
     {
         return (bool)imscp_domain_exists($name, $resellerId);
@@ -173,6 +183,31 @@ final class PanelCore implements Core
         $editor->loadClientPermissions((string)$customerAdminId);
         $editor->loadDomainIni((string)$customerAdminId, (string)$mainDomainId, 'dmn');
         $editor->saveDomainIni((string)$customerAdminId, (string)$vhostId, $vhostType);
+    }
+
+    /**
+     * CORE-DEBT(C3): transcribed from gui/public/reseller/user_add3.php:226-245.
+     *   The four loads and the five setters are PhpEditor's own; the order is
+     *   the page's, and it matters: memory limit before post max size, post max
+     *   size before upload max filesize. Retire when CustomerService lands in
+     *   core.
+     *
+     * @param array<string, string> $values phpiniMemoryLimit, phpiniPostMaxSize,
+     *        phpiniUploadMaxFileSize, phpiniMaxExecutionTime, phpiniMaxInputTime
+     */
+    public function savePhpIniForNewDomain(int $resellerId, int $customerAdminId, int $domainId, array $values): void
+    {
+        $editor = PhpEditor::getInstance();
+        $editor->loadResellerPermissions((string)$resellerId);
+        $editor->loadClientPermissions();
+        $editor->loadDomainIni();
+
+        $editor->setDomainIni('phpiniMemoryLimit', $values['phpiniMemoryLimit']);
+        $editor->setDomainIni('phpiniPostMaxSize', $values['phpiniPostMaxSize']);
+        $editor->setDomainIni('phpiniUploadMaxFileSize', $values['phpiniUploadMaxFileSize']);
+        $editor->setDomainIni('phpiniMaxExecutionTime', $values['phpiniMaxExecutionTime']);
+        $editor->setDomainIni('phpiniMaxInputTime', $values['phpiniMaxInputTime']);
+        $editor->saveDomainIni((string)$customerAdminId, (string)$domainId, 'dmn');
     }
 
     public function normaliseForwardUrl(string $url, string $selfAsciiName, bool $proxy): string
@@ -248,6 +283,28 @@ final class PanelCore implements Core
         if (!$sent) {
             write_log(sprintf("Couldn't send alias order to %s", $row['admin_name']), E_USER_ERROR);
         }
+    }
+
+    /**
+     * CORE-DEBT(C1): send_add_user_auto_msg() reads nothing from the session,
+     *   but its first argument is the reseller the message is "from".
+     *
+     * The cleartext password is the message's whole point (M6); it travels no
+     * further than this call.
+     */
+    public function sendAccountCreatedEmail(
+        int $createdBy, string $username, string $password, string $email,
+        string $firstName, string $lastName, string $role
+    ): bool {
+        return (bool)send_add_user_auto_msg(
+            $createdBy, $username, $password, $email, $firstName, $lastName, $role
+        );
+    }
+
+    /** M9: the current_* counters are derived, and this is their only writer (D25). */
+    public function updateResellerCounters(int $resellerId): void
+    {
+        update_reseller_c_props($resellerId);
     }
 
     public function pruneAutoreplyLog(): void

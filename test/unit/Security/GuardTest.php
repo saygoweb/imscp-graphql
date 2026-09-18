@@ -289,4 +289,23 @@ class GuardTest extends TestCase
         self::assertSame(ErrorCode::BAD_USER_INPUT, $e->getErrorCode());
         self::assertSame(array('field' => 'input.label', 'maximum' => 3), $e->getExtensions());
     }
+
+    public function testLimitExceededCarriesTheSameExtensionsRequireQuotaProduces(): void
+    {
+        // A limit measured against two ledgers has no Quota to hand, but the
+        // client reads the same three keys either way.
+        $e = Guard::limitExceeded('Not that many.', array('quota' => 'subdomains', 'limit' => 4, 'used' => 3));
+
+        self::assertSame(ErrorCode::LIMIT_EXCEEDED, $e->getErrorCode());
+        self::assertSame('Not that many.', $e->getMessage());
+        self::assertSame(array('quota' => 'subdomains', 'limit' => 4, 'used' => 3), $e->getExtensions());
+    }
+
+    public function testLimitExceededNeedsNoExtensionsAtAll(): void
+    {
+        $e = Guard::limitExceeded('Not that many.');
+
+        self::assertSame(ErrorCode::LIMIT_EXCEEDED, $e->getErrorCode());
+        self::assertSame(array(), $e->getExtensions());
+    }
 }

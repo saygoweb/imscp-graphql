@@ -83,6 +83,12 @@ interface Core
     /** Crypt::sha512(): how the backend expects mail and FTP passwords (spec section 12). */
     public function hashPassword(string $password): string;
 
+    /**
+     * M4: an account's password is APR-1, not the sha512 a mailbox or an FTP
+     * user gets. The panel's own login compares against this.
+     */
+    public function hashAccountPassword(string $password): string;
+
     /** imscp_domain_exists(): taken, or a subzone of another reseller's domain. */
     public function domainExists(string $name, int $resellerId): bool;
 
@@ -105,8 +111,32 @@ interface Core
      */
     public function normaliseForwardUrl(string $url, string $selfAsciiName, bool $proxy): string;
 
+    /**
+     * The php_ini row a brand new customer's main domain needs, through
+     * PhpEditor. Separate from savePhpIni() because a new domain has neither a
+     * client permission row nor a domain ini row to load from yet, so the four
+     * loads take no identifiers and the five setters carry the plan's values.
+     *
+     * @param array<string, string> $values phpiniMemoryLimit, phpiniPostMaxSize,
+     *        phpiniUploadMaxFileSize, phpiniMaxExecutionTime, phpiniMaxInputTime
+     */
+    public function savePhpIniForNewDomain(int $resellerId, int $customerAdminId, int $domainId, array $values): void;
+
     /** alias_add.php's send_alias_order_email(), for an explicit customer. */
     public function sendAliasOrderEmail(int $customerAdminId, string $aliasName): void;
+
+    /**
+     * send_add_user_auto_msg(): the panel's welcome message, which carries the
+     * new account's password in clear by its own design (spec section 12). The
+     * only path a Secret takes besides the hasher.
+     */
+    public function sendAccountCreatedEmail(
+        int $createdBy, string $username, string $password, string $email,
+        string $firstName, string $lastName, string $role
+    ): bool;
+
+    /** M9: the current_* counters are derived, and this is their only writer (D25). */
+    public function updateResellerCounters(int $resellerId): void;
 
     /** delete_autoreplies_log_entries(). */
     public function pruneAutoreplyLog(): void;

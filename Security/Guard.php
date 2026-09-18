@@ -209,6 +209,20 @@ final class Guard
         return new ApiException(ErrorCode::BAD_USER_INPUT, $message, array_merge(array('field' => $field), $extra));
     }
 
+    /**
+     * Step 7, where the limit is not a Quota.
+     *
+     * A reseller's allowances are measured by LimitRules against two ledgers
+     * at once, and the refusal is the panel's own sentence rather than a
+     * limit-and-used pair. The extension shape is requireQuota()'s all the
+     * same: 'quota' names the allowance, and 'limit' and 'used' are there when
+     * the caller knows them.
+     */
+    public static function limitExceeded(string $message, array $extra = array()): ApiException
+    {
+        return new ApiException(ErrorCode::LIMIT_EXCEEDED, $message, $extra);
+    }
+
     /** A uniqueness clash (spec section 8.4). */
     public static function conflict(string $message): ApiException
     {

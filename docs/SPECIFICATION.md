@@ -2065,6 +2065,8 @@ behaviour.
 9. `client/alias_add.php:45-80` sends the reseller's *"your customer is awaiting approval"* template to the customer's own address. (The API keeps this behaviour, because changing who receives mail is the panel's decision to make first.)
 10. `include/Shared.php:63` `createDefaultMailAccounts()` catches only `PDOException`, but `DatabaseMySQL::execute()` throws `DatabaseException`, so on a database error its own savepoint is neither rolled back nor released and the caller's transaction depth is left one too high.
 11. `client/mail_catchall_add.php` never checks `domain_mailacc_limit`, although the row it writes is a `mail_users` row that `Counting.php:518` counts against that limit. A customer at their limit can add catch-alls without end, and the mail-account usage the panel reports then exceeds the limit shown beside it.
+12. `reseller/user_add3.php:254` sends the welcome message — which carries the new customer's password in clear — *inside* the transaction, before line 286's `commit()`. A failure after it, and the rollback that follows, leaves the customer holding credentials for an account that was never created, and the reseller with no record that anything was sent.
+13. `reseller/user_add3.php:102-116` explodes `reseller_props.reseller_ips` after `rtrim(…, ';')`. For a reseller with no IPs that yields `array('')`, and the check `in_array($domainIp, $resellerIps)` is loose, so under PHP 7 `0 == ''` is true and a posted `domain_ip` of `0` — which is what `intval()` gives for any non-numeric value — passes. Under PHP 8 the same comparison is false, so the page's behaviour depends on the interpreter.
 
 *Why i-MSCP wants it anyway.* Each is a user-visible failure or a cross-tenant write in the panel as shipped.
 

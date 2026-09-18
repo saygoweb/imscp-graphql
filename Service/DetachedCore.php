@@ -109,6 +109,11 @@ final class DetachedCore implements Core
         throw new LogicException(self::MESSAGE);
     }
 
+    public function hashAccountPassword(string $password): string
+    {
+        throw new LogicException(self::MESSAGE);
+    }
+
     public function domainExists(string $name, int $resellerId): bool
     {
         throw new LogicException(self::MESSAGE);
@@ -128,12 +133,29 @@ final class DetachedCore implements Core
         throw new LogicException(self::MESSAGE);
     }
 
+    public function savePhpIniForNewDomain(int $resellerId, int $customerAdminId, int $domainId, array $values): void
+    {
+        throw new LogicException(self::MESSAGE);
+    }
+
     public function normaliseForwardUrl(string $url, string $selfAsciiName, bool $proxy): string
     {
         throw new LogicException(self::MESSAGE);
     }
 
     public function sendAliasOrderEmail(int $customerAdminId, string $aliasName): void
+    {
+        throw new LogicException(self::MESSAGE);
+    }
+
+    public function sendAccountCreatedEmail(
+        int $createdBy, string $username, string $password, string $email,
+        string $firstName, string $lastName, string $role
+    ): bool {
+        throw new LogicException(self::MESSAGE);
+    }
+
+    public function updateResellerCounters(int $resellerId): void
     {
         throw new LogicException(self::MESSAGE);
     }

@@ -76,6 +76,8 @@ class CoreCallsTest extends TestCase
         'imscp_domain_exists'           => 'Explicit name and reseller id; returns bool.',
         'createdefaultmailaccounts'     => 'Explicit ids; throws DatabaseException; nests its transaction (D11).',
         'get_alias_order_email'         => 'Explicit reseller id; returns the template.',
+        'send_add_user_auto_msg'        => 'Explicit reseller id and recipient; logs and returns false on failure.',
+        'update_reseller_c_props'       => 'One UPDATE from an explicit reseller id; no session, no exit.',
         'send_mail'                     => 'Throws on bad input; returns bool.',
         'delete_autoreplies_log_entries' => 'One DELETE; no arguments, no session.',
         'tr'                            => 'Returns a translation; used by the plugin class\'s '
