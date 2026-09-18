@@ -719,6 +719,17 @@ type Mutation {
 
   "Removes this grant. The SQL account goes with its last grant."
   sqlUserDelete(id: ID!): SqlUser!
+
+  "A record of one of the types a customer may manage: A, AAAA, CNAME, MX, NS, SPF, SRV or TXT."
+  dnsRecordCreate(input: DnsRecordCreateInput!): DnsRecord!
+
+  """
+  Replaces the record's name, TTL and data; its type cannot change. A record
+  a plugin owns (ownedBy other than custom_dns_feature) is FORBIDDEN.
+  """
+  dnsRecordUpdate(id: ID!, input: DnsRecordUpdateInput!): DnsRecord!
+
+  dnsRecordDelete(id: ID!): DnsRecord!
 }
 
 input ForwardingInput {
@@ -887,4 +898,64 @@ input SqlUserCreateInput {
   password: Secret
   prefix: SqlNamePrefix
   existingUserId: ID
+}
+
+"The transport of an SRV record."
+enum SrvProtocol {
+  TCP
+  UDP
+  TLS
+}
+
+"Each record type reads the fields it needs and ignores the rest."
+input DnsRecordDataInput {
+  "A: an IPv4 address. AAAA: an IPv6 address."
+  address: String
+
+  """
+  CNAME, MX, NS, SRV: a host name. A name without a trailing dot is completed
+  in the zone; end it with a dot for a fully qualified name.
+  """
+  target: String
+
+  "MX, SRV: 0 to 65535. Default 0."
+  priority: Int
+
+  "SRV: 0 to 65535. Default 0."
+  weight: Int
+
+  "SRV: 0 to 65535. Required."
+  port: Int
+
+  "SRV: the service, starting with an underscore, e.g. _sip."
+  service: String
+
+  "SRV."
+  protocol: SrvProtocol
+
+  "TXT, SPF: the text. Quoted, and split into 255-byte strings, as the panel does."
+  text: String
+}
+
+input DnsRecordCreateInput {
+  "The Domain or DomainAlias whose zone the record is in."
+  hostId: ID!
+
+  """
+  Relative to the zone, or @ for the zone itself. A name ending in a dot is
+  fully qualified and must be in the zone.
+  """
+  name: String = "@"
+
+  "Seconds, 60 to 2147483647."
+  ttl: Int = 3600
+  type: DnsRecordType!
+  data: DnsRecordDataInput!
+}
+
+"A whole replacement: every field is required, and the type stays as it is."
+input DnsRecordUpdateInput {
+  name: String!
+  ttl: Int!
+  data: DnsRecordDataInput!
 }

@@ -32,6 +32,7 @@ use iMSCP\Plugin\SGW_GraphQL\Repository\Counts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
 use iMSCP\Plugin\SGW_GraphQL\Repository\VirtualHosts;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\CustomerResolver;
+use iMSCP\Plugin\SGW_GraphQL\Resolver\DnsMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\DnsResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\FtpMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\FtpSqlResolver;
@@ -52,6 +53,7 @@ use iMSCP\Plugin\SGW_GraphQL\Service\Core;
 use iMSCP\Plugin\SGW_GraphQL\Service\DetachedCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\DetachedDirectoryProbe;
 use iMSCP\Plugin\SGW_GraphQL\Service\DirectoryProbe;
+use iMSCP\Plugin\SGW_GraphQL\Service\DnsService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DomainAliasService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DomainService;
 use iMSCP\Plugin\SGW_GraphQL\Service\FtpService;
@@ -428,7 +430,8 @@ final class Container
                 // Asked on first use, so that a request with no SQL mutation
                 // never reads mysql.data.
                 return $this->sqlServer();
-            }), $ftpSql))->map()
+            }), $ftpSql))->map(),
+            'DnsMutations' => (new DnsMutations($loader, new DnsService($kit), $dns))->map()
         );
 
         return $this->maps;
