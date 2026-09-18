@@ -306,6 +306,7 @@ type MailAccount implements Node & Provisioned {
   kind: MailAccountKind!
   "The vhost this address belongs to."
   host: VirtualHost!
+  "Where a forward sends mail, or the addresses a catch-all delivers to. Empty for a mailbox that does not forward."
   forwardTo: [EmailAddress!]!
   "Null when unlimited. Bytes."
   quota: BigInt
@@ -616,6 +617,25 @@ type Mutation {
   with everything under it.
   """
   domainAliasDelete(id: ID!): DomainAlias!
+
+  """
+  A mailbox needs a password, and a quota when the account has a mail quota.
+  A forward needs forwardTo. MAILBOX_AND_FORWARD needs both.
+  """
+  mailAccountCreate(input: MailAccountCreateInput!): MailAccount!
+  "Absent fields are kept. Turning a forward into a mailbox needs a password and, where the account has a mail quota, a quota."
+  mailAccountUpdate(id: ID!, input: MailAccountUpdateInput!): MailAccount!
+  """
+  Also removes the address from the customer's other forwards and catch-alls;
+  one left with nothing to deliver to is deleted with it. The panel's
+  settings may protect the default accounts (abuse, hostmaster, postmaster,
+  webmaster), which is FORBIDDEN.
+  """
+  mailAccountDelete(id: ID!): MailAccount!
+  mailAutoresponderSet(id: ID!, input: AutoresponderInput!): MailAccount!
+  "One per host. A second is CONFLICT."
+  mailCatchallCreate(input: MailCatchallCreateInput!): MailAccount!
+  mailCatchallDelete(id: ID!): MailAccount!
 }
 
 input ForwardingInput {
@@ -674,4 +694,42 @@ input DomainAliasUpdateInput {
   documentRoot: String
   forwarding: ForwardingInput
   wildcard: Boolean
+}
+
+input MailAccountCreateInput {
+  "The Domain, Subdomain or DomainAlias the address is on."
+  hostId: ID!
+  "The part before the @."
+  localPart: String!
+  "MAILBOX, FORWARD or MAILBOX_AND_FORWARD. CATCHALL has its own mutation."
+  kind: MailAccountKind!
+  password: Secret
+  """
+  Bytes, and a whole number of MiB. Null or absent for no quota, which is
+  refused when the account has a mail quota: then every mailbox needs one,
+  within what the others leave (extensions.maximum when it does not fit).
+  """
+  quota: BigInt
+  forwardTo: [EmailAddress!]
+}
+
+"An absent field keeps its current value."
+input MailAccountUpdateInput {
+  kind: MailAccountKind
+  password: Secret
+  quota: BigInt
+  forwardTo: [EmailAddress!]
+}
+
+input AutoresponderInput {
+  enabled: Boolean!
+  "Required to enable one that has never had a message. Absent keeps the stored message."
+  message: String
+}
+
+input MailCatchallCreateInput {
+  "The Domain, Subdomain or DomainAlias whose unmatched addresses are caught."
+  hostId: ID!
+  "Where caught mail is delivered."
+  addresses: [EmailAddress!]!
 }

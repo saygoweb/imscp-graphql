@@ -340,6 +340,100 @@ final class MailService
         return new ObjectRef(NodeType::MAIL_ACCOUNT, $mailId);
     }
 
+    public function createCatchall(Identity $caller, array $input): ObjectRef
+    {
+        $kit = $this->kit;
+        $core = $kit->core();
+
+        $host = $kit->guard()->target($caller, $input['hostId'] ?? null, self::HOSTS, Scope::MAIL_WRITE, 'input.hostId');
+        $account = $kit->accounts()->customer($host->getOwnerId());
+        Guard::requireFeature((int)$account->domain('domain_mailacc_limit') >= 0, 'mail');
+
+        $hostRow = $kit->vhost($host->getTag(), $host->getKey());
+        Guard::requireState($hostRow['status'], array(Provisioning::STATE_OK));
+
+        // CORE-DEBT(C3): transcribed from gui/public/client/mail_catchall_add.php:132-155
+        //   (the manual list). The page asks no limit, and neither does this.
+        $addresses = array();
+
+        foreach (array_values((array)($input['addresses'] ?? array())) as $index => $one) {
+            $ascii = $core->toAscii(mb_strtolower(trim((string)$one)));
+
+            if ($ascii === '' || !$core->isValidEmail($ascii)) {
+                throw Guard::badInput('input.addresses', 'Not an email address.', array('index' => $index));
+            }
+
+            $addresses[$ascii] = true;
+        }
+
+        if ($addresses === array()) {
+            throw Guard::badInput('input.addresses', 'A catch-all needs at least one address.');
+        }
+
+        $list = array_keys($addresses);
+        $hostName = (string)$hostRow['name'];
+        $hostType = VirtualHosts::kindFor($host->getTag());
+        $mailType = MailType::toMailType($hostType, MailType::KIND_CATCHALL);
+        $subId = $hostType === VirtualHosts::KIND_DMN ? 0 : (int)$host->getKey();
+
+        // CORE-DEBT(C3): transcribed from gui/public/client/mail_catchall_add.php:173-191.
+        //   mail_addr '@host' is unique, so a second catch-all is CONFLICT.
+        $id = $kit->writer()->run(function () use ($kit, $core, $account, $list, $hostName, $mailType, $subId) {
+            $params = array('mailCatchallDomain' => $hostName, 'mailCatchallAddresses' => $list);
+            $core->dispatch(Events::onBeforeAddMailCatchall, $params);
+
+            $kit->db()->execute(
+                "
+                    INSERT INTO mail_users (mail_acc, mail_forward, domain_id, mail_type, sub_id, status, po_active, mail_addr)
+                    VALUES (?, '_no_', ?, ?, ?, 'toadd', 'no', ?)
+                ",
+                array(implode(',', $list), $account->getDomainId(), $mailType, $subId, '@' . $hostName)
+            );
+
+            $id = $kit->db()->lastInsertId();
+            $core->dispatch(Events::onAfterAddMailCatchall, array('mailCatchallId' => $id) + $params);
+
+            return $id;
+        });
+
+        $core->sendRequest();
+        $core->writeLog(sprintf('A catch-all account has been created by %s', $caller->getUsername()), E_USER_NOTICE);
+
+        return new ObjectRef(NodeType::MAIL_ACCOUNT, $id);
+    }
+
+    public function deleteCatchall(Identity $caller, string $id): ObjectRef
+    {
+        $kit = $this->kit;
+        $core = $kit->core();
+
+        $target = $kit->guard()->target($caller, $id, array(NodeType::MAIL_ACCOUNT), Scope::MAIL_WRITE, 'id');
+        $account = $kit->accounts()->customer($target->getOwnerId());
+        Guard::requireFeature((int)$account->domain('domain_mailacc_limit') >= 0, 'mail');
+
+        $row = $this->mailRow($target);
+
+        if (MailType::kindOf((string)$row['mail_type']) !== MailType::KIND_CATCHALL) {
+            throw Guard::badInput('id', 'Not a catch-all; delete it with mailAccountDelete.');
+        }
+
+        Guard::requireState((string)$row['status'], array(Provisioning::STATE_OK, Provisioning::STATE_ERROR));
+
+        $mailId = (int)$target->getKey();
+
+        // CORE-DEBT(C3): transcribed from gui/public/client/mail_catchall_delete.php:53-62.
+        $kit->writer()->run(function () use ($kit, $core, $mailId) {
+            $core->dispatch(Events::onBeforeDeleteMailCatchall, array('mailCatchallId' => $mailId));
+            $kit->db()->execute("UPDATE mail_users SET status = 'todelete' WHERE mail_id = ?", array($mailId));
+            $core->dispatch(Events::onAfterDeleteMailCatchall, array('mailCatchallId' => $mailId));
+        });
+
+        $core->sendRequest();
+        $core->writeLog(sprintf('A catch-all account has been deleted by %s', $caller->getUsername()), E_USER_NOTICE);
+
+        return new ObjectRef(NodeType::MAIL_ACCOUNT, $mailId);
+    }
+
     /**
      * The password, forward list, quota and POP flag an account of $kind is
      * written with.

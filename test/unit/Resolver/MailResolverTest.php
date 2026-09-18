@@ -203,6 +203,23 @@ class MailResolverTest extends TestCase
         }
     }
 
+    public function testACatchallForwardsToTheAddressesItCatchesFor(): void
+    {
+        // A catch-all keeps its targets in mail_acc and '_no_' in mail_forward
+        // (mail_catchall_add.php:182). Reading mail_forward alone showed every
+        // catch-all as forwarding nowhere.
+        $shaped = MailResolver::shape($this->row(array(
+            'mail_type'    => 'normal_catchall',
+            'mail_acc'     => 'a@example.net,b@example.net',
+            'mail_forward' => '_no_',
+            'mail_addr'    => '@example.net',
+            'quota'        => 0
+        )), $this->toUnicode());
+
+        self::assertSame('CATCHALL', $shaped['kind']);
+        self::assertSame(array('a@example.net', 'b@example.net'), $shaped['forwardTo']);
+    }
+
     public function testTheMapOwnsTheMailFieldsAndCustomerMailAccounts(): void
     {
         $keys = array_keys($this->resolver()->map());

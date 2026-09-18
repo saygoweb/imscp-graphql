@@ -125,7 +125,11 @@ final class MailResolver
         return TypeResolver::node(NodeType::MAIL_ACCOUNT, (int)$row['mail_id'], array(
             'address'       => (string)call_user_func($toUnicode, (string)$row['mail_addr']),
             'kind'          => $kind,
-            'forwardTo'     => self::forwards($row['mail_forward']),
+            // A catch-all's targets are in mail_acc; everything else's in
+            // mail_forward (mail_catchall_add.php:182).
+            'forwardTo'     => self::forwards(
+                $kind === MailType::KIND_CATCHALL ? $row['mail_acc'] : $row['mail_forward']
+            ),
             // 0 is unlimited, as everywhere else in i-MSCP.
             'quota'         => (int)$row['quota'] === 0
                 ? null : TypeResolver::bigInt($row['quota']),

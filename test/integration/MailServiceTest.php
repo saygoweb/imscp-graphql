@@ -478,4 +478,78 @@ class MailServiceTest extends ServiceTestCase
         self::assertSame(0, $this->core->requests);
         self::assertSame('A mail autoresponder has been edited by sgwtcustomer', $this->core->logs[0][0]);
     }
+
+    // ---- catch-alls -----------------------------------------------------
+
+    public function testACatchallIsCreatedForAHost(): void
+    {
+        $ref = $this->service()->createCatchall($this->caller('customer'), array(
+            'hostId'    => GlobalId::encode(NodeType::DOMAIN_ALIAS, $this->fixture->aliasId()),
+            'addresses' => array('Sales@' . $this->fixture->domainName(), 'x@example.net')
+        ));
+
+        $row = $this->mail($ref->getKey());
+        self::assertSame('sales@' . $this->fixture->domainName() . ',x@example.net', $row['mail_acc']);
+        self::assertSame('_no_', $row['mail_forward']);
+        self::assertSame('alias_catchall', $row['mail_type']);
+        self::assertSame((string)$this->fixture->aliasId(), (string)$row['sub_id']);
+        self::assertSame('@' . $this->fixture->aliasName(), $row['mail_addr']);
+        self::assertSame('toadd', $row['status']);
+        self::assertSame(array('onBeforeAddMailCatchall', 'onAfterAddMailCatchall'), $this->core->eventNames());
+        self::assertSame(array(
+            'mailCatchallDomain'    => $this->fixture->aliasName(),
+            'mailCatchallAddresses' => array('sales@' . $this->fixture->domainName(), 'x@example.net')
+        ), $this->core->events[0][1]);
+        self::assertSame($ref->getKey(), $this->core->events[1][1]['mailCatchallId']);
+        self::assertSame('A catch-all account has been created by sgwtcustomer', $this->core->logs[0][0]);
+    }
+
+    public function testASecondCatchallOnTheSameHostIsAConflict(): void
+    {
+        $input = array('hostId' => $this->domainId(), 'addresses' => array('x@example.net'));
+        $this->service()->createCatchall($this->caller('customer'), $input);
+
+        $this->refused(ErrorCode::CONFLICT, function () use ($input) {
+            $this->service()->createCatchall($this->caller('customer'), $input);
+        });
+    }
+
+    public function testACatchallNeedsValidAddresses(): void
+    {
+        $e = $this->refused(ErrorCode::BAD_USER_INPUT, function () {
+            $this->service()->createCatchall($this->caller('customer'), array(
+                'hostId' => $this->domainId(), 'addresses' => array('x@example.net', 'not an address')
+            ));
+        });
+        self::assertSame(array('field' => 'input.addresses', 'index' => 1), $e->getExtensions());
+
+        $this->refused(ErrorCode::BAD_USER_INPUT, function () {
+            $this->service()->createCatchall($this->caller('customer'), array('hostId' => $this->domainId(), 'addresses' => array()));
+        });
+    }
+
+    public function testACatchallIsDeleted(): void
+    {
+        $ref = $this->service()->createCatchall($this->caller('customer'), array(
+            'hostId' => $this->domainId(), 'addresses' => array('x@example.net')
+        ));
+        $this->db->execute("UPDATE mail_users SET status = 'ok' WHERE mail_id = ?", array($ref->getKey()));
+        $this->reconfigure(array());
+
+        $this->service()->deleteCatchall($this->caller('customer'), GlobalId::encode(NodeType::MAIL_ACCOUNT, $ref->getKey()));
+
+        self::assertSame('todelete', $this->mail($ref->getKey())['status']);
+        self::assertSame(array('onBeforeDeleteMailCatchall', 'onAfterDeleteMailCatchall'), $this->core->eventNames());
+        self::assertSame(array('mailCatchallId' => $ref->getKey()), $this->core->events[0][1]);
+        self::assertSame('A catch-all account has been deleted by sgwtcustomer', $this->core->logs[0][0]);
+    }
+
+    public function testAnOrdinaryAccountIsNotDeletedAsACatchall(): void
+    {
+        $e = $this->refused(ErrorCode::BAD_USER_INPUT, function () {
+            $this->service()->deleteCatchall($this->caller('customer'), $this->mailboxId());
+        });
+
+        self::assertSame('id', $e->getExtensions()['field']);
+    }
 }
