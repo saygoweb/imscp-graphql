@@ -236,7 +236,8 @@ strip `; sub [<name>] entry BEGIN` / `... ENDING`, which is text that appears in
 no zone file, so it removes nothing and recompiles the zone unchanged. The
 panel's own `deleteSubdomain()` schedules exactly the same
 `subdomain_status = 'todelete'` and nothing else, so the panel leaks the same
-records; there is nothing for a mutation to write differently. Clear them by
+records; there is nothing for a mutation to write differently. Filed as
+[saygoweb/imscp#15](https://github.com/saygoweb/imscp/issues/15). Clear them by
 rebuilding the parent zone:
 
 ```shell
