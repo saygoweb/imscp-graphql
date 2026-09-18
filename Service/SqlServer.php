@@ -33,6 +33,7 @@ interface SqlServer
 {
     public function databaseExists(string $name): bool;
 
+    /** @throws DatabaseExistsException the database is already there (D3) */
     public function createDatabase(string $name): void;
 
     public function dropDatabase(string $name): void;

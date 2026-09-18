@@ -23,6 +23,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Service;
 use iMSCP\Config\FileConfig;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
 use iMSCP\Registry;
+use PDOException;
 
 /**
  * The statements i-MSCP issues against the SQL server itself.
@@ -36,6 +37,9 @@ use iMSCP\Registry;
  */
 final class MariaDbSqlServer implements SqlServer
 {
+    /** MariaDB's ER_DB_CREATE_EXISTS. */
+    const DB_CREATE_EXISTS = 1007;
+
     /** @var Db */
     private $db;
 
@@ -69,9 +73,28 @@ final class MariaDbSqlServer implements SqlServer
         ) > 0;
     }
 
+    /**
+     * D3: no IF NOT EXISTS. That clause made an existing database a silent
+     * success, so the loser of a create race passed this call, committed its
+     * own sql_database row, and then its compensating drop - armed by what it
+     * believed was its own CREATE - destroyed the database the winner had
+     * just handed to the customer. An existing database is now an error, so
+     * SqlService can tell its own CREATE apart from one that merely found the
+     * database already there.
+     *
+     * @throws DatabaseExistsException the database is already there
+     */
     public function createDatabase(string $name): void
     {
-        $this->db->execute('CREATE DATABASE IF NOT EXISTS ' . self::identifier($name));
+        try {
+            $this->db->execute('CREATE DATABASE ' . self::identifier($name));
+        } catch (PDOException $e) {
+            if (isset($e->errorInfo[1]) && (int)$e->errorInfo[1] === self::DB_CREATE_EXISTS) {
+                throw new DatabaseExistsException(sprintf('The database %s already exists.', $name), 0, $e);
+            }
+
+            throw $e;
+        }
     }
 
     public function dropDatabase(string $name): void

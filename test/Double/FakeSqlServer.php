@@ -21,6 +21,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Double;
  */
 
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlServer;
+use Throwable;
 
 /**
  * No DDL: every statement MariaDbSqlServer would issue implicitly commits, and
@@ -39,6 +40,13 @@ final class FakeSqlServer implements SqlServer
     /** @var array<string, string> "user@host" => password */
     public $users = array();
 
+    /**
+     * @var array<string, Throwable> name => the exception createDatabase()
+     *      throws instead of creating it, once. D3's race: a CREATE that
+     *      fails although the pre-check passed.
+     */
+    public $failCreateDatabase = array();
+
     public function databaseExists(string $name): bool
     {
         return isset($this->databases[$name]);
@@ -46,6 +54,13 @@ final class FakeSqlServer implements SqlServer
 
     public function createDatabase(string $name): void
     {
+        if (isset($this->failCreateDatabase[$name])) {
+            $exception = $this->failCreateDatabase[$name];
+            unset($this->failCreateDatabase[$name]);
+
+            throw $exception;
+        }
+
         $this->operations[] = array('createDatabase', $name);
         $this->databases[$name] = true;
     }

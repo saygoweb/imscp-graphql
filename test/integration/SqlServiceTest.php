@@ -20,6 +20,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Integration;
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+use iMSCP\Plugin\SGW_GraphQL\Service\DatabaseExistsException;
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlService;
 use iMSCP\Plugin\SGW_GraphQL\Support\ErrorCode;
 use iMSCP\Plugin\SGW_GraphQL\Support\GlobalId;
@@ -130,13 +131,38 @@ class SqlServiceTest extends ServiceTestCase
 
     public function testADatabaseTheServerAlreadyHasIsAConflict(): void
     {
-        $this->sqlServer->databases['sgwt_new'] = true;
+        // D3: created directly through the server, with no sql_database row,
+        // the way an orphaned or racing database would look.
+        $this->sqlServer->createDatabase('sgwt_new');
+
+        try {
+            $this->refused(ErrorCode::CONFLICT, function () {
+                $this->service()->createDatabase($this->caller('customer'), array('domainId' => $this->domainId(), 'name' => 'sgwt_new'));
+            });
+
+            self::assertSame(
+                array(array('createDatabase', 'sgwt_new')), $this->sqlServer->operations,
+                'the pre-check refuses before any further DDL is attempted'
+            );
+            self::assertTrue($this->sqlServer->databaseExists('sgwt_new'), 'the existing database must survive the refused attempt');
+        } finally {
+            $this->sqlServer->dropDatabase('sgwt_new');
+        }
+    }
+
+    public function testTheCompensatingDropIsNotReachedWhenCreateItselfFails(): void
+    {
+        // D3: the pre-check passes (nothing named this on the fixture's
+        // server), but the CREATE itself loses a race and fails. The
+        // compensating drop must never run for a database this call did not
+        // create.
+        $this->sqlServer->failCreateDatabase['sgwt_new'] = new DatabaseExistsException('The database sgwt_new already exists.');
 
         $this->refused(ErrorCode::CONFLICT, function () {
             $this->service()->createDatabase($this->caller('customer'), array('domainId' => $this->domainId(), 'name' => 'sgwt_new'));
         });
 
-        self::assertSame(array(), $this->sqlServer->operations);
+        self::assertSame(array(), $this->sqlServer->operations, 'no createDatabase or dropDatabase was recorded');
     }
 
     public function testTheLimitIsLimitExceeded(): void

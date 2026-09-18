@@ -113,8 +113,21 @@ final class SqlService
 
         // CORE-DEBT(C3): transcribed from gui/public/client/sql_database_add.php:57-68.
         $core->dispatch(Events::onBeforeAddSqlDb, array('dbName' => $name));
-        $server->createDatabase($name);
 
+        // D3: caught narrowly. The pre-check above is the cheap, friendly
+        // path for the ordinary case; this is what catches the loser of a
+        // create race - a CREATE that failed because the database was
+        // already there reads to the client exactly like the pre-check's
+        // refusal. Anything else is a real failure and propagates.
+        try {
+            $server->createDatabase($name);
+        } catch (DatabaseExistsException $e) {
+            throw Guard::conflict(sprintf('The database %s already exists.', $name));
+        }
+
+        // Only reached once createDatabase() above has actually succeeded,
+        // so the compensating drop below can never destroy a database this
+        // call did not create.
         try {
             $id = $kit->writer()->run(function () use ($kit, $core, $account, $name) {
                 $kit->db()->execute(

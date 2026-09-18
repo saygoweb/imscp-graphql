@@ -21,6 +21,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Integration;
  */
 
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
+use iMSCP\Plugin\SGW_GraphQL\Service\DatabaseExistsException;
 use iMSCP\Plugin\SGW_GraphQL\Service\MariaDbSqlServer;
 use PDO;
 use PDOException;
@@ -99,6 +100,21 @@ class MariaDbSqlServerTest extends IntegrationTestCase
 
         $this->server->dropDatabase(self::DATABASE);
         self::assertFalse($this->server->databaseExists(self::DATABASE));
+    }
+
+    public function testCreatingADatabaseThatAlreadyExistsThrows(): void
+    {
+        // D3: no IF NOT EXISTS - an existing database is now an error rather
+        // than a silent success, so SqlService can tell its own CREATE apart
+        // from one that merely found the database already there.
+        $this->server->createDatabase(self::DATABASE);
+
+        try {
+            $this->expectException(DatabaseExistsException::class);
+            $this->server->createDatabase(self::DATABASE);
+        } finally {
+            $this->cleanUp();
+        }
     }
 
     public function testExistenceIsAnExactNameNotAPattern(): void
