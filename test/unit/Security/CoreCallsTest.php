@@ -80,6 +80,11 @@ class CoreCallsTest extends TestCase
         'update_reseller_c_props'       => 'One UPDATE from an explicit reseller id; no session, no exit.',
         'send_mail'                     => 'Throws on bad input; returns bool.',
         'delete_autoreplies_log_entries' => 'One DELETE; no arguments, no session.',
+        'deletecustomer'                => 'Explicit customer id, called with $checkCreatedBy = false '
+            . 'because ownership is already established. Decision D22: it manages its own transaction '
+            . 'and drops a customer\'s SQL databases outright - real DDL, which implicitly commits any '
+            . 'open transaction - so CustomerService::delete() opens no Writer::run() around it and '
+            . 'transcribing its 226 lines across 20 tables is not attempted.',
         'tr'                            => 'Returns a translation; used by the plugin class\'s '
             . 'navigation labels, never exits.',
         'l10n_addtranslations'          => 'Registers the plugin\'s own translation resources on '
@@ -90,6 +95,21 @@ class CoreCallsTest extends TestCase
      * Named so that nobody adds one of these to ALLOWED without meeting this
      * list first. Each reads the session as the customer, exits, swallows its
      * own failure, or issues DDL (measurements M3-M6).
+     *
+     * `deletecustomer` moved out of this list to ALLOWED under decision D22:
+     * it manages its own transaction, so the two conditions this list
+     * otherwise protects - taking every identity explicitly and issuing no
+     * DDL that could commit a caller's transaction out from under it - are
+     * met by never being called from inside one.
+     *
+     * `change_domain_status` stays here even though it also manages its own
+     * transaction: unlike `deleteCustomer()`, it unconditionally calls
+     * `write_log()` with `$_SESSION['user_logged']` and `set_page_message()`
+     * with no page around it to receive the message - and the latter is not
+     * merely unused, it throws `Zend_Session_Exception` reliably outside a
+     * running web session (measured: every call from a CLI/API context, not
+     * only under PHPUnit). `CustomerService::setState()` transcribes its
+     * ~30 lines of UPDATEs instead.
      */
     const FORBIDDEN = array(
         'showerrorpage', 'showbadrequesterrorpage', 'shownotfounderrorpage',
@@ -98,7 +118,7 @@ class CoreCallsTest extends TestCase
         'get_domain_default_props', 'get_user_domain_id',
         'customersqldblimitisreached', 'deletesubdomain', 'deletesubdomainalias',
         'deletedomainalias', 'delete_sql_database', 'sql_delete_user',
-        'deletecustomer', 'change_domain_status'
+        'change_domain_status'
     );
 
     public function testNoForbiddenFunctionIsAllowed(): void

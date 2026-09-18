@@ -273,10 +273,19 @@ much as is safely reusable, listed explicitly.
 | `Crypt::apr1MD5()`, `Crypt::sha512()` | Used directly. Passwords must be hashed exactly as the panel hashes them or the backend will not accept them. |
 | `PhpEditor` | Used directly, for the `php_ini` rows a new subdomain or customer needs. |
 | `customerHasFeature()`, `resellerHasFeature()`, `customerSqlDbLimitIsReached()`, `get_domain_default_props()` | **Not called.** Each reads the customer from `$_SESSION['user_id']` or caches for the request without a key, so it answers for the caller rather than for the customer a reseller is acting on. Transcribed with `CORE-DEBT(C1)` markers. |
-| `deleteSubdomain()`, `deleteSubdomainAlias()`, `deleteDomainAlias()`, `delete_sql_database()`, `sql_delete_user()`, `change_domain_status()` | **Not called.** The first two authorise on `$_SESSION['user_id']` and exit on a miss; `deleteDomainAlias()` swallows its own failure; the SQL two interleave DDL with row writes. Transcribed with `CORE-DEBT` markers. |
+| `deleteSubdomain()`, `deleteSubdomainAlias()`, `deleteDomainAlias()`, `delete_sql_database()`, `sql_delete_user()` | **Not called.** The first two authorise on `$_SESSION['user_id']` and exit on a miss; `deleteDomainAlias()` swallows its own failure; the SQL two interleave DDL with row writes. Transcribed with `CORE-DEBT` markers. |
+| `change_domain_status()` | **Not called.** It manages its own transaction, like `deleteCustomer()` below, but unlike it also calls `set_page_message()` unconditionally on every path - which throws `Zend_Session_Exception` outside a running web session, not merely on this box. Transcribed with a `CORE-DEBT` marker instead. |
 | Everything the API path does call | Through one class, `Service\PanelCore`, and only functions that take every identity explicitly, report failure by value or exception, cannot reach `exit`, and issue no DDL. `test/unit/Security/CoreCallsTest.php` holds the list and fails on any other. |
 | `set_page_message()`, `redirectTo()`, `showBadRequestErrorPage()`, `TemplateEngine`, the whole `View.php` layer | Never called from the API path. |
 | `VirtualFileSystem` | Used for the FTP home-directory existence check, but behind a config switch (§14) — it creates a temporary FTP account and opens an FTP connection for every check, which is a heavy price on an API. |
+
+A helper that manages its own transaction *and* issues DDL is an exception to
+condition (4), provided the API opens no transaction around it:
+`deleteCustomer()` (`gui/include/Shared.php:779`) drops a customer's SQL
+databases and then commits its own work. Transcribing it would duplicate 226
+lines across 20 tables, and every later change to what a customer owns would
+desynchronise silently. `CustomerService::delete()` therefore performs its
+refusals, calls the helper, and runs no `Writer::run()` of its own.
 
 ### 3.3 Dependencies: `webonyx/graphql-php` v15 and Anorm, and nothing else
 

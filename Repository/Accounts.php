@@ -54,7 +54,7 @@ final class Accounts
         // both carry domain_created, and d.* must win for it.
         $row = $this->db->row(
             "
-                SELECT a.admin_id, a.admin_name, a.created_by, a.email,
+                SELECT a.admin_id, a.admin_name, a.admin_status, a.created_by, a.email,
                     a.admin_sys_uid, a.admin_sys_gid, d.*
                 FROM admin AS a
                 JOIN domain AS d ON d.domain_admin_id = a.admin_id
@@ -69,7 +69,10 @@ final class Accounts
 
         $admin = array();
 
-        foreach (array('admin_id', 'admin_name', 'created_by', 'email', 'admin_sys_uid', 'admin_sys_gid') as $column) {
+        foreach (
+            array('admin_id', 'admin_name', 'admin_status', 'created_by', 'email', 'admin_sys_uid', 'admin_sys_gid')
+            as $column
+        ) {
             $admin[$column] = $row[$column];
             unset($row[$column]);
         }

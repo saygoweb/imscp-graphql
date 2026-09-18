@@ -311,4 +311,18 @@ final class PanelCore implements Core
     {
         delete_autoreplies_log_entries();
     }
+
+    /**
+     * CORE-DEBT(C3): gui/include/Shared.php:779 deleteCustomer(), called with
+     *   $checkCreatedBy = false because the API has already established
+     *   ownership (spec section 6.3) and the helper's own check reads
+     *   $_SESSION.
+     *
+     * Decision D22: it owns its transaction and its DDL, so the caller must
+     * not be inside a Writer::run().
+     */
+    public function deleteCustomer(int $customerAdminId): bool
+    {
+        return (bool)deleteCustomer($customerAdminId, false);
+    }
 }

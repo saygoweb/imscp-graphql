@@ -60,6 +60,12 @@ final class CustomerAccount
         return (string)$this->admin['admin_name'];
     }
 
+    /** admin.admin_status: the account's own status, not the domain's. */
+    public function adminStatus(): string
+    {
+        return (string)$this->admin['admin_status'];
+    }
+
     /** admin.created_by, or 0 for an account no reseller created (spec section 7.5). */
     public function getResellerId(): int
     {

@@ -517,4 +517,119 @@ class CustomerServiceTest extends ServiceTestCase
             );
         });
     }
+
+    // ---- setState() ---------------------------------------------------------
+
+    public function testDisablingASettledCustomerSchedulesIt(): void
+    {
+        $id = GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId());
+
+        $this->service()->setState($this->caller('reseller'), $id, 'DISABLED');
+
+        $domain = $this->db->row(
+            'SELECT domain_status FROM domain WHERE domain_id = ?', array($this->fixture->domainId())
+        );
+        self::assertSame('todisable', $domain['domain_status']);
+        self::assertContains(array('sendRequest'), $this->core->calls);
+    }
+
+    public function testEnablingADisabledCustomerSchedulesIt(): void
+    {
+        $this->db->execute(
+            "UPDATE domain SET domain_status = 'disabled' WHERE domain_id = ?", array($this->fixture->domainId())
+        );
+
+        $this->service()->setState(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()), 'ENABLED'
+        );
+
+        $domain = $this->db->row(
+            'SELECT domain_status FROM domain WHERE domain_id = ?', array($this->fixture->domainId())
+        );
+        self::assertSame('toenable', $domain['domain_status']);
+    }
+
+    public function testAskingForTheStateACustomerIsAlreadyInIsAConflict(): void
+    {
+        // M12: the page refuses anything but ok->deactivate and
+        // disabled->activate, by way of showBadRequestErrorPage().
+        $this->refused(ErrorCode::CONFLICT, function (): void {
+            $this->service()->setState(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()), 'ENABLED'
+            );
+        });
+    }
+
+    public function testACustomerInTransitIsNotStateChanged(): void
+    {
+        $this->db->execute(
+            "UPDATE domain SET domain_status = 'tochange' WHERE domain_id = ?", array($this->fixture->domainId())
+        );
+
+        $this->refused(ErrorCode::CONFLICT, function (): void {
+            $this->service()->setState(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()), 'DISABLED'
+            );
+        });
+    }
+
+    // ---- delete() -------------------------------------------------------------
+
+    public function testDeletingACustomerCallsThePanelsOwnHelperOutsideAnyTransaction(): void
+    {
+        // Not $this->fixture->customerId(): that customer carries a seeded
+        // SQL database, and deleteCustomer() drops it via
+        // delete_sql_database() *before* opening its own transaction -
+        // real DDL, which implicitly commits whatever transaction is
+        // already open in MySQL, including the fixture's own. The sibling
+        // has no SQL database, so the real helper's work here cannot commit
+        // the fixture out from under itself; measured directly against this
+        // box (see the task report) with the main customer, which corrupts
+        // the connection's savepoint bookkeeping outside any Writer::run()
+        // of ours at all.
+        $id = GlobalId::encode(NodeType::CUSTOMER, $this->fixture->siblingId());
+
+        // D22: delete() must open no Writer::run() of its own around the
+        // helper - deleteCustomer() manages its own transaction. The Core
+        // double has no commit() to assert against (Core is not the
+        // transaction boundary), so this reads the panel's own transaction
+        // counter the same way Fixture::rollBack() does, and checks that
+        // delete() leaves it exactly where it found it.
+        $panel = \iMSCP\Database\DatabaseMySQL::getInstance();
+        $counter = new \ReflectionProperty($panel, 'transactionCounter');
+        $counter->setAccessible(true);
+        $depthBefore = $counter->getValue($panel);
+
+        $ref = $this->service()->delete($this->caller('reseller'), $id);
+
+        self::assertSame($this->fixture->siblingId(), (int)$ref->getKey());
+        self::assertContains(array('deleteCustomer', $this->fixture->siblingId()), $this->core->calls);
+        self::assertSame(
+            $depthBefore, $counter->getValue($panel), 'delete() must leave the transaction depth unchanged'
+        );
+    }
+
+    public function testARefusalHappensBeforeTheHelperIsCalled(): void
+    {
+        $this->refused(ErrorCode::NOT_FOUND, function (): void {
+            $this->service()->delete(
+                $this->caller('otherReseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId())
+            );
+        });
+
+        self::assertSame(array(), $this->core->callsNamed('deleteCustomer'));
+    }
+
+    public function testACustomerAlreadyOnItsWayOutIsNotDeletedTwice(): void
+    {
+        $this->db->execute(
+            "UPDATE admin SET admin_status = 'todelete' WHERE admin_id = ?", array($this->fixture->customerId())
+        );
+
+        $this->refused(ErrorCode::CONFLICT, function (): void {
+            $this->service()->delete(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId())
+            );
+        });
+    }
 }

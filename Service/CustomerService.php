@@ -674,4 +674,152 @@ final class CustomerService
             'SELECT COUNT(*) FROM admin WHERE admin_name = ?', array($username)
         ) > 0;
     }
+
+    /**
+     * CORE-DEBT(C3): transcribed from gui/public/reseller/domain_status_change.php:37-60.
+     *   The page's two legal transitions are the whole rule (M12); it answers
+     *   anything else with showBadRequestErrorPage(), which this reports as
+     *   the CONFLICT it is.
+     *
+     * CORE-DEBT(C3): also transcribed from gui/include/Shared.php:445
+     *   change_domain_status(), unlike deleteCustomer() (decision D22) -
+     *   it manages its own transaction too, but it unconditionally calls
+     *   set_page_message(), which throws outside a running web session
+     *   (measured: reliably, not only under this suite). Its own writeLog()
+     *   and sendRequest() calls are dropped for the same reason this
+     *   method's own steps 9 and 10 exist: the caller, not the transcribed
+     *   body, owns them.
+     */
+    public function setState(Identity $caller, string $id, string $state): ObjectRef
+    {
+        $kit = $this->kit;
+        $core = $kit->core();
+
+        $target = $kit->guard()->target($caller, $id, array(NodeType::CUSTOMER), Scope::CUSTOMERS_WRITE, 'id');
+        $customer = $kit->accounts()->customer($target->getKey());
+        $status = (string)$customer->domain('domain_status');
+
+        if (!in_array($state, array('ENABLED', 'DISABLED'), true)) {
+            throw Guard::badInput('state', 'A customer is ENABLED or DISABLED.');
+        }
+
+        $wanted = $state === 'DISABLED' ? 'deactivate' : 'activate';
+        // The raw `domain` status, not Provisioning::fromStatus(): the page's
+        // rule is only ever "ok" or "disabled", never a PENDING or ERROR verb.
+        $from = $state === 'DISABLED' ? 'ok' : 'disabled';
+
+        if ($status !== $from) {
+            throw Guard::conflict($status === ($state === 'DISABLED' ? 'disabled' : 'ok')
+                ? sprintf('This customer is already %s.', strtolower($state))
+                : 'This customer is not settled, so its state cannot be changed.');
+        }
+
+        $adminId = (int)$target->getKey();
+        $domainId = $customer->getDomainId();
+        $newStatus = $state === 'DISABLED' ? 'todisable' : 'toenable';
+        $panel = $kit->panelConfig(array('HARD_MAIL_SUSPENSION'));
+
+        $kit->writer()->run(function () use ($kit, $core, $adminId, $domainId, $wanted, $newStatus, $panel) {
+            $db = $kit->db();
+            $core->dispatch(Events::onBeforeChangeDomainStatus, array('customerId' => $adminId, 'action' => $wanted));
+
+            if ($wanted === 'deactivate') {
+                if ($panel['HARD_MAIL_SUSPENSION']) {
+                    $db->execute(
+                        "UPDATE mail_users SET status = 'todisable', po_active = 'no' WHERE domain_id = ?",
+                        array($domainId)
+                    );
+                } else {
+                    $db->execute("UPDATE mail_users SET po_active = 'no' WHERE domain_id = ?", array($domainId));
+                }
+            } else {
+                $db->execute(
+                    "
+                        UPDATE mail_users SET status = 'toenable',
+                            po_active = IF(mail_type LIKE '%_mail%', 'yes', po_active)
+                        WHERE domain_id = ? AND status = 'disabled'
+                    ",
+                    array($domainId)
+                );
+                $db->execute(
+                    "
+                        UPDATE mail_users SET po_active = IF(mail_type LIKE '%_mail%', 'yes', po_active)
+                        WHERE domain_id = ? AND status <> 'disabled'
+                    ",
+                    array($domainId)
+                );
+            }
+
+            $db->execute('UPDATE ftp_users SET status = ? WHERE admin_id = ?', array($newStatus, $adminId));
+            $db->execute('UPDATE htaccess SET status = ? WHERE dmn_id = ?', array($newStatus, $domainId));
+            $db->execute('UPDATE htaccess_groups SET status = ? WHERE dmn_id = ?', array($newStatus, $domainId));
+            $db->execute('UPDATE htaccess_users SET status = ? WHERE dmn_id = ?', array($newStatus, $domainId));
+            $db->execute('UPDATE domain SET domain_status = ? WHERE domain_id = ?', array($newStatus, $domainId));
+            $db->execute('UPDATE subdomain SET subdomain_status = ? WHERE domain_id = ?', array($newStatus, $domainId));
+            $db->execute(
+                'UPDATE domain_aliasses SET alias_status = ? WHERE domain_id = ?', array($newStatus, $domainId)
+            );
+            $db->execute(
+                '
+                    UPDATE subdomain_alias
+                    JOIN domain_aliasses USING(alias_id)
+                    SET subdomain_alias_status = ?
+                    WHERE domain_id = ?
+                ',
+                array($newStatus, $domainId)
+            );
+            $db->execute(
+                'UPDATE domain_dns SET domain_dns_status = ? WHERE domain_id = ?', array($newStatus, $domainId)
+            );
+
+            $core->dispatch(Events::onAfterChangeDomainStatus, array('customerId' => $adminId, 'action' => $wanted));
+        });
+
+        $core->sendRequest();
+        $core->writeLog(
+            sprintf(
+                'The %s customer has been %s by %s',
+                $customer->getUsername(), $state === 'DISABLED' ? 'disabled' : 'enabled', $caller->getUsername()
+            ),
+            E_USER_NOTICE
+        );
+
+        return new ObjectRef(NodeType::CUSTOMER, $adminId);
+    }
+
+    /**
+     * Decision D22: the panel's own helper does the work, and this opens no
+     * transaction around it. Every refusal happens first, so a caller who may
+     * not delete never reaches it.
+     */
+    public function delete(Identity $caller, string $id): ObjectRef
+    {
+        $kit = $this->kit;
+        $core = $kit->core();
+
+        $target = $kit->guard()->target($caller, $id, array(NodeType::CUSTOMER), Scope::CUSTOMERS_WRITE, 'id');
+        $customer = $kit->accounts()->customer($target->getKey());
+
+        Guard::requireState(
+            (string)$customer->adminStatus(),
+            array(Provisioning::STATE_OK, Provisioning::STATE_ERROR, Provisioning::STATE_DISABLED)
+        );
+
+        $adminId = (int)$target->getKey();
+        $username = $customer->getUsername();
+
+        if (!$core->deleteCustomer($adminId)) {
+            // It returns false only when the row it was given is not there,
+            // which after Guard::target() means it went between the two.
+            throw Guard::conflict('That customer is no longer there.');
+        }
+
+        // deleteCustomer() pokes the daemon itself (M10); a second request
+        // would be harmless but dishonest about who did what.
+        $core->writeLog(
+            sprintf('The %s customer has been deleted by %s', $username, $caller->getUsername()), E_USER_NOTICE
+        );
+
+        return new ObjectRef(NodeType::CUSTOMER, $adminId);
+    }
 }

@@ -140,4 +140,13 @@ interface Core
 
     /** delete_autoreplies_log_entries(). */
     public function pruneAutoreplyLog(): void;
+
+    /**
+     * deleteCustomer(): schedules a customer, and everything it owns, for
+     * deletion - dropping its SQL databases outright first. Decision D22:
+     * it manages its own transaction and issues DDL, so the caller must open
+     * no transaction of its own around it. Returns false only when the row
+     * it was given is no longer there.
+     */
+    public function deleteCustomer(int $customerAdminId): bool;
 }

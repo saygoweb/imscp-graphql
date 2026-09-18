@@ -88,7 +88,8 @@ abstract class ServiceTestCase extends IntegrationTestCase
             'WEB_STATISTIC_PACKAGES'          => 'Awstats',
             'BACKUP_DOMAINS'                  => 'yes',
             'ENABLE_SSL'                      => 1,
-            'IMSCP_SUPPORT_SYSTEM'            => 1
+            'IMSCP_SUPPORT_SYSTEM'            => 1,
+            'HARD_MAIL_SUSPENSION'            => 1
         );
     }
 
