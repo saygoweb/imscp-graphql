@@ -375,13 +375,21 @@ final class MailService
 
         $host = $kit->guard()->target($caller, $input['hostId'] ?? null, self::HOSTS, Scope::MAIL_WRITE, 'input.hostId');
         $account = $kit->accounts()->customer($host->getOwnerId());
-        Guard::requireFeature((int)$account->domain('domain_mailacc_limit') >= 0, 'mail');
+
+        // 4.
+        $quota = Quota::fromCustomerLimit(
+            (int)$account->domain('domain_mailacc_limit'),
+            $kit->counts()->mailAccounts(array($account->getDomainId()))[$account->getDomainId()]
+        );
+        Guard::requireFeature($quota->isEnabled(), 'mail');
 
         $hostRow = $kit->vhost($host->getTag(), $host->getKey());
         Guard::requireState($hostRow['status'], array(Provisioning::STATE_OK));
 
         // CORE-DEBT(C3): transcribed from gui/public/client/mail_catchall_add.php:132-155
-        //   (the manual list). The page asks no limit, and neither does this.
+        //   (the manual list).
+        // CORE-DEBT(C11): C11 item 11 - the page asks no limit; the row it
+        //   writes counts against domain_mailacc_limit all the same.
         $addresses = array();
 
         foreach (array_values((array)($input['addresses'] ?? array())) as $index => $one) {
@@ -397,6 +405,9 @@ final class MailService
         if ($addresses === array()) {
             throw Guard::badInput('input.addresses', 'A catch-all needs at least one address.');
         }
+
+        // 7.
+        Guard::requireQuota($quota, 'mailAccounts');
 
         $list = array_keys($addresses);
         $hostName = (string)$hostRow['name'];

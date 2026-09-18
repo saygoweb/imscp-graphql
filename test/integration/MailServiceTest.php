@@ -607,6 +607,21 @@ class MailServiceTest extends ServiceTestCase
         });
     }
 
+    public function testTheMailAccountLimitAppliesToCatchallsToo(): void
+    {
+        // C11 item 11: the fixture has two accounts already.
+        $this->db->execute('UPDATE domain SET domain_mailacc_limit = 2 WHERE domain_id = ?', array($this->fixture->domainId()));
+        $before = (int)$this->db->value('SELECT COUNT(*) FROM mail_users');
+
+        $this->refused(ErrorCode::LIMIT_EXCEEDED, function () {
+            $this->service()->createCatchall($this->caller('customer'), array(
+                'hostId' => $this->domainId(), 'addresses' => array('x@example.net')
+            ));
+        });
+
+        self::assertSame($before, (int)$this->db->value('SELECT COUNT(*) FROM mail_users'), 'no row was written');
+    }
+
     public function testACatchallIsDeleted(): void
     {
         $ref = $this->service()->createCatchall($this->caller('customer'), array(

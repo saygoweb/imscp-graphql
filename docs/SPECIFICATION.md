@@ -2062,6 +2062,7 @@ behaviour.
 8. `client/alias_order_delete.php` deletes an ordered alias's row and leaves the `php_ini` row `alias_add.php` created for it.
 9. `client/alias_add.php:45-80` sends the reseller's *"your customer is awaiting approval"* template to the customer's own address. (The API keeps this behaviour, because changing who receives mail is the panel's decision to make first.)
 10. `include/Shared.php:63` `createDefaultMailAccounts()` catches only `PDOException`, but `DatabaseMySQL::execute()` throws `DatabaseException`, so on a database error its own savepoint is neither rolled back nor released and the caller's transaction depth is left one too high.
+11. `client/mail_catchall_add.php` never checks `domain_mailacc_limit`, although the row it writes is a `mail_users` row that `Counting.php:518` counts against that limit. A customer at their limit can add catch-alls without end, and the mail-account usage the panel reports then exceeds the limit shown beside it.
 
 *Why i-MSCP wants it anyway.* Each is a user-visible failure or a cross-tenant write in the panel as shipped.
 
