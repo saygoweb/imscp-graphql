@@ -112,6 +112,26 @@ class FtpServiceTest extends ServiceTestCase
         self::assertSame('1', (string)$this->db->value("SELECT COUNT(*) FROM quotalimits WHERE name = 'sgwtcustomer'"));
     }
 
+    public function testASecondUserForACustomerWithAnExistingQuotaRowKeepsIt(): void
+    {
+        // C5: the probe and the insert used to race; the insert is now
+        // idempotent and must leave an existing row exactly as it is.
+        // 777 MiB, distinctive and (like the create() test's 5 GiB) exact in
+        // the FLOAT column: 777 needs 10 mantissa bits, well within a float's 24.
+        $this->insert('quotalimits', array(
+            'name' => 'sgwtcustomer', 'quota_type' => 'group', 'per_session' => 'false', 'limit_type' => 'hard',
+            'bytes_in_avail' => 777 * 1048576, 'bytes_out_avail' => 0, 'bytes_xfer_avail' => 0,
+            'files_in_avail' => 0, 'files_out_avail' => 0, 'files_xfer_avail' => 0
+        ));
+
+        $this->create('web');
+
+        self::assertSame('1', (string)$this->db->value("SELECT COUNT(*) FROM quotalimits WHERE name = 'sgwtcustomer'"));
+        self::assertSame((string)(777 * 1048576), (string)$this->db->value(
+            "SELECT CAST(bytes_in_avail AS DECIMAL(20,0)) FROM quotalimits WHERE name = 'sgwtcustomer'"
+        ), 'the existing row was left exactly as it was');
+    }
+
     public function testADirectoryIsCheckedAndBecomesTheHome(): void
     {
         $this->create('web', array('directory' => 'shop/../shop/'));

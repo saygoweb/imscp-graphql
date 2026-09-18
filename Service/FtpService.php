@@ -88,7 +88,6 @@ final class FtpService
 
         $userid = $username . '@' . $hostRow['name'];
         $home = $this->home($account, $directory);
-        $hasQuotaRow = $kit->db()->value('SELECT name FROM quotalimits WHERE name = ?', array($account->getUsername())) !== null;
 
         $params = array(
             'ftpUserId'    => $userid,
@@ -100,7 +99,7 @@ final class FtpService
         );
 
         // 8. CORE-DEBT(C3): transcribed from gui/public/client/ftp_add.php:256-330.
-        $kit->writer()->run(function () use ($kit, $core, $account, $userid, $password, $home, $hasQuotaRow, $params) {
+        $kit->writer()->run(function () use ($kit, $core, $account, $userid, $password, $home, $params) {
             $db = $kit->db();
             $core->dispatch(Events::onBeforeAddFtp, $params);
 
@@ -117,19 +116,23 @@ final class FtpService
 
             (new FtpGroups($db))->addMember($account->getUsername(), $account->getSysGid(), $userid);
 
-            if (!$hasQuotaRow) {
-                $diskLimit = (int)$account->domain('domain_disk_limit');
+            // The page (ftp_add.php) probes for an existing row first, but
+            // quotalimits.name is the primary key: two creates for the same
+            // customer can interleave between a probe and its insert, so the
+            // insert is made idempotent instead. "name = name" keeps an
+            // existing row exactly as it is, which is what the probe meant.
+            $diskLimit = (int)$account->domain('domain_disk_limit');
 
-                $db->execute(
-                    "
-                        INSERT INTO quotalimits (
-                            name, quota_type, per_session, limit_type, bytes_in_avail, bytes_out_avail,
-                            bytes_xfer_avail, files_in_avail, files_out_avail, files_xfer_avail
-                        ) VALUES (?, 'group', 'false', 'hard', ?, 0, 0, 0, 0, 0)
-                    ",
-                    array($account->getUsername(), $diskLimit > 0 ? $diskLimit * 1048576 : 0)
-                );
-            }
+            $db->execute(
+                "
+                    INSERT INTO quotalimits (
+                        name, quota_type, per_session, limit_type, bytes_in_avail, bytes_out_avail,
+                        bytes_xfer_avail, files_in_avail, files_out_avail, files_xfer_avail
+                    ) VALUES (?, 'group', 'false', 'hard', ?, 0, 0, 0, 0, 0)
+                    ON DUPLICATE KEY UPDATE name = name
+                ",
+                array($account->getUsername(), $diskLimit > 0 ? $diskLimit * 1048576 : 0)
+            );
 
             $core->dispatch(Events::onAfterAddFtp, $params);
         });
