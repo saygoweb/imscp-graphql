@@ -200,6 +200,49 @@ installs with SSL off, so the run would need `require_tls => false`. Until both
 are settled, end-to-end coverage comes from a Vagrant box and everything else
 comes from docker.
 
+### Provisioning end to end
+
+`test/api/provision.php` creates a subdomain, a mailbox, an FTP user, a SQL
+database and user, and (where the customer has it) a DNS record through the
+API's services; runs i-MSCP's request manager over them; checks the vhost file,
+the maildir and the SQL login; deletes everything; and checks that the database
+and the filesystem are back where they started.
+
+```shell
+../imscp/docker/imscp exec systemctl start apache2    # the container does not start it
+../imscp/docker/imscp exec sh -c \
+  'cd /var/www/imscp-plugins/imscp-graphql && php7.4 test/api/provision.php [customer-login]'
+```
+
+It needs a customer with a settled domain (the docker install has `cust1.test`)
+and commits real objects, named `sgwe2e*`; a run that dies part way is swept up
+by the next. It runs the request manager itself, because the container's
+`imscp_daemon` is not running.
+
+The container's `cust1.test` has custom DNS withheld (`domain.domain_dns` is
+`no`), so the DNS step skips unless you turn it on for that customer first.
+
+**One thing a run does leave behind, and it is not the plugin's.** Deleting a
+subdomain never removes that subdomain's records from its parent's zone, so
+each run adds a stale `sgwe2e.<domain>` block to
+`/etc/imscp/bind/working/<domain>.db` and the compiled zone beside it.
+`Servers::named::bind::addSub()` writes the block between
+`; subdomain [<name>] records BEGIN` and `... ENDING` — the markers
+`bind/parts/db_sub.tpl` carries — while `deleteSub()` asks `replaceBloc()` to
+strip `; sub [<name>] entry BEGIN` / `... ENDING`, which is text that appears in
+no zone file, so it removes nothing and recompiles the zone unchanged. The
+panel's own `deleteSubdomain()` schedules exactly the same
+`subdomain_status = 'todelete'` and nothing else, so the panel leaks the same
+records; there is nothing for a mutation to write differently. Clear them by
+rebuilding the parent zone:
+
+```shell
+../imscp/docker/imscp exec sh -c \
+  'mysql --defaults-extra-file=/etc/mysql/conf.d/imscp.cnf -e \
+     "UPDATE domain SET domain_status = \"tochange\" WHERE domain_id = 1" imscp
+   /var/www/imscp/engine/imscp-rqst-mngr'
+```
+
 ## Reference plugins
 
 Three sibling repositories are worth reading before writing anything here.
