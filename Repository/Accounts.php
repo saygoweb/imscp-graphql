@@ -22,6 +22,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Repository;
 
 use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Service\CustomerAccount;
+use iMSCP\Plugin\SGW_GraphQL\Service\ResellerAccount;
 
 /**
  * The owning customer, read fresh.
@@ -74,5 +75,33 @@ final class Accounts
         }
 
         return new CustomerAccount($admin, $row);
+    }
+
+    /**
+     * @throws \iMSCP\Plugin\SGW_GraphQL\Support\ApiException NOT_FOUND when the id is not a reseller's, which is
+     *         the only thing a caller may learn about an account that is not
+     *         theirs to see (spec section 6.3).
+     */
+    public function reseller(int $resellerId): ResellerAccount
+    {
+        $admin = $this->db->row(
+            "SELECT admin_id, admin_name, email, created_by FROM admin WHERE admin_id = ? AND admin_type = 'reseller'",
+            array($resellerId)
+        );
+
+        if ($admin === null) {
+            throw Guard::notFound();
+        }
+
+        $props = $this->db->row('SELECT * FROM reseller_props WHERE reseller_id = ?', array($resellerId));
+
+        if ($props === null) {
+            // The panel writes admin and reseller_props in one transaction
+            // (M16), so a missing props row is a broken account, not a
+            // missing one - but the caller is still told the same thing.
+            throw Guard::notFound();
+        }
+
+        return new ResellerAccount($admin, $props);
     }
 }
