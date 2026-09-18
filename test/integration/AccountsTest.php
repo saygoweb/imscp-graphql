@@ -20,6 +20,8 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Integration;
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+use iMSCP\Plugin\SGW_GraphQL\Auth\AccessService;
+use iMSCP\Plugin\SGW_GraphQL\Auth\TokenService;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Accounts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Counts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
@@ -108,7 +110,14 @@ class AccountsTest extends IntegrationTestCase
                 return $this->db->rows($sql, $bind);
             })),
             new Accounts($this->db), new VirtualHosts($this->db), new Counts($this->db, true),
-            new Writer($this->db), new FakeDirectoryProbe()
+            new Writer($this->db), new FakeDirectoryProbe(),
+            new AccessService(
+                function (string $sql, array $bind = array()) {
+                    return $this->db->rows($sql, $bind);
+                },
+                TokenService::fromPanel(),
+                true
+            )
         );
 
         $row = $kit->vhost(NodeType::ALIAS_SUBDOMAIN, $this->fixture->aliasSubdomainId());

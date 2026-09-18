@@ -20,6 +20,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Service;
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+use iMSCP\Plugin\SGW_GraphQL\Auth\AccessService;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Accounts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Counts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
@@ -52,10 +53,12 @@ final class Toolkit
     private $writer;
     /** @var DirectoryProbe */
     private $probe;
+    /** @var AccessService */
+    private $access;
 
     public function __construct(
         Db $db, Core $core, Guard $guard, Accounts $accounts, VirtualHosts $vhosts,
-        Counts $counts, Writer $writer, DirectoryProbe $probe
+        Counts $counts, Writer $writer, DirectoryProbe $probe, AccessService $access
     ) {
         $this->db = $db;
         $this->core = $core;
@@ -65,6 +68,7 @@ final class Toolkit
         $this->counts = $counts;
         $this->writer = $writer;
         $this->probe = $probe;
+        $this->access = $access;
     }
 
     public function db(): Db { return $this->db; }
@@ -75,6 +79,7 @@ final class Toolkit
     public function counts(): Counts { return $this->counts; }
     public function writer(): Writer { return $this->writer; }
     public function probe(): DirectoryProbe { return $this->probe; }
+    public function access(): AccessService { return $this->access; }
 
     /**
      * One vhost's normalised row, read now rather than from the batch loader:

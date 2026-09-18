@@ -21,6 +21,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Api;
  */
 
 use GraphQL\Type\Definition\ResolveInfo;
+use iMSCP\Plugin\SGW_GraphQL\Auth\AccessService;
 use iMSCP\Plugin\SGW_GraphQL\Auth\TokenService;
 use iMSCP\Plugin\SGW_GraphQL\Http\AuthenticateMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\CorsMiddleware;
@@ -289,7 +290,8 @@ final class Container
                 new VirtualHosts($db),
                 new Counts($db, self::countsDefaultMailAccounts($this->panelConfig)),
                 new Writer($db),
-                $this->probe
+                $this->probe,
+                new AccessService($this->query, $this->tokens(), $this->apiAccessByDefault)
             );
         }
 

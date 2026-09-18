@@ -20,7 +20,9 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Integration;
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+use iMSCP\Plugin\SGW_GraphQL\Auth\AccessService;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Identity;
+use iMSCP\Plugin\SGW_GraphQL\Auth\TokenService;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Accounts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Counts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
@@ -103,17 +105,25 @@ abstract class ServiceTestCase extends IntegrationTestCase
     {
         $db = $this->db;
         $this->core = new RecordingCore(new PanelCore(false), array_merge($this->config(), $overrides));
+        $query = static function (string $sql, array $bind = array()) use ($db) {
+            return $db->rows($sql, $bind);
+        };
         $this->kit = new Toolkit(
             $db,
             $this->core,
-            new Guard(new OwnershipResolver(static function (string $sql, array $bind = array()) use ($db) {
-                return $db->rows($sql, $bind);
-            })),
+            new Guard(new OwnershipResolver($query)),
             new Accounts($db),
             new VirtualHosts($db),
             new Counts($db, true),
             new Writer($db),
-            $this->probe
+            $this->probe,
+            new AccessService(
+                static function (string $sql, array $bind = array()) use ($db) {
+                    return $db->rows($sql, $bind);
+                },
+                TokenService::fromPanel(),
+                true
+            )
         );
     }
 

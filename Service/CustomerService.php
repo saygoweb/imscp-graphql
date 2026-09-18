@@ -822,4 +822,34 @@ final class CustomerService
 
         return new ObjectRef(NodeType::CUSTOMER, $adminId);
     }
+
+    /**
+     * Spec section 6.2. The row is the plugin's own (api_perm), so there is
+     * no panel page to transcribe and no daemon to poke: the next request the
+     * account makes is refused or allowed by AuthenticateMiddleware.
+     */
+    public function setApiAccess(Identity $caller, string $id, bool $allowed): ObjectRef
+    {
+        $kit = $this->kit;
+
+        $target = $kit->guard()->target($caller, $id, array(NodeType::CUSTOMER), Scope::CUSTOMERS_WRITE, 'id');
+
+        if ($caller->getRole() !== Identity::ROLE_RESELLER && $caller->getRole() !== Identity::ROLE_ADMIN) {
+            throw Guard::forbidden('Only a reseller or an administrator may change API access.');
+        }
+
+        $adminId = (int)$target->getKey();
+        $kit->access()->setApiAccess($adminId, $allowed);
+        $kit->core()->writeLog(
+            sprintf(
+                'API access has been %s for %s by %s',
+                $allowed ? 'granted' : 'withdrawn',
+                $kit->accounts()->customer($adminId)->getUsername(),
+                $caller->getUsername()
+            ),
+            E_USER_NOTICE
+        );
+
+        return new ObjectRef(NodeType::CUSTOMER, $adminId);
+    }
 }
