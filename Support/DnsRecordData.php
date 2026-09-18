@@ -88,7 +88,11 @@ final class DnsRecordData
             case 'SRV':
                 $service = mb_strtolower(trim((string)($data['service'] ?? '')));
 
-                if (!preg_match('/^_[a-z0-9]+/i', $service)) {
+                // D1: anchored at both ends. $service is already lower-cased,
+                // so the /i is dead weight; a prefix match here used to let
+                // anything - including tabs, newlines and further records -
+                // ride through to the composed owner name below unvalidated.
+                if (!preg_match('/^_[a-z0-9]+$/', $service)) {
                     throw Guard::badInput('input.data.service', 'A service name starts with an underscore, e.g. _sip.');
                 }
 
@@ -102,6 +106,10 @@ final class DnsRecordData
                 $weight = self::number($data, 'weight', false);
                 $port = self::number($data, 'port', true);
                 $target = self::host($data, $zoneAscii, $toAscii, $domainNameError, false);
+                // Safe to compose without its own domainNameError check:
+                // $service is anchored to ^_[a-z0-9]+$ above, $protocol comes
+                // only from self::SRV_PROTOCOLS, and $name was already
+                // validated on its own account.
                 $name = sprintf('%s._%s.%s', $service, $protocol, $name);
                 $text = sprintf('%d %d %d %s.', $priority, $weight, $port, $target);
                 break;

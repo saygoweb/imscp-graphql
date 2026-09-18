@@ -193,10 +193,16 @@ class DnsRecordDataTest extends TestCase
     public function refusedServices(): array
     {
         return array(
-            'no leading underscore' => array(array('service' => 'sip'), 'input.data.service'),
-            'an unknown protocol'   => array(array('protocol' => 'SCTP'), 'input.data.protocol'),
-            'a port out of range'   => array(array('port' => 70000), 'input.data.port'),
-            'a negative weight'     => array(array('weight' => -1), 'input.data.weight')
+            'no leading underscore'      => array(array('service' => 'sip'), 'input.data.service'),
+            'an unknown protocol'        => array(array('protocol' => 'SCTP'), 'input.data.protocol'),
+            'a port out of range'        => array(array('port' => 70000), 'input.data.port'),
+            'a negative weight'          => array(array('weight' => -1), 'input.data.weight'),
+            // D1: the service name was only anchored at its start, so a
+            // valid prefix followed by anything else used to pass.
+            'trailing text after the prefix' => array(array('service' => '_sip evil'), 'input.data.service'),
+            'a newline carrying a whole record' => array(
+                array('service' => "_sip\nwww 300 IN A 203.0.113.1"), 'input.data.service'
+            )
         );
     }
 
