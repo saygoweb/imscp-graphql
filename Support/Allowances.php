@@ -174,9 +174,22 @@ final class Allowances
         return str_replace('_', '', $value);
     }
 
+    /**
+     * A5: the panel's own form requires every one of these; an allowance the
+     * input does not name is refused rather than defaulted to 0 (unlimited).
+     */
+    private static function required(array $input, string $name)
+    {
+        if (!array_key_exists($name, $input) || $input[$name] === null) {
+            throw Guard::badInput('input.allowances.' . $name, 'A create must name every allowance.');
+        }
+
+        return $input[$name];
+    }
+
     private static function limitValue(array $input, string $name): int
     {
-        $value = $input[$name] ?? 0;
+        $value = self::required($input, $name);
 
         if (!is_int($value) || $value < -1) {
             throw Guard::badInput(
@@ -189,7 +202,7 @@ final class Allowances
     }
 
     /**
-     * A3/D3: disk and traffic arrive as bytes, like every other BigInt, but
+     * A4/D3: disk and traffic arrive as bytes, like every other BigInt, but
      * the props store them in MiB (the same unit PlanProps::mibToBytes()
      * converts back from). -1 (withheld) and 0 (unlimited) pass through
      * unconverted; a positive value that is not a whole number of MiB is
@@ -215,7 +228,7 @@ final class Allowances
 
     private static function mailQuota(array $input): int
     {
-        $value = $input['mailQuota'] ?? 0;
+        $value = self::required($input, 'mailQuota');
 
         if (is_string($value) && preg_match('/^[0-9]+$/', $value)) {
             $value = (int)$value;
