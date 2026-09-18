@@ -281,14 +281,18 @@ final class DnsRecordData
         $name = rtrim($name, '.');
         $check = $name;
 
-        // CORE-DEBT(C11): C11 item 5 - "=== 0"; the page's "== 0" is true for false.
-        if (strpos($check, '_') === 0) {
-            $check = substr($check, 1);
-        }
-
         if (strpos($check, '*.') === 0) {
             $check = substr($check, 2);
         }
+
+        // CORE-DEBT(C11): C11 item 5 - the page strips the name's first
+        //   character only (and with "== 0", which is true for false), so
+        //   selector._domainkey and _dmarc.sub cannot be created at all. Every
+        //   label's underscore is ignored here instead, as the page already
+        //   does for a CNAME target (host(), line 190). Only the check ignores
+        //   them: the stored name keeps its underscores. Whitespace and the
+        //   rest are still isValidDomainName's to refuse.
+        $check = str_replace('_', '', $check);
 
         $reason = call_user_func($domainNameError, $check);
 

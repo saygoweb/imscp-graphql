@@ -87,6 +87,8 @@ class DnsRecordDataTest extends TestCase
             'lower-cased'                 => array('WWW', 'www.zone.test'),
             'fully qualified in the zone' => array('mail.zone.test.', 'mail.zone.test'),
             'a leading underscore'        => array('_dmarc', '_dmarc.zone.test'),
+            'an underscore label'         => array('selector._domainkey', 'selector._domainkey.zone.test'),
+            'an underscore deeper in'     => array('_dmarc.sub', '_dmarc.sub.zone.test'),
             'a wildcard'                  => array('*', '*.zone.test')
         );
     }
@@ -113,15 +115,18 @@ class DnsRecordDataTest extends TestCase
             'another zone'                       => array(array('name' => 'other.test.'), 'input.name'),
             'a zone that merely ends like this'  => array(array('name' => 'evilzone.test.'), 'input.name'),
             'an invalid label'                   => array(array('name' => 'a..b'), 'input.name'),
+            'a name carrying a space'            => array(array('name' => 'www evil'), 'input.name'),
+            'a name carrying a line break'       => array(array('name' => "www\nevil"), 'input.name'),
             'a TTL below a minute'               => array(array('name' => 'www', 'ttl' => 59), 'input.ttl'),
             'a TTL that is not a number'         => array(array('name' => 'www', 'ttl' => '3600'), 'input.ttl')
         );
     }
 
-    public function testAnUnderscoreIsStrippedOnlyWhenItLeads(): void
+    public function testTheFirstCharacterIsNotStrippedBlindly(): void
     {
         // C11 item 5: the page strips the first character of every name, so
         // 'xa..b' would be validated as 'a..b' there and 'x..b' would pass.
+        // Here only underscores are ignored, and only for the check.
         self::assertSame('input.name', $this->fieldOf('A', array('name' => 'x..b', 'data' => array('address' => '203.0.113.9'))));
     }
 
