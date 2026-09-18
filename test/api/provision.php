@@ -384,7 +384,7 @@ check('the database is back where it started', counts() === $before, json_encode
 check('no vhost file is left', !is_file(VHOST_DIR . '/' . PREFIX . '.' . $domain . '.conf'));
 check('no maildir is left', !is_dir($mailRoot . '/' . $domain . '/' . PREFIX));
 check('no SQL database is left', (int)$db->value('SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?', array($sqlDbName)) === 0);
-check('no SQL user is left', (int)$db->value("SELECT COUNT(*) FROM mysql.user WHERE User = ?", array($sqlUserName)) === 0);
+check('no SQL user is left', (int)$db->value("SELECT COUNT(*) FROM mysql.user WHERE User = ? AND Host = ?", array($sqlUserName, $sqlUserHost)) === 0);
 
 printf("\n%d passed, %d failed\n", $passed, $failed);
 exit($failed === 0 ? 0 : 1);
