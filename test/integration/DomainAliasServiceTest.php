@@ -47,6 +47,23 @@ class DomainAliasServiceTest extends ServiceTestCase
         return $this->db->row('SELECT * FROM domain_aliasses WHERE alias_id = ?', array($id));
     }
 
+    private function orderedAlias(string $name): int
+    {
+        return $this->insert('domain_aliasses', array(
+            'domain_id' => $this->fixture->domainId(),
+            'alias_name' => $name,
+            'alias_status' => 'ordered',
+            'alias_mount' => '/' . $name,
+            'alias_document_root' => '/htdocs',
+            'alias_ip_id' => $this->fixture->ipId(),
+            'url_forward' => 'no',
+            'type_forward' => 'forward',
+            'host_forward' => 'Off',
+            'wildcard_alias' => 'no',
+            'external_mail' => 'off'
+        ));
+    }
+
     // ---- create ---------------------------------------------------------
 
     public function testACustomersAliasIsOrderedAndTheResellerIsNotified(): void
@@ -346,6 +363,82 @@ class DomainAliasServiceTest extends ServiceTestCase
 
         $this->refused(ErrorCode::CONFLICT, function () {
             $this->service()->delete($this->caller('customer'), $this->aliasId());
+        });
+    }
+
+    // ---- approve --------------------------------------------------------
+
+    public function testApprovingAnOrderSchedulesTheAlias(): void
+    {
+        $aliasId = $this->orderedAlias('sgwordered.test');
+
+        $this->service()->approve($this->caller('reseller'), GlobalId::encode(NodeType::DOMAIN_ALIAS, $aliasId));
+
+        self::assertSame(
+            'toadd', (string)$this->db->value('SELECT alias_status FROM domain_aliasses WHERE alias_id = ?', array($aliasId))
+        );
+        self::assertContains(array('sendRequest'), $this->core->calls);
+        self::assertSame('sgwordered.test', $this->core->eventNamed('onBeforeAddDomainAlias')['domainAliasName']);
+    }
+
+    public function testApprovingCreatesTheDefaultMailAccountsForTheAlias(): void
+    {
+        // M13: MT_ALIAS_FORWARD and the alias id, not the domain's.
+        $this->reconfigure(array('CREATE_DEFAULT_EMAIL_ADDRESSES' => true));
+        $aliasId = $this->orderedAlias('sgwordered.test');
+
+        $this->service()->approve($this->caller('reseller'), GlobalId::encode(NodeType::DOMAIN_ALIAS, $aliasId));
+
+        $call = $this->core->callsNamed('createDefaultMailAccounts')[0];
+        self::assertSame('alias_forward', $call[3]);
+        self::assertSame($aliasId, $call[4]);
+    }
+
+    public function testRejectingAnOrderRemovesTheRowAndItsPhpIni(): void
+    {
+        $aliasId = $this->orderedAlias('sgwordered.test');
+        $this->insert('php_ini', array('domain_id' => $aliasId, 'domain_type' => 'als', 'admin_id' => $this->fixture->customerId()));
+
+        $this->service()->reject($this->caller('reseller'), GlobalId::encode(NodeType::DOMAIN_ALIAS, $aliasId));
+
+        self::assertSame(
+            0, (int)$this->db->value('SELECT COUNT(*) FROM domain_aliasses WHERE alias_id = ?', array($aliasId))
+        );
+        self::assertSame(
+            0,
+            (int)$this->db->value(
+                "SELECT COUNT(*) FROM php_ini WHERE domain_id = ? AND domain_type = 'als'", array($aliasId)
+            ),
+            'M14: unlike client/alias_order_delete.php (C11 item 8), this page does clear the php_ini row'
+        );
+    }
+
+    public function testAnAliasThatIsNotOrderedCannotBeApproved(): void
+    {
+        $this->refused(ErrorCode::FORBIDDEN, function (): void {
+            $this->service()->approve(
+                $this->caller('reseller'), GlobalId::encode(NodeType::DOMAIN_ALIAS, $this->fixture->aliasId())
+            );
+        });
+    }
+
+    public function testACustomerMayNotApproveItsOwnOrder(): void
+    {
+        $aliasId = $this->orderedAlias('sgwordered.test');
+
+        $this->refused(ErrorCode::FORBIDDEN, function () use ($aliasId): void {
+            $this->service()->approve($this->caller('customer'), GlobalId::encode(NodeType::DOMAIN_ALIAS, $aliasId));
+        });
+    }
+
+    // ---- reject ---------------------------------------------------------
+
+    public function testACustomerMayNotRejectItsOwnOrder(): void
+    {
+        $aliasId = $this->orderedAlias('sgwordered.test');
+
+        $this->refused(ErrorCode::FORBIDDEN, function () use ($aliasId): void {
+            $this->service()->reject($this->caller('customer'), GlobalId::encode(NodeType::DOMAIN_ALIAS, $aliasId));
         });
     }
 }

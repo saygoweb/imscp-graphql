@@ -371,6 +371,103 @@ final class DomainAliasService
     }
 
     /**
+     * CORE-DEBT(C3): transcribed from gui/public/reseller/alias_order.php:77-130.
+     */
+    public function approve(Identity $caller, string $id): ObjectRef
+    {
+        $kit = $this->kit;
+        $core = $kit->core();
+
+        $target = $kit->guard()->target($caller, $id, array(NodeType::DOMAIN_ALIAS), Scope::DOMAINS_WRITE, 'id');
+
+        $row = $kit->db()->row(
+            '
+                SELECT a.alias_id, a.alias_name, a.alias_status, a.domain_id, ad.email
+                FROM domain_aliasses AS a
+                JOIN domain AS d USING (domain_id)
+                JOIN admin AS ad ON ad.admin_id = d.domain_admin_id
+                WHERE a.alias_id = ?
+            ',
+            array($target->getKey())
+        );
+
+        if ($row === null) {
+            throw Guard::notFound();
+        }
+
+        Guard::requireState((string)$row['alias_status'], array(Provisioning::STATE_ORDERED));
+
+        if ($caller->getRole() !== Identity::ROLE_RESELLER && $caller->getRole() !== Identity::ROLE_ADMIN) {
+            throw Guard::forbidden('Only a reseller or an administrator may approve an alias order.');
+        }
+
+        $aliasId = (int)$row['alias_id'];
+        $domainId = (int)$row['domain_id'];
+        $name = (string)$row['alias_name'];
+        $email = (string)$row['email'];
+        $cfg = $kit->panelConfig(array('CREATE_DEFAULT_EMAIL_ADDRESSES'));
+        $createDefaults = (bool)$cfg['CREATE_DEFAULT_EMAIL_ADDRESSES'];
+
+        $kit->writer()->run(function () use ($kit, $core, $aliasId, $domainId, $name, $email, $createDefaults) {
+            $params = array('domainId' => $domainId, 'domainAliasName' => $name);
+            $core->dispatch(Events::onBeforeAddDomainAlias, $params);
+
+            $kit->db()->execute(
+                "UPDATE domain_aliasses SET alias_status = 'toadd' WHERE alias_id = ?", array($aliasId)
+            );
+
+            if ($createDefaults) {
+                $core->createDefaultMailAccounts($domainId, $email, $name, 'alias_forward', $aliasId);
+            }
+
+            $core->dispatch(Events::onAfterAddDomainAlias, array('domainAliasId' => $aliasId) + $params);
+        });
+
+        $core->sendRequest();
+        $core->writeLog(sprintf('An alias order has been processed by %s.', $caller->getUsername()), E_USER_NOTICE);
+
+        return new ObjectRef(NodeType::DOMAIN_ALIAS, $aliasId);
+    }
+
+    /**
+     * CORE-DEBT(C3): transcribed from gui/public/reseller/alias_order.php:39-71.
+     *   The row is removed outright, not scheduled: nothing has been built for
+     *   it yet, so there is nothing for the daemon to take away.
+     */
+    public function reject(Identity $caller, string $id): ObjectRef
+    {
+        $kit = $this->kit;
+
+        $target = $kit->guard()->target($caller, $id, array(NodeType::DOMAIN_ALIAS), Scope::DOMAINS_WRITE, 'id');
+
+        $row = $kit->db()->row(
+            'SELECT a.alias_id, a.alias_name, a.alias_status FROM domain_aliasses AS a WHERE a.alias_id = ?',
+            array($target->getKey())
+        );
+
+        if ($row === null) {
+            throw Guard::notFound();
+        }
+
+        Guard::requireState((string)$row['alias_status'], array(Provisioning::STATE_ORDERED));
+
+        if ($caller->getRole() !== Identity::ROLE_RESELLER && $caller->getRole() !== Identity::ROLE_ADMIN) {
+            throw Guard::forbidden('Only a reseller or an administrator may reject an alias order.');
+        }
+
+        $aliasId = (int)$row['alias_id'];
+
+        $kit->writer()->run(function () use ($kit, $aliasId) {
+            $kit->db()->execute("DELETE FROM php_ini WHERE domain_id = ? AND domain_type = 'als'", array($aliasId));
+            $kit->db()->execute("DELETE FROM domain_aliasses WHERE alias_id = ? AND alias_status = 'ordered'", array($aliasId));
+        });
+
+        $kit->core()->writeLog(sprintf('An alias order has been rejected by %s.', $caller->getUsername()), E_USER_NOTICE);
+
+        return new ObjectRef(NodeType::DOMAIN_ALIAS, $aliasId);
+    }
+
+    /**
      * An order the reseller never approved: nothing was provisioned, so the
      * row goes, with no events and no daemon.
      *
