@@ -184,4 +184,9 @@ final class DetachedCore implements Core
     {
         throw new LogicException(self::MESSAGE);
     }
+
+    public function deleteReseller(int $resellerAdminId): bool
+    {
+        throw new LogicException(self::MESSAGE);
+    }
 }

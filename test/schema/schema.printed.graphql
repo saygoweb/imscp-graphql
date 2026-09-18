@@ -770,6 +770,18 @@ type Mutation {
 
   "Removes the order. Nothing has been built for it, so nothing is scheduled."
   domainAliasReject(id: ID!): DomainAlias!
+
+  "Administrator only. Written at once: a reseller has no provisioning state (M16)."
+  resellerCreate(input: ResellerCreateInput!): Reseller!
+
+  "Partial: an absent field keeps its value. Administrator only."
+  resellerUpdate(id: ID!, input: ResellerUpdateInput!): Reseller!
+
+  "Removes the reseller outright. Refused while the reseller still has customers. Administrator only."
+  resellerDelete(id: ID!): Reseller!
+
+  "Withdrawing access refuses the account's next API request and revokes its tokens. Administrator only."
+  resellerSetApiAccess(id: ID!, allowed: Boolean!): Reseller!
 }
 
 input ForwardingInput {
@@ -1134,4 +1146,58 @@ input HostingPlanInput {
   to, and ignores this.
   """
   resellerId: ID
+}
+
+"""
+A reseller's own allowances - what it may hand out to its customers, not what
+it consumes itself. -1 withholds a service; 0 is unlimited; n is n. `customers`,
+`traffic` and `disk` are never withheld - the panel's own form never offers it
+(M17) - so 0 is their lowest legal value. `traffic` and `disk` are bytes, like
+every other BigInt here; i-MSCP stores them in MiB, and the conversion happens
+at the boundary. A value that is not a whole number of MiB is BAD_USER_INPUT
+rather than silently truncated.
+
+On resellerCreate every one of these must be named, the same rule
+customerCreate's own allowances follow. resellerUpdate's allowances is merged
+over the reseller's current values, and a value lowered below what the
+reseller has already handed its customers is refused.
+"""
+input ResellerAllowancesInput {
+  customers: Int
+  subdomains: Int
+  domainAliases: Int
+  mailAccounts: Int
+  ftpUsers: Int
+  sqlDatabases: Int
+  sqlUsers: Int
+  traffic: BigInt
+  disk: BigInt
+}
+
+input ResellerCreateInput {
+  username: String!
+  password: Secret!
+  contact: ContactDetailsInput!
+
+  "At least one of the server's own IP addresses."
+  ipAddressIds: [ID!]!
+
+  "Every allowance must be named."
+  allowances: ResellerAllowancesInput!
+
+  "Defaults to true, as the panel's own form does."
+  supportSystem: Boolean = true
+}
+
+"""
+Partial: an absent field keeps its value, and the update must name at least
+one. `allowances` is merged over what the reseller has today, the same rule
+customerUpdate's own allowances follows.
+"""
+input ResellerUpdateInput {
+  password: Secret
+  contact: ContactDetailsInput
+  ipAddressIds: [ID!]
+  allowances: ResellerAllowancesInput
+  supportSystem: Boolean
 }

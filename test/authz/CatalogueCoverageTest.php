@@ -32,8 +32,8 @@ use PHPUnit\Framework\TestCase;
 class CatalogueCoverageTest extends TestCase
 {
     /**
-     * Spec section 7.11's customer-level mutations, less D16's two, and phase
-     * 4's ten reseller and administrator verbs.
+     * Spec section 7.11's customer-level mutations, less D16's two, phase 4's
+     * ten reseller and administrator verbs, and task 10's own four.
      */
     const MUTATIONS = array(
         'customerCreate', 'customerDelete', 'customerSetApiAccess', 'customerSetState',
@@ -43,7 +43,8 @@ class CatalogueCoverageTest extends TestCase
         'ftpUserDelete', 'ftpUserUpdate', 'hostingPlanCreate', 'hostingPlanDelete',
         'hostingPlanUpdate', 'mailAccountCreate', 'mailAccountDelete',
         'mailAccountUpdate', 'mailAutoresponderSet', 'mailCatchallCreate',
-        'mailCatchallDelete', 'sqlDatabaseCreate', 'sqlDatabaseDelete', 'sqlUserCreate',
+        'mailCatchallDelete', 'resellerCreate', 'resellerDelete', 'resellerSetApiAccess',
+        'resellerUpdate', 'sqlDatabaseCreate', 'sqlDatabaseDelete', 'sqlUserCreate',
         'sqlUserDelete', 'sqlUserSetPassword', 'subdomainCreate', 'subdomainDelete',
         'subdomainUpdate'
     );

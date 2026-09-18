@@ -108,6 +108,39 @@ final class MutationCatalogue
     );
 
     /**
+     * A verb over the Reseller node itself, administrator-only (phase 5's own
+     * rule, task 10). A reseller and the customers it created can all reach
+     * this reseller - OwnershipResolver::mayReachReseller() admits them, the
+     * same rule that lets a customer read Customer.reseller - so what refuses
+     * them is the verb, FORBIDDEN, exactly RESELLER_OWNED's own shape for a
+     * customer acting on itself. Another reseller, and that reseller's
+     * customers, cannot reach this reseller at all: NOT_FOUND.
+     */
+    const ADMINISTRATOR_ONLY = array(
+        'customer'      => 'FORBIDDEN',
+        'sibling'       => 'FORBIDDEN',
+        'otherCustomer' => 'NOT_FOUND',
+        'reseller'      => 'FORBIDDEN',
+        'otherReseller' => 'NOT_FOUND',
+        'admin'         => 'OK'
+    );
+
+    /**
+     * A create, tightened from RESELLER_CREATE to administrator-only: a
+     * reseller has no verb for creating another reseller at all (D30 does not
+     * apply - there is no "a reseller may only name itself" reading here), so
+     * every non-administrator is refused the same way, FORBIDDEN.
+     */
+    const ADMINISTRATOR_CREATE = array(
+        'customer'      => 'FORBIDDEN',
+        'sibling'       => 'FORBIDDEN',
+        'otherCustomer' => 'FORBIDDEN',
+        'reseller'      => 'FORBIDDEN',
+        'otherReseller' => 'FORBIDDEN',
+        'admin'         => 'OK'
+    );
+
+    /**
      * @return array<string, array{scope: string, document: string, prepare: callable, variables: callable, owner: string, expected: array<string, string>}>
      */
     public static function all(): array
@@ -156,6 +189,27 @@ final class MutationCatalogue
 
         $customer = static function (Fixture $f): string {
             return GlobalId::encode(NodeType::CUSTOMER, $f->customerId());
+        };
+
+        $reseller = static function (Fixture $f): string {
+            return GlobalId::encode(NodeType::RESELLER, $f->resellerId());
+        };
+
+        // resellerUpdate and resellerSetApiAccess both target the fixture's
+        // own reseller; resellerDelete does too, but first empties its
+        // customer counter (a plain UPDATE, not a real delete - task 10's
+        // own check reads current_dmn_cnt, not a live COUNT), or even the
+        // administrator's own call would be CONFLICT before it ever reached
+        // the authorisation question this row asks. No DDL is issued deleting
+        // a reseller (task 10 report), so - unlike customerDelete's own note
+        // on the sibling - there is no implicit-commit hazard in targeting
+        // the fixture's main reseller here.
+        $resellerWithNoCustomers = static function (Fixture $f, Db $db): array {
+            $db->execute(
+                'UPDATE reseller_props SET current_dmn_cnt = 0 WHERE reseller_id = ?', array($f->resellerId())
+            );
+
+            return array();
         };
 
         // An alias in the state its reseller may act on. The fixture's alias
@@ -554,6 +608,59 @@ final class MutationCatalogue
                 'expected'  => self::RESELLER_OWNED,
                 'variables' => static function (Fixture $f, array $p): array {
                     return array('id' => GlobalId::encode(NodeType::DOMAIN_ALIAS, $f->aliasId()));
+                }
+            ),
+
+            // ---- task 10: resellers (administrator) -------------------------
+
+            'resellerCreate' => array(
+                'scope'     => Scope::RESELLERS_WRITE,
+                'document'  => 'mutation($input: ResellerCreateInput!) { resellerCreate(input: $input) { id } }',
+                'prepare'   => $nothing,
+                'owner'     => 'admin',
+                'expected'  => self::ADMINISTRATOR_CREATE,
+                'variables' => static function (Fixture $f, array $p): array {
+                    return array('input' => array(
+                        'username'     => 'sgwtauthzreseller.test',
+                        'password'     => 'Authz0Pass!',
+                        'contact'      => array('email' => 'owner@sgwtauthzreseller.test'),
+                        'ipAddressIds' => array(GlobalId::encode(NodeType::IP_ADDRESS, $f->ipId())),
+                        'allowances'   => array(
+                            'customers' => 5, 'subdomains' => 10, 'domainAliases' => 10, 'mailAccounts' => 10,
+                            'ftpUsers' => 10, 'sqlDatabases' => 10, 'sqlUsers' => 10,
+                            'traffic' => 1024 * 1048576, 'disk' => 1024 * 1048576
+                        )
+                    ));
+                }
+            ),
+            'resellerUpdate' => array(
+                'scope'     => Scope::RESELLERS_WRITE,
+                'document'  => 'mutation($id: ID!, $input: ResellerUpdateInput!) { resellerUpdate(id: $id, input: $input) { id } }',
+                'prepare'   => $nothing,
+                'owner'     => 'admin',
+                'expected'  => self::ADMINISTRATOR_ONLY,
+                'variables' => static function (Fixture $f, array $p) use ($reseller): array {
+                    return array('id' => $reseller($f), 'input' => array('supportSystem' => false));
+                }
+            ),
+            'resellerDelete' => array(
+                'scope'     => Scope::RESELLERS_WRITE,
+                'document'  => $byId('resellerDelete'),
+                'prepare'   => $resellerWithNoCustomers,
+                'owner'     => 'admin',
+                'expected'  => self::ADMINISTRATOR_ONLY,
+                'variables' => static function (Fixture $f, array $p) use ($reseller): array {
+                    return array('id' => $reseller($f));
+                }
+            ),
+            'resellerSetApiAccess' => array(
+                'scope'     => Scope::RESELLERS_WRITE,
+                'document'  => 'mutation($id: ID!, $allowed: Boolean!) { resellerSetApiAccess(id: $id, allowed: $allowed) { id } }',
+                'prepare'   => $nothing,
+                'owner'     => 'admin',
+                'expected'  => self::ADMINISTRATOR_ONLY,
+                'variables' => static function (Fixture $f, array $p) use ($reseller): array {
+                    return array('id' => $reseller($f), 'allowed' => false);
                 }
             )
         );

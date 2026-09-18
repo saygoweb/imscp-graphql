@@ -33,9 +33,9 @@ use Throwable;
  * writeLog() and sendAliasOrderEmail() (a test must not send mail).
  *
  * Delegated: the validators, the IDN codec, the password hash, PhpEditor,
- * createDefaultMailAccounts(), updateResellerCounters(), domainExists() and
- * deleteCustomer() - the panel's own rules, which are exactly what the
- * integration suite is for.
+ * createDefaultMailAccounts(), updateResellerCounters(), domainExists(),
+ * deleteCustomer() and deleteReseller() - the panel's own rules, which are
+ * exactly what the integration suite is for.
  */
 final class RecordingCore implements Core
 {
@@ -347,6 +347,13 @@ final class RecordingCore implements Core
         $this->record('deleteCustomer', $customerAdminId);
 
         return $this->inner->deleteCustomer($customerAdminId);
+    }
+
+    public function deleteReseller(int $resellerAdminId): bool
+    {
+        $this->record('deleteReseller', $resellerAdminId);
+
+        return $this->inner->deleteReseller($resellerAdminId);
     }
 
     /**

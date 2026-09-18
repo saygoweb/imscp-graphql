@@ -22,7 +22,9 @@ namespace iMSCP\Plugin\SGW_GraphQL\Service;
 
 use Exception;
 use iMSCP\Crypt;
+use iMSCP\Database\DatabaseMySQL;
 use iMSCP\Event\EventAggregator;
+use iMSCP\Event\Events;
 use iMSCP\PhpEditor;
 use iMSCP\Registry;
 use iMSCP\Uri\UriRedirect;
@@ -369,5 +371,71 @@ final class PanelCore implements Core
     public function deleteCustomer(int $customerAdminId): bool
     {
         return (bool)deleteCustomer($customerAdminId, false);
+    }
+
+    /**
+     * CORE-DEBT(C3): transcribed from gui/public/admin/user_delete.php:40-119
+     *   admin_deleteUser(), the reseller branch. The page defines this helper
+     *   inline in its own script rather than in a shared library the way
+     *   deleteCustomer() (gui/include/Shared.php:779) is, so there is nothing
+     *   for decision D10 to wrap: this reproduces its five DELETEs (in the
+     *   page's own order: hosting_plans and reseller_props first, then the
+     *   items every admin/reseller row shares) and its two events directly.
+     *
+     *   Also dropped, for the same reason CustomerService::setState()'s own
+     *   note gives for change_domain_status(): admin_deleteUser() calls
+     *   set_page_message() unconditionally on success, and writes its own
+     *   write_log() from $_SESSION['user_logged'] - both page-only concerns
+     *   a web session provides and an API request does not. Both fail D10's
+     *   test the same two ways change_domain_status() does, so the caller
+     *   (ResellerService::delete()) supplies its own writeLog() instead, the
+     *   same split setState() already uses. The ISP logo file cleanup
+     *   (user_delete.php:101-108) is left alone too: removing a file is not
+     *   a database concern, and nothing in this API reads or writes one.
+     *
+     *   api_token and api_perm are the plugin's own tables (sql/001_create_
+     *   api_tables.php), not the panel's, so admin_deleteUser() knows
+     *   nothing of them; they are cleaned up here, inside the same
+     *   transaction, so a deleted reseller leaves no orphaned credential
+     *   behind it.
+     */
+    public function deleteReseller(int $resellerAdminId): bool
+    {
+        $exists = (bool)exec_query(
+            "SELECT 1 FROM admin WHERE admin_id = ? AND admin_type = 'reseller'", array($resellerAdminId)
+        )->rowCount();
+
+        if (!$exists) {
+            return false;
+        }
+
+        $db = DatabaseMySQL::getInstance();
+
+        try {
+            $db->beginTransaction();
+
+            $this->dispatch(Events::onBeforeDeleteUser, array('userId' => $resellerAdminId));
+
+            exec_query('DELETE FROM hosting_plans WHERE reseller_id = ?', array($resellerAdminId));
+            exec_query('DELETE FROM reseller_props WHERE reseller_id = ?', array($resellerAdminId));
+            exec_query('DELETE FROM admin WHERE admin_id = ?', array($resellerAdminId));
+            exec_query('DELETE FROM email_tpls WHERE owner_id = ?', array($resellerAdminId));
+            exec_query(
+                'DELETE FROM tickets WHERE ticket_from = ? OR ticket_to = ?',
+                array($resellerAdminId, $resellerAdminId)
+            );
+            exec_query('DELETE FROM user_gui_props WHERE user_id = ?', array($resellerAdminId));
+            exec_query('DELETE FROM api_token WHERE admin_id = ?', array($resellerAdminId));
+            exec_query('DELETE FROM api_perm WHERE admin_id = ?', array($resellerAdminId));
+
+            $this->dispatch(Events::onAfterDeleteUser, array('userId' => $resellerAdminId));
+
+            $db->commit();
+        } catch (Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+
+        return true;
     }
 }

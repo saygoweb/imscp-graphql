@@ -41,6 +41,7 @@ use iMSCP\Plugin\SGW_GraphQL\Resolver\FtpSqlResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\MailMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\MailResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\QueryResolver;
+use iMSCP\Plugin\SGW_GraphQL\Resolver\ResellerMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\ResellerResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\SqlMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\TypeResolver;
@@ -64,6 +65,7 @@ use iMSCP\Plugin\SGW_GraphQL\Service\HostingPlanService;
 use iMSCP\Plugin\SGW_GraphQL\Service\MailService;
 use iMSCP\Plugin\SGW_GraphQL\Service\MariaDbSqlServer;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
+use iMSCP\Plugin\SGW_GraphQL\Service\ResellerService;
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlServer;
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlService;
 use iMSCP\Plugin\SGW_GraphQL\Service\SubdomainService;
@@ -440,6 +442,9 @@ final class Container
             'CustomerMutations' => (new CustomerMutations(
                 $loader, new CustomerService($kit), new HostingPlanService($kit),
                 new DomainAliasService($kit), $customers, $resellers, $virtualHosts, $toUnicode
+            ))->map(),
+            'ResellerMutations' => (new ResellerMutations(
+                $loader, new ResellerService($kit), $resellers, $toUnicode
             ))->map()
         );
 

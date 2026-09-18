@@ -181,4 +181,15 @@ interface Core
      * it was given is no longer there.
      */
     public function deleteCustomer(int $customerAdminId): bool;
+
+    /**
+     * Removes a reseller, and everything it owns, outright: the panel has no
+     * `todelete` verb for a reseller (M16 - no status column, no daemon
+     * work), so unlike deleteCustomer() this is synchronous. Also removes the
+     * plugin's own api_token and api_perm rows for the reseller - tables
+     * admin/user_delete.php knows nothing about. Manages its own transaction,
+     * so the caller must open no Writer::run() of its own around it. Returns
+     * false only when the row it was given is no longer there.
+     */
+    public function deleteReseller(int $resellerAdminId): bool;
 }
