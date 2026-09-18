@@ -98,10 +98,13 @@ final class HostingPlanService
 
     /**
      * CORE-DEBT(C3): transcribed from gui/public/reseller/hosting_plan_edit.php:487-514.
-     *   Unlike the page (which never checks the name for a collision on
-     *   update), this excludes the plan's own row from the uniqueness check
-     *   so a plan may keep its name unchanged - the panel's own oversight is
-     *   not carried over. Retire when HostingPlanService lands in core.
+     *   Retire when HostingPlanService lands in core.
+     *
+     * CORE-DEBT(C11): C11 item 14 - the page never checks the new name for a
+     *   collision on update, although hosting_plan_add.php does on create.
+     *   Kept: this excludes the plan's own row from the uniqueness check so a
+     *   plan may keep its name unchanged, rather than carrying the panel's
+     *   own oversight over.
      */
     public function update(Identity $caller, string $id, array $input): ObjectRef
     {
@@ -125,14 +128,25 @@ final class HostingPlanService
             throw Guard::conflict('A hosting plan with that name already exists.');
         }
 
-        $kit->writer()->run(function () use ($kit, $target, $name, $input, $allowances) {
+        // B12: a partial update must not blank what it does not name - the
+        // same rule CustomerService::update() applies to a partial contact.
+        // description defaults to '' and available to 0 only when the
+        // input truly gives no value for them, not merged from the stored
+        // row first.
+        $current = $kit->db()->row(
+            'SELECT description, status FROM hosting_plans WHERE id = ?', array($target->getKey())
+        ) ?? array();
+        $description = array_key_exists('description', $input) && $input['description'] !== null
+            ? (string)$input['description']
+            : (string)($current['description'] ?? '');
+        $available = array_key_exists('available', $input) && $input['available'] !== null
+            ? (empty($input['available']) ? 0 : 1)
+            : (int)($current['status'] ?? 0);
+
+        $kit->writer()->run(function () use ($kit, $target, $name, $description, $available, $allowances) {
             $kit->db()->execute(
                 'UPDATE hosting_plans SET name = ?, description = ?, props = ?, status = ? WHERE id = ?',
-                array(
-                    $name, (string)($input['description'] ?? ''),
-                    $allowances->toProps()->toString(), empty($input['available']) ? 0 : 1,
-                    $target->getKey()
-                )
+                array($name, $description, $allowances->toProps()->toString(), $available, $target->getKey())
             );
         });
 

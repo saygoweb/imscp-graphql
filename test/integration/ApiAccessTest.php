@@ -82,4 +82,18 @@ class ApiAccessTest extends ServiceTestCase
 
         self::assertNotSame(array(), $this->core->callsNamed('writeLog'));
     }
+
+    // ---- B14: the harness must give AccessService the contract Container does ----
+
+    public function testIsCustomerOfRecognisesTheFixturesOwnCustomer(): void
+    {
+        self::assertTrue($this->kit->access()->isCustomerOf($this->fixture->resellerId(), $this->fixture->customerId()));
+    }
+
+    public function testIsCustomerOfRefusesAnotherResellersCustomer(): void
+    {
+        self::assertFalse(
+            $this->kit->access()->isCustomerOf($this->fixture->otherResellerId(), $this->fixture->customerId())
+        );
+    }
 }

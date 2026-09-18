@@ -293,6 +293,25 @@ final class RecordingCore implements Core
         $this->aliasOrders[] = array($customerAdminId, $aliasName);
     }
 
+    public function monthBounds(): array
+    {
+        $this->record('monthBounds');
+
+        return $this->inner->monthBounds();
+    }
+
+    public function syncMailboxQuota(int $domainId, int $bytes): void
+    {
+        $this->record('syncMailboxQuota', $domainId, $bytes);
+        $this->inner->syncMailboxQuota($domainId, $bytes);
+    }
+
+    public function updatePhpIniForDomain(int $customerAdminId, int $domainId, array $values): void
+    {
+        $this->record('updatePhpIniForDomain', $customerAdminId, $domainId, $values);
+        $this->inner->updatePhpIniForDomain($customerAdminId, $domainId, $values);
+    }
+
     /**
      * Recorded, never performed: a test must not send mail, and the cleartext
      * password the panel's welcome message carries by design must not outlive

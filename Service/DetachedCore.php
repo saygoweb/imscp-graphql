@@ -148,6 +148,21 @@ final class DetachedCore implements Core
         throw new LogicException(self::MESSAGE);
     }
 
+    public function monthBounds(): array
+    {
+        throw new LogicException(self::MESSAGE);
+    }
+
+    public function syncMailboxQuota(int $domainId, int $bytes): void
+    {
+        throw new LogicException(self::MESSAGE);
+    }
+
+    public function updatePhpIniForDomain(int $customerAdminId, int $domainId, array $values): void
+    {
+        throw new LogicException(self::MESSAGE);
+    }
+
     public function sendAccountCreatedEmail(
         int $createdBy, string $username, string $password, string $email,
         string $firstName, string $lastName, string $role

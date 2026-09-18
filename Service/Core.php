@@ -126,6 +126,38 @@ interface Core
     public function sendAliasOrderEmail(int $customerAdminId, string $aliasName): void;
 
     /**
+     * The first and last second of the current calendar month, the way the
+     * panel's own traffic pages compute it - Resolver\CustomerResolver's own
+     * copy of this reasoning explains why: getFirstDayOfMonth()/
+     * getLastDayOfMonth() build Zend_Date objects, and the API must agree
+     * with the panel about where a month ends.
+     *
+     * @return array{0: int, 1: int}
+     */
+    public function monthBounds(): array;
+
+    /**
+     * sync_mailboxes_quota() (gui/include/Shared.php:1350): reproportions
+     * every mailbox's own quota under a new domain-wide mail quota. Checked
+     * against decision D10 (Checkpoint B, B5): every identity is an explicit
+     * argument, it returns rather than exits, and it issues no DDL - so it is
+     * wrapped here rather than transcribed.
+     */
+    public function syncMailboxQuota(int $domainId, int $bytes): void;
+
+    /**
+     * The php.ini directive values an update writes into the existing
+     * php_ini row(s) for a customer's own domain, through PhpEditor - the
+     * counterpart of savePhpIniForNewDomain() for a domain that already has
+     * one. Checkpoint B, B9: transcribed from
+     * gui/public/reseller/domain_edit.php:901, updateClientDomainIni().
+     *
+     * @param array<string, string> $values phpiniMemoryLimit, phpiniPostMaxSize,
+     *        phpiniUploadMaxFileSize, phpiniMaxExecutionTime, phpiniMaxInputTime
+     */
+    public function updatePhpIniForDomain(int $customerAdminId, int $domainId, array $values): void;
+
+    /**
      * send_add_user_auto_msg(): the panel's welcome message, which carries the
      * new account's password in clear by its own design (spec section 12). The
      * only path a Secret takes besides the hasher.

@@ -437,6 +437,57 @@ class CustomerServiceTest extends ServiceTestCase
         );
     }
 
+    public function testAPasswordOnlyUpdateReachesTheDaemon(): void
+    {
+        // B2: user_edit.php:114 calls send_request() unconditionally whenever
+        // a password is given; before this fix $needsDaemon ignored a
+        // password alone, so admin_status stayed 'tochangepwd' with nobody
+        // poked to move the account out of it.
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('password' => 'An0therSecret!')
+        );
+
+        $admin = $this->db->row('SELECT admin_status FROM admin WHERE admin_id = ?', array($this->fixture->customerId()));
+        self::assertSame('tochangepwd', $admin['admin_status']);
+        self::assertContains(array('sendRequest'), $this->core->calls);
+    }
+
+    public function testAPartialContactDoesNotBlankTheRest(): void
+    {
+        // B7: {contact: {email: ...}} alone must not erase firstName,
+        // lastName, company, address and phone - contactFor()'s '' defaults
+        // filled the IFNULL list with blanks before this fix.
+        $before = $this->db->row('SELECT * FROM admin WHERE admin_id = ?', array($this->fixture->customerId()));
+
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('contact' => array('email' => 'grace@sgwt.test'))
+        );
+
+        $after = $this->db->row('SELECT * FROM admin WHERE admin_id = ?', array($this->fixture->customerId()));
+        self::assertSame('grace@sgwt.test', $after['email']);
+        self::assertSame($before['fname'], $after['fname']);
+        self::assertSame($before['lname'], $after['lname']);
+        self::assertSame($before['firm'], $after['firm']);
+        self::assertSame($before['street1'], $after['street1']);
+        self::assertSame($before['phone'], $after['phone']);
+    }
+
+    public function testExpiresAtNullAloneIsReachable(): void
+    {
+        // B8: $named was computed from $given, which filters a null value
+        // away before it is ever seen - "never expires" (expiresAt: null)
+        // alone could not be sent at all before this fix.
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('expiresAt' => null)
+        );
+
+        $domain = $this->db->row('SELECT domain_expires FROM domain WHERE domain_admin_id = ?', array($this->fixture->customerId()));
+        self::assertSame(0, (int)$domain['domain_expires']);
+    }
+
     public function testAnUpdateThatNamesNothingIsRefused(): void
     {
         $this->refused(ErrorCode::BAD_USER_INPUT, function (): void {
@@ -473,6 +524,179 @@ class CustomerServiceTest extends ServiceTestCase
         self::assertSame(42, (int)$domain['domain_mailacc_limit']);
         self::assertContains(array('sendRequest'), $this->core->calls);
         self::assertContains(array('updateResellerCounters', $this->fixture->resellerId()), $this->core->calls);
+    }
+
+    // ---- B3: disk and traffic are measured on the edit path too ---------
+
+    public function testADiskLimitBeyondWhatTheResellerHasLeftIsRefused(): void
+    {
+        $this->db->execute(
+            'UPDATE reseller_props SET max_disk_amnt = 100, current_disk_amnt = 60 WHERE reseller_id = ?',
+            array($this->fixture->resellerId())
+        );
+
+        $e = $this->refused(ErrorCode::LIMIT_EXCEEDED, function (): void {
+            $this->service()->update(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+                array('allowances' => array('disk' => 6000 * 1048576))
+            );
+        });
+
+        self::assertSame('disk', $e->getExtensions()['quota']);
+    }
+
+    public function testATrafficLimitBelowWhatTheCustomerAlreadyUsesIsRefused(): void
+    {
+        list($start) = $this->core->monthBounds();
+        $this->insert('domain_traffic', array(
+            'domain_id' => $this->fixture->domainId(), 'dtraff_time' => $start + 3600,
+            'dtraff_web' => 20 * 1048576, 'dtraff_ftp' => 0, 'dtraff_mail' => 0, 'dtraff_pop' => 0
+        ));
+
+        $e = $this->refused(ErrorCode::LIMIT_EXCEEDED, function (): void {
+            $this->service()->update(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+                array('allowances' => array('traffic' => 5 * 1048576))
+            );
+        });
+
+        self::assertSame('traffic', $e->getExtensions()['quota']);
+    }
+
+    // ---- B4: an IP change follows the customer's aliases -----------------
+
+    public function testMovingACustomersIpFollowsItsAliases(): void
+    {
+        $newIpId = $this->insert('server_ips', array(
+            'ip_number' => '203.0.113.8', 'ip_netmask' => 24, 'ip_card' => 'eth0',
+            'ip_config_mode' => 'manual', 'ip_status' => 'ok'
+        ));
+        $this->db->execute(
+            'UPDATE reseller_props SET reseller_ips = ? WHERE reseller_id = ?',
+            array($this->fixture->ipId() . ';' . $newIpId . ';', $this->fixture->resellerId())
+        );
+        $orderedAliasId = $this->insert('domain_aliasses', array(
+            'domain_id' => $this->fixture->domainId(), 'alias_name' => 'sgwt-ordered.test',
+            'alias_status' => 'ordered', 'alias_mount' => '/sgwt-ordered.test', 'alias_document_root' => '/htdocs',
+            'alias_ip_id' => $this->fixture->ipId(), 'url_forward' => 'no', 'type_forward' => 'forward',
+            'host_forward' => 'Off', 'wildcard_alias' => 'no', 'external_mail' => 'off'
+        ));
+
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('ipAddressId' => GlobalId::encode(NodeType::IP_ADDRESS, $newIpId))
+        );
+
+        $settled = $this->db->row(
+            'SELECT alias_ip_id, alias_status FROM domain_aliasses WHERE alias_id = ?', array($this->fixture->aliasId())
+        );
+        self::assertSame($newIpId, (int)$settled['alias_ip_id']);
+        self::assertSame('tochange', $settled['alias_status']);
+
+        $ordered = $this->db->row(
+            'SELECT alias_ip_id, alias_status FROM domain_aliasses WHERE alias_id = ?', array($orderedAliasId)
+        );
+        self::assertSame($newIpId, (int)$ordered['alias_ip_id']);
+        self::assertSame('ordered', $ordered['alias_status']);
+    }
+
+    // ---- B5: a new mail quota reaches the mailboxes ----------------------
+
+    public function testANewMailQuotaReachesTheMailboxes(): void
+    {
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('allowances' => array('mailQuota' => 512 * 1048576))
+        );
+
+        self::assertSame(
+            array(array($this->fixture->domainId(), 512 * 1048576)),
+            $this->core->callsNamed('syncMailboxQuota')
+        );
+    }
+
+    public function testAnUnchangedMailQuotaDoesNotSync(): void
+    {
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('allowances' => array('mailAccounts' => 42))
+        );
+
+        self::assertSame(array(), $this->core->callsNamed('syncMailboxQuota'));
+    }
+
+    // ---- B6: the disk limit reaches the FTP group quota -------------------
+
+    public function testTheDiskLimitReachesTheFtpGroupQuota(): void
+    {
+        // 8192 MiB (8 GiB), a power of two: exact in the column's FLOAT the
+        // same way FtpServiceTest's own 5 GiB is (see its own note).
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('allowances' => array('disk' => 8192 * 1048576))
+        );
+
+        self::assertSame(
+            1, (int)$this->db->value('SELECT COUNT(*) FROM quotalimits WHERE name = ?', array($this->fixture->domainName()))
+        );
+        self::assertSame('8589934592', (string)$this->db->value(
+            'SELECT CAST(bytes_in_avail AS DECIMAL(20,0)) FROM quotalimits WHERE name = ?',
+            array($this->fixture->domainName())
+        ));
+    }
+
+    // ---- B9: php_ini is updated too ---------------------------------------
+
+    public function testAnAllowancesChangeUpdatesThePhpIni(): void
+    {
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('allowances' => array('mailAccounts' => 42))
+        );
+
+        $calls = $this->core->callsNamed('updatePhpIniForDomain');
+        self::assertCount(1, $calls);
+        self::assertSame($this->fixture->customerId(), $calls[0][0]);
+        self::assertSame($this->fixture->domainId(), $calls[0][1]);
+        self::assertArrayHasKey('phpiniMemoryLimit', $calls[0][2]);
+    }
+
+    public function testAnUpdateWithNoAllowancesDoesNotTouchThePhpIni(): void
+    {
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('contact' => array('email' => 'new2@sgwt.test'))
+        );
+
+        self::assertSame(array(), $this->core->callsNamed('updatePhpIniForDomain'));
+    }
+
+    // ---- B10: the SQL cross-check is missing on the edit path -------------
+
+    public function testWithholdingSqlUsersWhileSqlDatabasesStaysEnabledIsRefused(): void
+    {
+        // The sibling has no SQL rows of its own, so the ordinary per-service
+        // loop's "already has some" refusal cannot mask this one.
+        $e = $this->refused(ErrorCode::LIMIT_EXCEEDED, function (): void {
+            $this->service()->update(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->siblingId()),
+                array('allowances' => array('sqlUsers' => -1))
+            );
+        });
+
+        self::assertSame('SQL users limit is disabled.', $e->getMessage());
+    }
+
+    public function testWithholdingSqlDatabasesWhileSqlUsersStaysEnabledIsRefused(): void
+    {
+        $e = $this->refused(ErrorCode::LIMIT_EXCEEDED, function (): void {
+            $this->service()->update(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->siblingId()),
+                array('allowances' => array('sqlDatabases' => -1))
+            );
+        });
+
+        self::assertSame('SQL databases limit is disabled.', $e->getMessage());
     }
 
     public function testWithdrawingCustomDnsRemovesTheCustomersOwnRecords(): void
@@ -516,6 +740,59 @@ class CustomerServiceTest extends ServiceTestCase
                 array('contact' => array('email' => 'thief@example.test'))
             );
         });
+    }
+
+    // ---- B1 (HIGH, privilege escalation): only a reseller or an ----------
+    // ---- administrator may act on a customer, never the customer itself --
+
+    public function testACustomerMayNotUpdateItself(): void
+    {
+        $before = $this->db->row('SELECT * FROM domain WHERE domain_admin_id = ?', array($this->fixture->customerId()));
+
+        $this->refused(ErrorCode::FORBIDDEN, function (): void {
+            $this->service()->update(
+                $this->caller('customer'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+                array('allowances' => array('mailAccounts' => 999999))
+            );
+        });
+
+        self::assertSame(
+            $before, $this->db->row('SELECT * FROM domain WHERE domain_admin_id = ?', array($this->fixture->customerId())),
+            'the row must be unchanged, not merely the exception thrown'
+        );
+    }
+
+    public function testACustomerMayNotDisableItself(): void
+    {
+        $before = $this->db->row('SELECT * FROM domain WHERE domain_admin_id = ?', array($this->fixture->customerId()));
+
+        $this->refused(ErrorCode::FORBIDDEN, function (): void {
+            $this->service()->setState(
+                $this->caller('customer'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()), 'DISABLED'
+            );
+        });
+
+        self::assertSame(
+            $before, $this->db->row('SELECT * FROM domain WHERE domain_admin_id = ?', array($this->fixture->customerId())),
+            'the row must be unchanged, not merely the exception thrown'
+        );
+    }
+
+    public function testACustomerMayNotDeleteItself(): void
+    {
+        $before = $this->db->row('SELECT * FROM admin WHERE admin_id = ?', array($this->fixture->customerId()));
+
+        $this->refused(ErrorCode::FORBIDDEN, function (): void {
+            $this->service()->delete(
+                $this->caller('customer'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId())
+            );
+        });
+
+        self::assertSame(
+            $before, $this->db->row('SELECT * FROM admin WHERE admin_id = ?', array($this->fixture->customerId())),
+            'the row must be unchanged, not merely the exception thrown'
+        );
+        self::assertSame(array(), $this->core->callsNamed('deleteCustomer'));
     }
 
     // ---- setState() ---------------------------------------------------------

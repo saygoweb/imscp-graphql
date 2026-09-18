@@ -2076,6 +2076,7 @@ behaviour.
 11. `client/mail_catchall_add.php` never checks `domain_mailacc_limit`, although the row it writes is a `mail_users` row that `Counting.php:518` counts against that limit. A customer at their limit can add catch-alls without end, and the mail-account usage the panel reports then exceeds the limit shown beside it.
 12. `reseller/user_add3.php:254` sends the welcome message — which carries the new customer's password in clear — *inside* the transaction, before line 286's `commit()`. A failure after it, and the rollback that follows, leaves the customer holding credentials for an account that was never created, and the reseller with no record that anything was sent.
 13. `reseller/user_add3.php:102-116` explodes `reseller_props.reseller_ips` after `rtrim(…, ';')`. For a reseller with no IPs that yields `array('')`, and the check `in_array($domainIp, $resellerIps)` is loose, so under PHP 7 `0 == ''` is true and a posted `domain_ip` of `0` — which is what `intval()` gives for any non-numeric value — passes. Under PHP 8 the same comparison is false, so the page's behaviour depends on the interpreter.
+14. `reseller/hosting_plan_edit.php:487-514` does not check that the new name is unique for the reseller, although `hosting_plan_add.php:435` does. A reseller can rename one plan to collide with another, after which neither can be told from the other by name.
 
 *Why i-MSCP wants it anyway.* Each is a user-visible failure or a cross-tenant write in the panel as shipped.
 

@@ -285,6 +285,51 @@ final class PanelCore implements Core
         }
     }
 
+    public function monthBounds(): array
+    {
+        return array((int)getFirstDayOfMonth(), (int)getLastDayOfMonth());
+    }
+
+    public function syncMailboxQuota(int $domainId, int $bytes): void
+    {
+        sync_mailboxes_quota($domainId, $bytes);
+    }
+
+    /**
+     * CORE-DEBT(C3): transcribed from gui/public/reseller/domain_edit.php:901,
+     *   collapsed to the shape savePhpIniForNewDomain() already uses: every
+     *   value the API's allowances carry is given explicitly, so there is no
+     *   $_POST-optional branch to reproduce. The reseller - needed only so
+     *   PhpEditor can cap each value against its own PHP limits, the same
+     *   role it plays in savePhpIniForNewDomain() - is looked up from
+     *   $customerAdminId the way sendAliasOrderEmail() looks up the reseller
+     *   that sent its mail: it is not a second identity the API needs to
+     *   assert anything about. Retire when CustomerService lands in core.
+     *
+     * @param array<string, string> $values phpiniMemoryLimit, phpiniPostMaxSize,
+     *        phpiniUploadMaxFileSize, phpiniMaxExecutionTime, phpiniMaxInputTime
+     */
+    public function updatePhpIniForDomain(int $customerAdminId, int $domainId, array $values): void
+    {
+        $row = exec_query(
+            'SELECT created_by FROM admin WHERE admin_id = ?', array($customerAdminId)
+        )->fetchRow(PDO::FETCH_ASSOC);
+        $resellerId = (int)($row['created_by'] ?? 0);
+
+        $editor = PhpEditor::getInstance();
+        $editor->loadResellerPermissions((string)$resellerId);
+        $editor->loadClientPermissions((string)$customerAdminId);
+        $editor->loadDomainIni((string)$customerAdminId, (string)$domainId, 'dmn');
+
+        $editor->setDomainIni('phpiniMemoryLimit', $values['phpiniMemoryLimit']);
+        $editor->setDomainIni('phpiniPostMaxSize', $values['phpiniPostMaxSize']);
+        $editor->setDomainIni('phpiniUploadMaxFileSize', $values['phpiniUploadMaxFileSize']);
+        $editor->setDomainIni('phpiniMaxExecutionTime', $values['phpiniMaxExecutionTime']);
+        $editor->setDomainIni('phpiniMaxInputTime', $values['phpiniMaxInputTime']);
+
+        $editor->updateClientDomainIni($editor->getDomainIni(), (string)$customerAdminId);
+    }
+
     /**
      * CORE-DEBT(C1): send_add_user_auto_msg() reads nothing from the session,
      *   but its first argument is the reseller the message is "from".

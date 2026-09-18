@@ -80,6 +80,8 @@ class CoreCallsTest extends TestCase
         'update_reseller_c_props'       => 'One UPDATE from an explicit reseller id; no session, no exit.',
         'send_mail'                     => 'Throws on bad input; returns bool.',
         'delete_autoreplies_log_entries' => 'One DELETE; no arguments, no session.',
+        'sync_mailboxes_quota'          => 'Explicit domain id and quota; ignore_user_abort()/set_time_limit() '
+            . 'affect only this request, no exit and no DDL (checkpoint B, B5).',
         'deletecustomer'                => 'Explicit customer id, called with $checkCreatedBy = false '
             . 'because ownership is already established. Decision D22: it manages its own transaction '
             . 'and drops a customer\'s SQL databases outright - real DDL, which implicitly commits any '

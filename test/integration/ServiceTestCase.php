@@ -118,8 +118,13 @@ abstract class ServiceTestCase extends IntegrationTestCase
             new Writer($db),
             $this->probe,
             new AccessService(
-                static function (string $sql, array $bind = array()) use ($db) {
-                    return $db->rows($sql, $bind);
+                // B14: AccessService::customersOf() calls ->fetchAll() on
+                // what this closure returns; Container's own $this->query is
+                // exec_query(), which returns a statement, not the array
+                // $db->rows() gives back. Matching it here is what makes
+                // isCustomerOf() exercisable by this harness at all.
+                static function (string $sql, array $bind = array()) {
+                    return exec_query($sql, $bind);
                 },
                 TokenService::fromPanel(),
                 true

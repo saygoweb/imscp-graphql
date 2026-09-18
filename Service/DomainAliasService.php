@@ -395,11 +395,14 @@ final class DomainAliasService
             throw Guard::notFound();
         }
 
-        Guard::requireState((string)$row['alias_status'], array(Provisioning::STATE_ORDERED));
-
+        // B13: role before state, matching spec section 8.1's order - a
+        // customer probing alias ids must not be able to tell a settled one
+        // (CONFLICT) from an ordered one (FORBIDDEN) by the code it gets back.
         if ($caller->getRole() !== Identity::ROLE_RESELLER && $caller->getRole() !== Identity::ROLE_ADMIN) {
             throw Guard::forbidden('Only a reseller or an administrator may approve an alias order.');
         }
+
+        Guard::requireState((string)$row['alias_status'], array(Provisioning::STATE_ORDERED));
 
         $aliasId = (int)$row['alias_id'];
         $domainId = (int)$row['domain_id'];
@@ -449,11 +452,12 @@ final class DomainAliasService
             throw Guard::notFound();
         }
 
-        Guard::requireState((string)$row['alias_status'], array(Provisioning::STATE_ORDERED));
-
+        // B13: role before state - see approve()'s own note.
         if ($caller->getRole() !== Identity::ROLE_RESELLER && $caller->getRole() !== Identity::ROLE_ADMIN) {
             throw Guard::forbidden('Only a reseller or an administrator may reject an alias order.');
         }
+
+        Guard::requireState((string)$row['alias_status'], array(Provisioning::STATE_ORDERED));
 
         $aliasId = (int)$row['alias_id'];
 

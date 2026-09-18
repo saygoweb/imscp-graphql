@@ -56,7 +56,10 @@ final class CustomerService
         'mailAccounts'  => 'domain_mailacc_limit',
         'ftpUsers'      => 'domain_ftpacc_limit',
         'sqlDatabases'  => 'domain_sqld_limit',
-        'sqlUsers'      => 'domain_sqlu_limit'
+        'sqlUsers'      => 'domain_sqlu_limit',
+        // B3: the two the edit path never measured before this fix.
+        'traffic'       => 'domain_traffic_limit',
+        'disk'          => 'domain_disk_limit'
     );
 
     /** @var Toolkit */
@@ -306,20 +309,34 @@ final class CustomerService
         $kit = $this->kit;
         $core = $kit->core();
 
-        // 2, 3.
+        // 2, 3. B1 (HIGH, privilege escalation): a customer's own admin_id is
+        // its own Customer node's owner (OwnershipResolver::mayReach()), and
+        // an unscoped identity satisfies every Scope::requireScope() check -
+        // so without this, a customer reaches and changes itself. It goes
+        // here, before any state is read, so a customer learns nothing about
+        // the object beyond what ownership already told it.
         $target = $kit->guard()->target($caller, $id, array(NodeType::CUSTOMER), Scope::CUSTOMERS_WRITE, 'id');
+
+        if ($caller->getRole() !== Identity::ROLE_RESELLER && $caller->getRole() !== Identity::ROLE_ADMIN) {
+            throw Guard::forbidden('Only a reseller or an administrator may act on a customer.');
+        }
+
         $customer = $kit->accounts()->customer($target->getKey());
         $reseller = $kit->accounts()->reseller($customer->getResellerId());
 
         // 5. A customer in transit is not changed (spec section 8.3).
         Guard::requireState((string)$customer->domain('domain_status'), array(Provisioning::STATE_OK));
 
-        // 6. An explicit null names nothing, as phase 3's checkpoint C settled.
+        // 6. An explicit null names nothing, as phase 3's checkpoint C
+        // settled - except that a key present with a null value still names
+        // a change (B8): expiresAt: null is how "never expires" is said, and
+        // $given alone would filter that key away before $named ever saw it,
+        // making it unreachable. $given still governs the value reads below.
         $given = array_filter($input, static function ($value) {
             return $value !== null;
         });
         $named = array_intersect(
-            array_keys($given), array('password', 'contact', 'allowances', 'hostingPlanId', 'expiresAt', 'ipAddressId')
+            array_keys($input), array('password', 'contact', 'allowances', 'hostingPlanId', 'expiresAt', 'ipAddressId')
         );
 
         if ($named === array()) {
@@ -340,7 +357,11 @@ final class CustomerService
             }
         }
 
-        $contact = isset($given['contact']) ? $this->contactFor($given, $core) : null;
+        // B7: a partial contact must not blank the fields it does not name -
+        // merged over the customer's current admin row first, exactly as
+        // allowancesForUpdate() merges allowances over currentAllowances().
+        // One rule for partial inputs, not two.
+        $contact = isset($given['contact']) ? $this->contactForUpdate($given, $customer, $core) : null;
         $allowances = isset($given['allowances']) || isset($given['hostingPlanId'])
             ? $this->allowancesForUpdate($reseller, $customer, $given)
             : null;
@@ -348,8 +369,16 @@ final class CustomerService
         $expiresAt = array_key_exists('expiresAt', $input) ? $this->expiryOrNever($input) : null;
 
         // 7. Both ledgers again, now with the customer's own consumption.
+        // B3: domain_edit.php:732-751 also measures disk and traffic,
+        // unconditionally - LimitRules::SERVICES now carries both, so this
+        // same loop covers them; unlike the six countable services, they are
+        // never withheld (M17: no UI path ever writes -1 to either column),
+        // so the WITHHELD skip below never actually fires for them.
         if ($allowances !== null) {
             $used = $kit->counts()->forCustomer($customer->getDomainId());
+            $used['disk'] = (int)((int)$customer->domain('domain_disk_usage') / 1048576);
+            $used['traffic'] = $this->trafficUsedMib($core, $customer->getDomainId());
+            $storageServices = array('traffic' => true, 'disk' => true);
 
             foreach (array_keys(LimitRules::SERVICES) as $service) {
                 $customerLimit = (int)$customer->domain(self::LIMIT_COLUMNS[$service]);
@@ -362,14 +391,43 @@ final class CustomerService
                     continue;
                 }
 
+                $newLimit = isset($storageServices[$service])
+                    ? $allowances->storage($service)
+                    : $allowances->limit($service);
+
                 $reason = LimitRules::reason(
-                    $allowances->limit($service), (int)($used[$service] ?? 0), $customerLimit,
+                    $newLimit, (int)($used[$service] ?? 0), $customerLimit,
                     $reseller->usedOf($service), $reseller->maxOf($service), $service
                 );
 
                 if ($reason !== null) {
                     throw Guard::limitExceeded($reason, array('quota' => $service));
                 }
+            }
+
+            // B10: domain_edit.php:704-707,723-727 - neither SQL limit may be
+            // withheld while the other is not, each gated on the customer's
+            // own current limit for that side not already being withheld,
+            // the same predicate the loop above applies. The same rule
+            // LimitRules::createReason() encodes for the create path, but in
+            // both directions: the edit page checks the SQL databases field
+            // against SQL users and the SQL users field against SQL
+            // databases, where createReason() only ever checks one.
+            $currentSqld = (int)$customer->domain(self::LIMIT_COLUMNS['sqlDatabases']);
+            $currentSqlu = (int)$customer->domain(self::LIMIT_COLUMNS['sqlUsers']);
+            $newSqld = $allowances->limit('sqlDatabases');
+            $newSqlu = $allowances->limit('sqlUsers');
+
+            if ($currentSqld !== LimitRules::WITHHELD && $newSqld !== LimitRules::WITHHELD
+                && $newSqlu === LimitRules::WITHHELD
+            ) {
+                throw Guard::limitExceeded('SQL users limit is disabled.', array('quota' => 'sqlDatabases'));
+            }
+
+            if ($currentSqlu !== LimitRules::WITHHELD && $newSqlu !== LimitRules::WITHHELD
+                && $newSqld === LimitRules::WITHHELD
+            ) {
+                throw Guard::limitExceeded('SQL databases limit is disabled.', array('quota' => 'sqlUsers'));
             }
         }
 
@@ -380,12 +438,34 @@ final class CustomerService
             && $allowances->feature('customDns') === '_no_'
             && (string)$customer->domain('domain_dns') === 'yes';
         // domain_edit.php:905-919: the daemon is needed when the IP, the mail
-        // feature, PHP, CGI or the web folder protection changed.
-        $needsDaemon = $allowances !== null || $ipId !== null;
+        // feature, PHP, CGI or the web folder protection changed. $needsDaemon
+        // additionally covers B2: a password, because the admin UPDATE below
+        // sets admin_status to 'tochangepwd' whenever one is given, and only
+        // a daemon poke moves an account out of that status - user_edit.php's
+        // own reason, not domain_edit.php's, so it plays no part in
+        // $domainNeedsDaemon below, which is domain_edit.php's own flag and
+        // governs only what domain_edit.php itself would have scheduled.
+        $needsDaemon = $allowances !== null || $ipId !== null || $password !== null;
+        $domainNeedsDaemon = $allowances !== null || $ipId !== null;
+        $newDiskLimitMib = $allowances !== null ? $allowances->storage('disk') : null;
+        $newMailQuotaBytes = $allowances !== null ? $allowances->storage('mailQuota') : null;
+        $oldDiskLimitMib = (int)$customer->domain('domain_disk_limit');
+        $oldMailQuotaBytes = (int)$customer->domain('mail_quota');
+        $domainName = $customer->getDomainName();
+        $effectiveIpId = $ipId !== null ? $ipId : $customer->getDomainIpId();
+        $phpIniValues = $allowances !== null ? array(
+            'phpiniMemoryLimit'       => $allowances->phpIni('phpiniMemoryLimit'),
+            'phpiniPostMaxSize'       => $allowances->phpIni('phpiniPostMaxSize'),
+            'phpiniUploadMaxFileSize' => $allowances->phpIni('phpiniUploadMaxFileSize'),
+            'phpiniMaxExecutionTime'  => $allowances->phpIni('phpiniMaxExecutionTime'),
+            'phpiniMaxInputTime'      => $allowances->phpIni('phpiniMaxInputTime')
+        ) : null;
 
         $kit->writer()->run(function () use (
             $kit, $core, $adminId, $domainId, $username, $password, $contact,
-            $allowances, $ipId, $expiresAt, $withdrawsDns, $needsDaemon
+            $allowances, $ipId, $expiresAt, $withdrawsDns, $needsDaemon, $domainNeedsDaemon,
+            $newDiskLimitMib, $oldDiskLimitMib, $newMailQuotaBytes, $oldMailQuotaBytes,
+            $domainName, $effectiveIpId, $phpIniValues
         ) {
             $db = $kit->db();
             $core->dispatch(Events::onBeforeEditUser, array('userId' => $adminId));
@@ -458,6 +538,54 @@ final class CustomerService
                 $bind[] = $domainId;
 
                 $db->execute('UPDATE domain SET ' . implode(', ', $sets) . ' WHERE domain_id = ?', $bind);
+            }
+
+            if ($domainNeedsDaemon) {
+                // CORE-DEBT(C3): domain_edit.php:963-977 (B4). The page's own
+                // gate is $needDaemonRequest, not merely an IP change -
+                // B4's own summary undersells it - so every alias not
+                // already 'ordered' is rescheduled at the domain's current
+                // IP whenever anything domain_edit.php itself would poke the
+                // daemon for, and an 'ordered' one only has its IP followed,
+                // never its status.
+                $db->execute(
+                    "
+                        UPDATE domain_aliasses SET alias_ip_id = ?, alias_status = 'tochange'
+                        WHERE domain_id = ? AND alias_status <> 'ordered'
+                    ",
+                    array($effectiveIpId, $domainId)
+                );
+                $db->execute(
+                    "UPDATE domain_aliasses SET alias_ip_id = ? WHERE domain_id = ? AND alias_status = 'ordered'",
+                    array($effectiveIpId, $domainId)
+                );
+            }
+
+            if ($newMailQuotaBytes !== null && $newMailQuotaBytes !== $oldMailQuotaBytes) {
+                // CORE-DEBT(C3): domain_edit.php:980-982 (B5).
+                $core->syncMailboxQuota($domainId, $newMailQuotaBytes);
+            }
+
+            if ($newDiskLimitMib !== null && $newDiskLimitMib !== $oldDiskLimitMib) {
+                // CORE-DEBT(C3): domain_edit.php:984-1000 (B6). FtpService
+                // already writes this table on create (an idempotent INSERT
+                // ... ON DUPLICATE KEY UPDATE, keyed by the customer's own
+                // username); the page instead REPLACEs, keyed by the domain
+                // name, transcribed exactly as it reads.
+                $db->execute(
+                    "
+                        REPLACE INTO quotalimits (
+                            name, quota_type, per_session, limit_type, bytes_in_avail, bytes_out_avail,
+                            bytes_xfer_avail, files_in_avail, files_out_avail, files_xfer_avail
+                        ) VALUES (?, 'group', 'false', 'hard', ?, 0, 0, 0, 0, 0)
+                    ",
+                    array($domainName, $newDiskLimitMib * 1048576)
+                );
+            }
+
+            if ($phpIniValues !== null) {
+                // CORE-DEBT(C3): domain_edit.php:901 (B9).
+                $core->updatePhpIniForDomain($adminId, $domainId, $phpIniValues);
             }
 
             $core->updateResellerCounters($kit->accounts()->customer($adminId)->getResellerId());
@@ -602,6 +730,67 @@ final class CustomerService
         return $mib <= 0 ? $mib : $mib * 1048576;
     }
 
+    /**
+     * B3: this calendar month's web, FTP, mail and POP traffic, in MiB - the
+     * consumption `LimitRules::reason()` measures a traffic limit against.
+     *
+     * CORE-DEBT(C3): transcribed from gui/public/reseller/domain_edit.php's
+     *   getData(), which reads getClientMonthlyTrafficStats($domainId)[4]
+     *   (gui/include/Statistics.php:57-86): the same four columns, added
+     *   together, over the same month bounds Resolver\CustomerResolver's own
+     *   copy of this query already uses. Retire when CustomerService lands
+     *   in core.
+     */
+    private function trafficUsedMib(Core $core, int $domainId): int
+    {
+        list($start, $end) = $core->monthBounds();
+        $bytes = (int)$this->kit->db()->value(
+            '
+                SELECT IFNULL(SUM(dtraff_web + dtraff_ftp + dtraff_mail + dtraff_pop), 0)
+                FROM domain_traffic
+                WHERE domain_id = ? AND dtraff_time BETWEEN ? AND ?
+            ',
+            array($domainId, $start, $end)
+        );
+
+        return (int)($bytes / 1048576);
+    }
+
+    /**
+     * B7: an update's contact is partial the same way its allowances are -
+     * merged over the customer's current admin row, in ContactDetailsInput's
+     * own terms, before contactFor() fills any field the merge still leaves
+     * unnamed with ''.
+     */
+    private function contactForUpdate(array $given, CustomerAccount $customer, Core $core): array
+    {
+        $current = $this->kit->db()->row(
+            '
+                SELECT email, fname, lname, firm, zip, city, state, country, phone, fax, street1, street2, gender
+                FROM admin WHERE admin_id = ?
+            ',
+            array($customer->getAdminId())
+        ) ?? array();
+
+        $currentContact = array(
+            'email'     => (string)($current['email'] ?? ''),
+            'firstName' => (string)($current['fname'] ?? ''),
+            'lastName'  => (string)($current['lname'] ?? ''),
+            'company'   => (string)($current['firm'] ?? ''),
+            'postcode'  => (string)($current['zip'] ?? ''),
+            'city'      => (string)($current['city'] ?? ''),
+            'state'     => (string)($current['state'] ?? ''),
+            'country'   => (string)($current['country'] ?? ''),
+            'phone'     => (string)($current['phone'] ?? ''),
+            'fax'       => (string)($current['fax'] ?? ''),
+            'street1'   => (string)($current['street1'] ?? ''),
+            'street2'   => (string)($current['street2'] ?? ''),
+            'gender'    => (string)($current['gender'] ?? 'U')
+        );
+
+        return $this->contactFor(array('contact' => ((array)$given['contact']) + $currentContact), $core);
+    }
+
     /** expiresAt: a date, or an explicit null meaning "never expires". */
     private function expiryOrNever(array $input): int
     {
@@ -696,6 +885,12 @@ final class CustomerService
         $core = $kit->core();
 
         $target = $kit->guard()->target($caller, $id, array(NodeType::CUSTOMER), Scope::CUSTOMERS_WRITE, 'id');
+
+        // B1: see update()'s own note.
+        if ($caller->getRole() !== Identity::ROLE_RESELLER && $caller->getRole() !== Identity::ROLE_ADMIN) {
+            throw Guard::forbidden('Only a reseller or an administrator may act on a customer.');
+        }
+
         $customer = $kit->accounts()->customer($target->getKey());
         $status = (string)$customer->domain('domain_status');
 
@@ -798,6 +993,12 @@ final class CustomerService
         $core = $kit->core();
 
         $target = $kit->guard()->target($caller, $id, array(NodeType::CUSTOMER), Scope::CUSTOMERS_WRITE, 'id');
+
+        // B1: see update()'s own note.
+        if ($caller->getRole() !== Identity::ROLE_RESELLER && $caller->getRole() !== Identity::ROLE_ADMIN) {
+            throw Guard::forbidden('Only a reseller or an administrator may act on a customer.');
+        }
+
         $customer = $kit->accounts()->customer($target->getKey());
 
         Guard::requireState(

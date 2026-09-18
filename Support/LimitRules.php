@@ -46,7 +46,13 @@ final class LimitRules
         'mailAccounts'  => 'mail accounts',
         'ftpUsers'      => 'FTP accounts',
         'sqlDatabases'  => 'SQL databases',
-        'sqlUsers'      => 'SQL users'
+        'sqlUsers'      => 'SQL users',
+        // Checkpoint B, B3: domain_edit.php:737,749 passes these same two
+        // nouns to tr() for the traffic and disk checks it runs
+        // unconditionally (never gated by a customer "-1" fallback, unlike
+        // the six above) - reason() needs no other change to accept them.
+        'traffic'       => 'traffic',
+        'disk'          => 'disk space'
     );
 
     /**

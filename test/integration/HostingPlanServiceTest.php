@@ -112,6 +112,25 @@ class HostingPlanServiceTest extends ServiceTestCase
         self::assertSame(9, PlanProps::parse((string)$row['props'])->allowance('subdomains')['limit']);
     }
 
+    public function testAnUpdateThatOmitsDescriptionAndAvailableKeepsThem(): void
+    {
+        // B12: description defaults to '' and available to 0 in the raw
+        // input; before this fix an update that named only allowances (or
+        // only the name) silently blanked both.
+        $ref = $this->service()->create($this->caller('reseller'), $this->input());
+
+        $input = $this->input();
+        unset($input['description'], $input['available']);
+
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::HOSTING_PLAN, $ref->getKey()), $input
+        );
+
+        $row = $this->db->row('SELECT * FROM hosting_plans WHERE id = ?', array($ref->getKey()));
+        self::assertSame('Written by a test', $row['description']);
+        self::assertSame(1, (int)$row['status']);
+    }
+
     public function testAPlanIsDeletedOutright(): void
     {
         $ref = $this->service()->create($this->caller('reseller'), $this->input());
