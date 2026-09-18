@@ -20,6 +20,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Support;
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+use iMSCP\Plugin\SGW_GraphQL\Support\Allowances;
 use iMSCP\Plugin\SGW_GraphQL\Support\PlanProps;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
@@ -198,5 +199,46 @@ class PlanPropsTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         PlanProps::parse(self::SAMPLE)->allowance('htaccessUsers');
+    }
+
+    /**
+     * Spec section 17 asks for this as a property test: whatever the panel
+     * stored, parsing and re-emitting it must give back the same 25 fields in
+     * the same order, byte for byte. A props string that does not round-trip
+     * silently rewrites a reseller's plan.
+     */
+    public function testEveryPropsStringRoundTrips(): void
+    {
+        foreach ($this->propsVectors() as $label => $props) {
+            self::assertSame($props, PlanProps::parse($props)->toString(), $label);
+        }
+    }
+
+    public function testAllowancesRoundTripThroughPropsAndBack(): void
+    {
+        foreach ($this->propsVectors() as $label => $props) {
+            $once = Allowances::fromPlanProps(PlanProps::parse($props));
+
+            self::assertSame($props, $once->toProps()->toString(), $label);
+        }
+    }
+
+    /** @return array<string, string> */
+    public function propsVectors(): array
+    {
+        // The box's own plan, then the shapes the pages can write:
+        // hosting_plan_add.php:446-457 builds exactly this string.
+        return array(
+            'the panel default' =>
+                '_no_;_no_;0;0;0;0;0;0;0;0;_no_;_no_;no;no;no;no;no;0;0;0;0;0;_no_;_yes_;0',
+            'everything on, unlimited' =>
+                '_yes_;_yes_;0;0;0;0;0;0;0;0;_dmn_|_sql_|_mail_;_yes_;yes;yes;yes;yes;yes;10;10;30;60;128;_yes_;_yes_;0',
+            'everything withheld' =>
+                '_no_;_no_;-1;-1;-1;-1;-1;-1;-1;-1;_no_;_no_;no;no;no;no;no;0;0;0;0;0;_no_;_yes_;0',
+            'finite limits' =>
+                '_yes_;_no_;5;3;20;10;4;4;10240;5120;_dmn_;_yes_;yes;no;no;no;yes;8;8;30;60;64;_no_;_yes_;104857600',
+            'a single backup target' =>
+                '_yes_;_no_;1;1;1;1;1;1;1;1;_sql_;_no_;no;no;no;no;no;0;0;0;0;0;_no_;_no_;1048576'
+        );
     }
 }

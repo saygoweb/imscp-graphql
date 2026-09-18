@@ -195,6 +195,36 @@ final class PlanProps
     }
 
     /**
+     * The inverse of parse(): the same 25 fields, in FIELDS order, joined with
+     * semicolons. Every field must be present, because a props string with a
+     * gap is one the panel's own list() unpack would fill with the wrong
+     * value (M5).
+     *
+     * @param array<string, string> $fields
+     * @throws InvalidArgumentException
+     */
+    public static function fromFields(array $fields): self
+    {
+        $ordered = array();
+
+        foreach (self::FIELDS as $field) {
+            if (!array_key_exists($field, $fields)) {
+                throw new InvalidArgumentException(sprintf('A hosting plan needs a "%s".', $field));
+            }
+
+            $value = (string)$fields[$field];
+
+            if (strpos($value, ';') !== false) {
+                throw new InvalidArgumentException(sprintf('"%s" cannot contain a semicolon.', $field));
+            }
+
+            $ordered[$field] = $value;
+        }
+
+        return new self($ordered);
+    }
+
+    /**
      * -1 is not handled here as a withheld state, unlike allowance(): both
      * gui/public/reseller/hosting_plan_add.php:354 and
      * gui/public/reseller/hosting_plan_edit.php:404 (and the equivalent
