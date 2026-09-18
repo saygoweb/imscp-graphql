@@ -77,7 +77,7 @@ $ curl -s https://panel.example.com/api/graphql \
 ```json
 {
   "data": {
-    "apiVersion": "1.0.0",
+    "apiVersion": "1.2.0",
     "viewer": {
       "id": "Vmlld2VyOjE",
       "username": "jdoe",
@@ -158,6 +158,50 @@ still need their own read scopes.
 Passwords are type `Secret`: they are never returned, and a validation error
 names the field, never the value. Storage figures, mailbox quotas included, are
 bytes.
+
+### Every mutation
+
+Grouped as the schema groups them. `GET /api/graphql/schema` has the exact
+input and return shapes.
+
+**Virtual hosts**
+
+- `domainUpdate` — the customer's main domain: forwarding, document root and wildcard.
+- `subdomainCreate` — hangs a subdomain off a domain or domain alias.
+- `subdomainUpdate` — document root, forwarding, wildcard.
+- `subdomainDelete` — schedules the subdomain for deletion, with its FTP users, mail accounts, certificates and protected areas.
+- `domainAliasCreate` — a customer's own is `ORDERED` until their reseller approves it; a reseller's or administrator's is `PENDING`.
+- `domainAliasUpdate` — document root, forwarding, wildcard.
+- `domainAliasDelete` — an `ORDERED` alias is withdrawn at once; any other is scheduled for deletion with everything under it.
+
+**Mail**
+
+- `mailAccountCreate` — a mailbox needs a password, and a quota when the account has a mail quota; a forward needs `forwardTo`; `MAILBOX_AND_FORWARD` needs both.
+- `mailAccountUpdate` — absent fields are kept; turning a forward into a mailbox needs a password and, where the account has a mail quota, a quota.
+- `mailAccountDelete` — also removes the address from the customer's other forwards and catch-alls, deleting one left with nothing to deliver to; the panel's protected default accounts (abuse, hostmaster, postmaster, webmaster) are `FORBIDDEN`.
+- `mailAutoresponderSet` — enabling one that has never had a message needs a message; otherwise the stored one is kept.
+- `mailCatchallCreate` — one per host; a second is `CONFLICT`.
+- `mailCatchallDelete` — removes the catch-all.
+
+**FTP**
+
+- `ftpUserCreate` — the login is username@ the chosen host's name; the home directory must already exist.
+- `ftpUserUpdate` — password, home directory.
+- `ftpUserDelete` — removes the FTP user.
+
+**SQL**
+
+- `sqlDatabaseCreate` — created by the panel at once; no provisioning state to wait for.
+- `sqlDatabaseDelete` — drops the database; a user granted only this database is dropped with it, a user granted others too loses this grant only.
+- `sqlUserCreate` — creates a user and grants it the database, or grants the database to one of the same customer's existing users.
+- `sqlUserSetPassword` — the password of the SQL account itself, which is the same account on every database it is granted.
+- `sqlUserDelete` — removes this grant; the SQL account goes with its last grant.
+
+**DNS**
+
+- `dnsRecordCreate` — one of the types a customer may manage: A, AAAA, CNAME, MX, NS, SPF, SRV or TXT.
+- `dnsRecordUpdate` — replaces the record's name, TTL and data together; its type cannot change. A record a plugin owns (`ownedBy` other than `custom_dns_feature`) is `FORBIDDEN`.
+- `dnsRecordDelete` — removes the record.
 
 ## Errors
 
