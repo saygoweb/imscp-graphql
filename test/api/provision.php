@@ -29,7 +29,10 @@
  *     'cd /var/www/imscp-plugins/imscp-graphql && php7.4 test/api/provision.php [customer-login]'
  *
  * It commits. Everything it creates is named sgwe2e*, and a run that dies
- * part way is cleaned up by the next one before it starts.
+ * part way is swept up by the next run against the same customer - the
+ * script runs as that customer's own identity, so it cannot reach another
+ * customer's objects. A run aimed at a different customer must be swept by
+ * naming that customer again.
  */
 
 require '/var/www/imscp/gui/include/imscp-lib.php';

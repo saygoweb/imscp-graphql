@@ -216,8 +216,11 @@ and the filesystem are back where they started.
 
 It needs a customer with a settled domain (the docker install has `cust1.test`)
 and commits real objects, named `sgwe2e*`; a run that dies part way is swept up
-by the next. It runs the request manager itself, because the container's
-`imscp_daemon` is not running.
+by the next run against the same customer, since the script runs as that
+customer's own identity and cannot reach another customer's objects. A run
+aimed at a different customer must be swept by naming that customer again.
+It runs the request manager itself, because the container's `imscp_daemon` is
+not running.
 
 The container's `cust1.test` has custom DNS withheld (`domain.domain_dns` is
 `no`), so the DNS step skips unless you turn it on for that customer first.
