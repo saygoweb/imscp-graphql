@@ -1,14 +1,15 @@
 # Using the API
 
-A client-facing guide to what phase 0–1 shipped: an authenticated endpoint
-serving `viewer` and `apiVersion`. It does not restate
+A client-facing guide to what the API does today: the whole customer graph to
+read, and every customer-level object to write. It does not restate
 [`docs/SPECIFICATION.md`](SPECIFICATION.md) — read that for the design and the
 reasoning. This page is what a client author needs and nothing else.
 
-**Not yet implemented:** mutations of any kind, the browser explorer, rate
-limiting, and the audit log. If you have found documentation elsewhere
-describing them, it is the specification describing where this API is going,
-not what it does today.
+**Not yet implemented:** reseller and administrator mutations (customers,
+hosting plans, resellers, alias approval), `tokenIssue` and `tokenRevoke`, the
+browser explorer, rate limiting, and the audit log. If you have found
+documentation elsewhere describing them, it is the specification describing
+where this API is going, not what it does today.
 
 ## Getting a token
 
@@ -95,6 +96,69 @@ round-trips. An empty `scopes` array means the token carries no scope
 restriction and can do everything your account can — narrower tokens report
 the scopes they were issued with, for example `["MAIL_READ"]`.
 
+## Mutations
+
+Every mutation writes one object in one transaction, and returns as soon as
+the intent is recorded — not when the server has done the work. The i-MSCP
+backend carries a change out afterwards, usually within seconds. So a created
+object comes back like this:
+
+```graphql
+mutation {
+  subdomainCreate(input: { parentId: "RG9tYWluOjEy", label: "shop" }) {
+    id
+    provisioning { state settled }
+  }
+}
+```
+
+```json
+{ "data": { "subdomainCreate": { "id": "U3ViZG9tYWluOjQ0", "provisioning": { "state": "PENDING", "settled": false } } } }
+```
+
+and you poll until it settles, either for the one object or for everything of
+yours at once:
+
+```graphql
+query($id: ID!) { node(id: $id) { ... on Provisioned { provisioning { state message } } } }
+query { pending { id __typename } }
+```
+
+A backend failure is not an error in the mutation's response — it happens after
+the response was sent. It appears as `provisioning.state` `ERROR`, with the
+backend's own text in `provisioning.message`. An object in `ERROR` can be
+deleted, which is how you clean it up.
+
+Four things to know:
+
+- **Several mutations in one document are not one transaction.** They run in
+  the order written and each commits on its own, so if the third fails the
+  first two are done. Send one mutation per request unless that is what you
+  want.
+- **An object that has not settled cannot be changed.** You get `CONFLICT` with
+  `extensions.retryAfterSeconds`. An object in a state no waiting will change —
+  a disabled account, an alias awaiting its reseller's approval — is
+  `FORBIDDEN`, with `extensions.state`.
+- **Updates are partial.** A field you leave out keeps its value; `forwarding:
+  null` removes forwarding. The exception is `dnsRecordUpdate`, which replaces
+  the record's name, TTL and data together.
+- **SQL databases and users are immediate.** They have no provisioning state:
+  when the mutation returns, the database exists.
+
+A customer's new domain alias comes back `ORDERED`, because their reseller
+approves it. The same mutation called by the reseller or an administrator
+comes back `PENDING`.
+
+A token needs the write scope for the kind of object — `DOMAINS_WRITE` for
+domains, subdomains and aliases, `MAIL_WRITE`, `FTP_WRITE`, `SQL_WRITE`,
+`DNS_WRITE` — and that is enough to read back the object the mutation returns.
+Fields that lead to *other* objects (`Subdomain.customer`, `MailAccount.host`)
+still need their own read scopes.
+
+Passwords are type `Secret`: they are never returned, and a validation error
+names the field, never the value. Storage figures, mailbox quotas included, are
+bytes.
+
 ## Errors
 
 Every error carries `extensions.code`, drawn from a closed set that is part of
@@ -104,24 +168,22 @@ the compatibility contract — a code is never removed within a major version.
 | --- | --- | --- | --- |
 | `UNAUTHENTICATED` | 401 | No credential was presented, or it was rejected (unknown, revoked, expired, or the caller's address is not on the token's allow-list) | Re-authenticate. Do not retry with the same token |
 | `API_ACCESS_WITHDRAWN` | 403 | The credential is valid, but a reseller or administrator has withdrawn this account's use of the API | Contact the reseller or administrator. Retrying will not help |
-| `FORBIDDEN` | 200 | The object is visible but this operation on it, or the scope needed for it, is not permitted | Check the token's scopes, or that the account has the right role |
+| `FORBIDDEN` | 200 | The object is visible but this operation on it is not permitted: a scope the credential lacks (`extensions.scope`), a state the operation does not accept (`extensions.state`), or an object the panel protects | Check the token's scopes, or that the account has the right role |
 | `NOT_FOUND` | 200 | No such object, or it exists but is not yours | Treat identically to a genuine absence — the API does not distinguish the two, deliberately |
 | `BAD_USER_INPUT` | 200 | Input failed validation. Carries `extensions.field` | Fix the named field and resubmit |
-| `LIMIT_EXCEEDED` | 200 | A quota was hit. Carries `extensions.limit` and `extensions.used` | Do not retry until the quota has room; not currently exercised by anything phase 0–1 ships |
-| `FEATURE_UNAVAILABLE` | 200 | The feature is withheld from this account by its hosting plan | Not actionable by the client; not currently exercised |
-| `CONFLICT` | 200 | The object cannot be changed right now, or a uniqueness rule was broken | Retry after the object settles, or pick a different value; not currently exercised |
+| `LIMIT_EXCEEDED` | 200 | A quota was hit. Carries `extensions.limit` and `extensions.used` | Do not retry until the quota has room. `extensions.quota` names which allowance |
+| `FEATURE_UNAVAILABLE` | 200 | The feature is withheld from this account by its hosting plan | Not actionable by the client: the account's reseller withholds it. `extensions.feature` names it |
+| `CONFLICT` | 200 | The object has not settled (carries `extensions.retryAfterSeconds`), or the name is taken | Retry after that many seconds, or pick a different name |
 | `RATE_LIMITED` | 429 | Too many requests. Carries `Retry-After` | Back off for that many seconds. Not yet enforced — see below |
 | `QUERY_TOO_COMPLEX` | 400 | The document exceeded the configured depth or complexity limit | Simplify the query; this is a client-side fix, not a retry |
 | `INTERNAL` | 200 | A resolver raised once the document was already executing — `data` is present alongside `errors`, so a real result exists | Safe to retry; if it persists, report the correlation id in the message (only present when the fault is genuinely on this side) |
 | `INTERNAL` | 500 | The request failed before the document ran at all — a wiring fault, not something the query caused | Safe to retry; report the correlation id if one is present |
 
-Four of those rows — `LIMIT_EXCEEDED`, `FEATURE_UNAVAILABLE`, `CONFLICT` and
-the rate limiter behind `RATE_LIMITED` — are part of the closed vocabulary the
-schema commits to, but nothing in the current schema triggers them yet: there
-are no mutations, no quotas and no rate limiting in phase 0–1. They are listed
-because the code is a stable part of the contract from the moment it can
-appear at all, and a client written against this table today needs no changes
-when they start firing later.
+`RATE_LIMITED` is part of the closed vocabulary the schema commits to, but
+nothing triggers it yet: rate limiting arrives in a later phase. It is listed
+because a code is a stable part of the contract from the moment it can appear
+at all, and a client written against this table today needs no change when it
+starts firing.
 
 Beyond the table: `200` always means the response body is a genuine GraphQL
 result envelope, whatever it contains, including a `200` that carries nothing

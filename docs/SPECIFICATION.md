@@ -1038,10 +1038,7 @@ was scheduled — which is the only moment its fields are still readable.
 
 ```graphql
 type Mutation {
-  # ---- credentials (see §5)
-  "The one unauthenticated field in the schema."
-  tokenIssue(input: TokenIssueInput!): IssuedToken!
-  tokenRevoke(id: ID!): Boolean!
+  # ---- credentials (see §5): tokenIssue and tokenRevoke arrive with rate limiting, in phase 6
 
   # ---- the caller's own main domain
   domainUpdate(id: ID!, input: DomainUpdateInput!): Domain!
@@ -1149,6 +1146,17 @@ panel spreads this across a three-step wizard with state in `$_SESSION`
 (`user_add1.php`, `user_add2.php`, `user_add3.php`). The API takes it in one
 call, applying the same validation each step applied.
 
+**Phase 3's inputs as shipped** are in `schema/schema.graphql`, and differ from
+the sketch above in three ways worth knowing. Every create names the object it
+hangs off — `SubdomainCreateInput.parentId`, `DomainAliasCreateInput.domainId`,
+`SqlDatabaseCreateInput.domainId`, `MailAccountCreateInput.hostId` — so a
+reseller acting for a customer never needs a separate customer argument.
+Updates are partial: an absent field keeps its value, and `forwarding: null`
+removes forwarding; `DnsRecordUpdateInput` is the exception and replaces the
+record whole. And a document root is written in the same terms
+`VirtualHost.documentRoot` reads (`/htdocs/public`), so a client can write back
+what it read.
+
 ---
 
 ## 8. Mutation semantics
@@ -1173,6 +1181,11 @@ Identical for all of them, in this order:
    before. A daemon that read the rows mid-transaction would see nothing.
 10. **`write_log()`** and the audit row (§11).
 11. **Return the object**, with `provisioning.state = PENDING`.
+
+SQL databases and users (§2.1) skip steps 5 and 9: there is no status to be
+settled and nothing for the daemon to do. Their DDL also implicitly commits, so
+step 8 cannot hold it: the DDL runs first, the row is written in a transaction
+after it, and a row that cannot be written undoes the DDL.
 
 Steps 2–7 are ordered so that the error a caller gets leaks the least. In
 particular ownership is resolved before validation, so a caller cannot probe
@@ -1215,6 +1228,11 @@ The one exception is delete, which is allowed against an object in the `ERROR`
 state — that is how an object that failed to provision is cleaned up, and it
 is what the panel's own retry does.
 
+Only *pending* is `CONFLICT`. An object in a settled state the operation does
+not accept — `DISABLED`, `ORDERED` for anything but a delete, `ERROR` for
+anything but a delete — is `FORBIDDEN` with `extensions.state` and no retry
+hint, because waiting will not change it.
+
 ### 8.4 Idempotency
 
 Creates are not idempotent, and no idempotency key is offered in version 1.
@@ -1244,12 +1262,12 @@ the compatibility contract (§18).
 | --- | --- | --- |
 | `UNAUTHENTICATED` | 401 | No credential, or a bad one |
 | `API_ACCESS_WITHDRAWN` | 403 | Valid identity, but §6.2 says no |
-| `FORBIDDEN` | 200 | Visible object, disallowed operation, or missing scope |
+| `FORBIDDEN` | 200 | Visible object, disallowed operation, missing scope (extensions.scope), or a state the operation does not accept (extensions.state) |
 | `NOT_FOUND` | 200 | No such object, or not the caller's |
 | `BAD_USER_INPUT` | 200 | Validation. Carries `extensions.field` |
 | `LIMIT_EXCEEDED` | 200 | A quota. Carries `extensions.limit` and `extensions.used` |
-| `FEATURE_UNAVAILABLE` | 200 | The feature is withheld from this account |
-| `CONFLICT` | 200 | Object not settled (§8.3), or a uniqueness clash |
+| `FEATURE_UNAVAILABLE` | 200 | The feature is withheld from this account. Carries extensions.feature |
+| `CONFLICT` | 200 | Object not settled (§8.3, extensions.retryAfterSeconds), or a uniqueness clash |
 | `RATE_LIMITED` | 429 | §10.3. Carries `Retry-After` |
 | `QUERY_TOO_COMPLEX` | 400 | §10.2 |
 | `INTERNAL` | 200 | Raised by a resolver once the document is executing — the envelope carries `data`, so a GraphQL result really was produced |

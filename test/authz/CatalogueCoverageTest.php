@@ -75,4 +75,23 @@ class CatalogueCoverageTest extends TestCase
             'A mutation reached the schema with no row in the authorisation matrix.'
         );
     }
+
+    public function testEveryCatalogueEntryIsInTheSchema(): void
+    {
+        // Until phase 3's last task the matrix skipped rows whose mutation had
+        // not yet reached the schema. From here a skipped row is a mutation
+        // that went missing, so it fails instead.
+        $schema = (new SchemaFactory(
+            dirname(__DIR__, 2) . '/schema/schema.graphql', null, new ResolverMap(array()),
+            array(TypeResolver::class, 'resolveType')
+        ))->create();
+        $mutation = $schema->getMutationType();
+        $fields = $mutation === null ? array() : array_keys($mutation->getFields());
+
+        self::assertSame(
+            array(),
+            array_values(array_diff(array_keys(MutationCatalogue::all()), $fields)),
+            'A mutation the authorisation matrix covers is not in the schema.'
+        );
+    }
 }

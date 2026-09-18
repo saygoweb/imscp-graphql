@@ -6,8 +6,8 @@ All notable changes to this plugin are documented here. The format follows
 
 ## [Unreleased]
 
-The read model. `apiVersion` answers `1.1.0`: types and fields within the same
-major version.
+The read model and customer mutations. `apiVersion` answers `1.2.0`: types,
+fields and a `Mutation` type within the same major version.
 
 ### Added
 
@@ -29,6 +29,33 @@ major version.
 - `trusted_proxies` in `config.php`: the reverse proxies whose
   `X-Forwarded-Proto` (or `X-Forwarded-SSL`) may be believed, as addresses or
   CIDR ranges. Empty by default, which believes nobody.
+- **Mutations.** Everything a customer owns can be created, changed and
+  deleted: `domainUpdate`; `subdomainCreate`, `subdomainUpdate`,
+  `subdomainDelete`; `domainAliasCreate`, `domainAliasUpdate`,
+  `domainAliasDelete`; `mailAccountCreate`, `mailAccountUpdate`,
+  `mailAccountDelete`, `mailAutoresponderSet`, `mailCatchallCreate`,
+  `mailCatchallDelete`; `ftpUserCreate`, `ftpUserUpdate`, `ftpUserDelete`;
+  `sqlDatabaseCreate`, `sqlDatabaseDelete`, `sqlUserCreate`,
+  `sqlUserSetPassword`, `sqlUserDelete`; `dnsRecordCreate`, `dnsRecordUpdate`,
+  `dnsRecordDelete`. A customer, their reseller and an administrator may each
+  call them; nobody else sees the object (`NOT_FOUND`).
+- Every write asks, in this order: ownership, scope, feature, settled state,
+  input, quota — so the error a caller gets is the one that leaks least. An
+  object the backend has not finished with is `CONFLICT` with
+  `extensions.retryAfterSeconds`; a failed one can still be deleted.
+- Mutations dispatch the panel's own events with the panel's own parameters,
+  poke the daemon after the commit, and write the panel's log in the panel's
+  words, so other plugins and the admin log see API writes as UI writes.
+- A mutation returns its object with `provisioning.state` `PENDING` (or
+  `ORDERED`, for a customer's new domain alias) until the backend settles it.
+  SQL databases and users are created at once.
+- The authorisation matrix of the specification's §17: all 24 mutations as
+  each of six accounts, and the scope rule for each, against a seeded database.
+- `validate_ftp_home_dir` in `config.php`: whether FTP home directories and
+  new document roots are checked to exist before writing. On by default.
+- `test/api/provision.php`: provisions real objects through the API, runs
+  i-MSCP's backend over them, checks the vhost, the maildir and the SQL login,
+  then deletes everything and checks it is gone.
 
 ### Changed
 
@@ -39,6 +66,14 @@ major version.
   `CustomerConnection.nodes: [Customer!]!` it nulled the connection — one such
   account broke `customers` for every customer in the page. No amount of
   handling can conjure a reseller that does not exist, so the field says so.
+- `MailAccount.forwardTo` now lists a catch-all's addresses. It read every
+  catch-all as delivering nowhere.
+
+### Removed
+
+- The `saygoweb/anorm` dependency. No write used it, and the one read that did
+  is now a plain batched query with the same cost. The plugin has one runtime
+  dependency, `webonyx/graphql-php`.
 
 ### Fixed
 

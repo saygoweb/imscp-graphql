@@ -699,8 +699,8 @@ final class Container
     public function apiVersion(): string
     {
         // Spec section 18: this is the schema's version, not the plugin's.
-        // Phase 2 adds types and fields within the same major version, which
-        // is a minor bump.
-        return '1.1.0';
+        // Phase 2 added the read model (1.1.0); phase 3 added Mutation and its
+        // inputs, additive again, so a minor bump.
+        return '1.2.0';
     }
 }

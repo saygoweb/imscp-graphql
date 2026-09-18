@@ -220,7 +220,7 @@ class ContainerTest extends TestCase
         $body = json_decode((string)$response->getBody(), true);
 
         self::assertSame(200, $response->getStatusCode(), (string)$response->getBody());
-        self::assertSame('1.1.0', $body['data']['apiVersion']);
+        self::assertSame('1.2.0', $body['data']['apiVersion']);
     }
 
     /**
