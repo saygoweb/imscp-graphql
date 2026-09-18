@@ -260,11 +260,15 @@ final class MailService
 
             $db->execute("UPDATE mail_users SET status = 'todelete' WHERE mail_id = ?", array($mailId));
 
+            // A row still in transit (status 'toadd' or 'tochange', say) carries
+            // the deleted address too, and core's own mail_delete.php has no
+            // status filter here: only a row already leaving ('todelete') is
+            // left alone.
             $pattern = '(,|^)' . preg_quote($address) . '(,|$)';
             $others = $db->rows(
                 "
                     SELECT mail_id, mail_acc, mail_forward FROM mail_users
-                    WHERE domain_id = ? AND mail_id <> ? AND status = 'ok'
+                    WHERE domain_id = ? AND mail_id <> ? AND status <> 'todelete'
                     AND (mail_acc RLIKE ? OR mail_forward RLIKE ?)
                 ",
                 array($domainId, $mailId, $pattern, $pattern)
@@ -278,8 +282,15 @@ final class MailService
                 if (($isCatchall ? $acc : $forward) === '') {
                     $db->execute("UPDATE mail_users SET status = 'todelete' WHERE mail_id = ?", array($other['mail_id']));
                 } else {
+                    // A row the daemon has not added yet stays 'toadd' with the
+                    // corrected data; it must not become 'tochange' for a
+                    // mailbox that was never created.
                     $db->execute(
-                        "UPDATE mail_users SET status = 'tochange', mail_acc = ?, mail_forward = ? WHERE mail_id = ?",
+                        "
+                            UPDATE mail_users
+                            SET mail_acc = ?, mail_forward = ?, status = IF(status = 'toadd', 'toadd', 'tochange')
+                            WHERE mail_id = ?
+                        ",
                         array($acc, $forward, $other['mail_id'])
                     );
                 }

@@ -432,6 +432,36 @@ class MailServiceTest extends ServiceTestCase
         self::assertSame('1 mail account(s) were deleted by sgwtcustomer', $this->core->logs[0][0]);
     }
 
+    public function testAForwardInTransitStillLosesTheDeletedAddress(): void
+    {
+        // C3: a row in transit carries the deleted address too, and must not
+        // be skipped the way a status = 'ok' filter would skip it.
+        $address = 'sales@' . $this->fixture->domainName();
+        $inToadd = $this->insert('mail_users', array(
+            'mail_acc' => 'team', 'mail_pass' => '_no_', 'mail_forward' => $address . ',x@example.net',
+            'domain_id' => $this->fixture->domainId(), 'mail_type' => 'normal_forward', 'sub_id' => 0,
+            'status' => 'toadd', 'po_active' => 'no', 'quota' => 0, 'mail_addr' => 'team@' . $this->fixture->domainName()
+        ));
+        $inTochangeAlone = $this->insert('mail_users', array(
+            'mail_acc' => 'alias', 'mail_pass' => '_no_', 'mail_forward' => $address,
+            'domain_id' => $this->fixture->domainId(), 'mail_type' => 'normal_forward', 'sub_id' => 0,
+            'status' => 'tochange', 'po_active' => 'no', 'quota' => 0, 'mail_addr' => 'alias@' . $this->fixture->domainName()
+        ));
+        $inTodelete = $this->insert('mail_users', array(
+            'mail_acc' => 'gone', 'mail_pass' => '_no_', 'mail_forward' => $address,
+            'domain_id' => $this->fixture->domainId(), 'mail_type' => 'normal_forward', 'sub_id' => 0,
+            'status' => 'todelete', 'po_active' => 'no', 'quota' => 0, 'mail_addr' => 'gone@' . $this->fixture->domainName()
+        ));
+
+        $this->service()->delete($this->caller('customer'), $this->mailboxId());
+
+        self::assertSame('toadd', $this->mail($inToadd)['status'], 'not yet created; stays toadd with the corrected data');
+        self::assertSame('x@example.net', $this->mail($inToadd)['mail_forward']);
+        self::assertSame('todelete', $this->mail($inTochangeAlone)['status'], 'nothing left to forward to');
+        self::assertSame($address, $this->mail($inTodelete)['mail_forward'], 'already leaving; untouched');
+        self::assertSame('todelete', $this->mail($inTodelete)['status']);
+    }
+
     public function testADefaultAccountIsProtected(): void
     {
         $webmaster = $this->insert('mail_users', array(
