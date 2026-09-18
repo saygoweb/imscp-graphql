@@ -55,6 +55,7 @@ use iMSCP\Plugin\SGW_GraphQL\Service\DomainAliasService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DomainService;
 use iMSCP\Plugin\SGW_GraphQL\Service\FtpService;
 use iMSCP\Plugin\SGW_GraphQL\Service\MailService;
+use iMSCP\Plugin\SGW_GraphQL\Service\MariaDbSqlServer;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlServer;
 use iMSCP\Plugin\SGW_GraphQL\Service\SubdomainService;
@@ -109,8 +110,15 @@ final class Container
     /** @var DirectoryProbe */
     private $probe;
 
-    /** @var SqlServer|null Null until Task 12 wires MariaDbSqlServer. */
+    /** @var SqlServer|null */
     private $sqlServer;
+
+    /**
+     * @var callable|null fn(Db): SqlServer - production only. Built on first
+     *                    use: reading mysql.data on every request, queries
+     *                    included, would be a file read nobody asked for.
+     */
+    private $sqlServerFactory;
 
     /** @var Toolkit|null */
     private $toolkit;
@@ -146,7 +154,7 @@ final class Container
         // this one line already has everything needed to avoid.
         $allowedByDefault = (bool)$plugin->getConfigParam('allowed_by_default', true);
 
-        return new self(
+        $container = new self(
             $pluginDir,
             $plugin->getConfig(),
             function (string $sql, array $bind = array()) {
@@ -183,6 +191,12 @@ final class Container
                 : new UncheckedDirectoryProbe(),
             null
         );
+
+        $container->sqlServerFactory = static function (Db $db) {
+            return MariaDbSqlServer::fromPanel($db);
+        };
+
+        return $container;
     }
 
     /**
@@ -280,6 +294,10 @@ final class Container
 
     public function sqlServer(): ?SqlServer
     {
+        if ($this->sqlServer === null && $this->sqlServerFactory !== null) {
+            $this->sqlServer = call_user_func($this->sqlServerFactory, $this->db);
+        }
+
         return $this->sqlServer;
     }
 
