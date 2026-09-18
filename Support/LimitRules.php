@@ -103,4 +103,149 @@ final class LimitRules
 
         return null;
     }
+
+    /**
+     * The create path's rule, which is not the edit path's.
+     *
+     * CORE-DEBT(C3): transcribed from gui/include/Reseller.php:40-243
+     *   reseller_limits_check(), which user_add2.php and hosting_plan_add.php
+     *   both call. Retire when CustomerService lands in core.
+     *
+     * @param array<string, int> $wanted   allowance name => the limit asked for,
+     *                                     plus 'disk' and 'traffic'
+     * @param callable $resellerMax        fn(string $allowance): int
+     * @param callable $resellerUsed       fn(string $allowance): int
+     * @return string|null the first refusal, in the panel's order, or null
+     */
+    public static function createReason(array $wanted, callable $resellerMax, callable $resellerUsed): ?string
+    {
+        // 1. Reseller.php:91 - the customer count, before any service.
+        $maxCustomers = (int)$resellerMax('customers');
+
+        if ($maxCustomers !== self::UNLIMITED && (int)$resellerUsed('customers') + 1 > $maxCustomers) {
+            return 'You have reached your domains limit. You cannot add more domains.';
+        }
+
+        // 2. Reseller.php:101-131 - subdomains, then domain aliases. Both may
+        // be withheld (-1), and the panel misspells "your" for aliases alone
+        // (Reseller.php:128); transcribed as written.
+        $reason = self::serviceReason($wanted, $resellerMax, $resellerUsed, 'subdomains', 'subdomains', true, null);
+
+        if ($reason !== null) {
+            return $reason;
+        }
+
+        $reason = self::serviceReason(
+            $wanted, $resellerMax, $resellerUsed, 'domainAliases', 'domain aliases', true,
+            'You are exceeding you domain aliases limit.'
+        );
+
+        if ($reason !== null) {
+            return $reason;
+        }
+
+        // 3. Reseller.php:133-165 - mail accounts, then FTP accounts. Neither
+        // has a "!= -1" guard in the source, so unlike every other service
+        // here, a withheld (-1) ask is not escaped: it is measured as -1.
+        $reason = self::serviceReason($wanted, $resellerMax, $resellerUsed, 'mailAccounts', 'mail accounts', false, null);
+
+        if ($reason !== null) {
+            return $reason;
+        }
+
+        $reason = self::serviceReason($wanted, $resellerMax, $resellerUsed, 'ftpUsers', 'FTP accounts', false, null);
+
+        if ($reason !== null) {
+            return $reason;
+        }
+
+        // 4. Reseller.php:167-180 - SQL databases, withholdable.
+        $reason = self::serviceReason($wanted, $resellerMax, $resellerUsed, 'sqlDatabases', 'SQL databases', true, null);
+
+        if ($reason !== null) {
+            return $reason;
+        }
+
+        // 5. Reseller.php:182-205 - SQL users, plus the cross-check against
+        // SQL databases.
+        $reason = self::sqlUsersReason($wanted, $resellerMax, $resellerUsed);
+
+        if ($reason !== null) {
+            return $reason;
+        }
+
+        // 6. Reseller.php:207-241 - traffic, then disk. Neither is ever
+        // withholdable: the source tests only "max != 0", never "!= -1".
+        $reason = self::serviceReason($wanted, $resellerMax, $resellerUsed, 'traffic', 'monthly traffic', false, null);
+
+        if ($reason !== null) {
+            return $reason;
+        }
+
+        return self::serviceReason($wanted, $resellerMax, $resellerUsed, 'disk', 'disk space', false, null);
+    }
+
+    /**
+     * The shape every plain service test in reseller_limits_check() shares:
+     * skip when the reseller is unlimited for it, or (when $escapable) the
+     * caller withheld it; otherwise refuse an unlimited ask, then refuse one
+     * that overruns what is left.
+     *
+     * @param array<string, int> $wanted
+     */
+    private static function serviceReason(
+        array $wanted, callable $resellerMax, callable $resellerUsed,
+        string $service, string $name, bool $escapable, ?string $exceedingMessage
+    ): ?string {
+        $max = (int)$resellerMax($service);
+        $new = (int)$wanted[$service];
+
+        if ($max === self::UNLIMITED || ($escapable && $new === self::WITHHELD)) {
+            return null;
+        }
+
+        if ($new === self::UNLIMITED) {
+            return sprintf('You have a %s limit. You cannot add a user with unlimited %s.', $name, $name);
+        }
+
+        if ((int)$resellerUsed($service) + $new > $max) {
+            return $exceedingMessage ?? sprintf('You are exceeding your %s limit.', $name);
+        }
+
+        return null;
+    }
+
+    /**
+     * Reseller.php:182-205. SQL users share the plain shape, but with one more
+     * test between "unlimited" and "exceeding": a caller who did not withhold
+     * SQL users (above) but withheld SQL databases is refused. This sits
+     * inside the same "$maxSqlUserLimit != 0 && $newSqlUserLimit != -1" guard
+     * as the other two SQL-user tests - it does not run at all for a reseller
+     * unlimited on SQL users, or a caller who withheld SQL users outright.
+     *
+     * @param array<string, int> $wanted
+     */
+    private static function sqlUsersReason(array $wanted, callable $resellerMax, callable $resellerUsed): ?string
+    {
+        $max = (int)$resellerMax('sqlUsers');
+        $new = (int)$wanted['sqlUsers'];
+
+        if ($max === self::UNLIMITED || $new === self::WITHHELD) {
+            return null;
+        }
+
+        if ($new === self::UNLIMITED) {
+            return 'You have a SQL users limit. You cannot add a user with unlimited SQL users.';
+        }
+
+        if ((int)$wanted['sqlDatabases'] === self::WITHHELD) {
+            return 'You have disabled SQL databases for this user. You cannot have SQL users here.';
+        }
+
+        if ((int)$resellerUsed('sqlUsers') + $new > $max) {
+            return 'You are exceeding your SQL users limit.';
+        }
+
+        return null;
+    }
 }

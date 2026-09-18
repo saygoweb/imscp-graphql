@@ -257,9 +257,68 @@ class CustomerServiceTest extends ServiceTestCase
             )));
         });
 
-        // The reseller has 4 - 3 = 1 subdomain left to give, and is asked for 2.
+        // The create path's own rule (LimitRules::createReason(), not the
+        // edit page's): current (3) + asked for (2) is over the reseller's
+        // max (4), and the refusal carries the numbers that tripped it (A10).
         self::assertSame('subdomains', $e->getExtensions()['quota']);
-        self::assertStringContainsString('cannot be greater than 1', $e->getMessage());
+        self::assertSame('You are exceeding your subdomains limit.', $e->getMessage());
+        self::assertSame(4, $e->getExtensions()['limit']);
+        self::assertSame(3, $e->getExtensions()['used']);
+    }
+
+    public function testACustomerCountIsCheckedBeforeAnyServiceEvenWithRoomLeftInIt(): void
+    {
+        // A8, A9: the reseller is out of customers, but has room in every
+        // service - so if the count is not checked first, the create would
+        // wrongly succeed.
+        $this->db->execute(
+            'UPDATE reseller_props SET max_dmn_cnt = 1, current_dmn_cnt = 1 WHERE reseller_id = ?',
+            array($this->fixture->resellerId())
+        );
+
+        $e = $this->refused(ErrorCode::LIMIT_EXCEEDED, function (): void {
+            $this->service()->create($this->caller('reseller'), $this->input());
+        });
+
+        self::assertSame('customers', $e->getExtensions()['quota']);
+        self::assertSame('You have reached your domains limit. You cannot add more domains.', $e->getMessage());
+        self::assertSame(1, $e->getExtensions()['limit']);
+        self::assertSame(1, $e->getExtensions()['used']);
+    }
+
+    public function testDiskAndTrafficAreEnforcedOnCreate(): void
+    {
+        // A1: neither was ever measured before the root-cause fix.
+        $this->db->execute(
+            'UPDATE reseller_props SET max_disk_amnt = 100, current_disk_amnt = 60 WHERE reseller_id = ?',
+            array($this->fixture->resellerId())
+        );
+
+        $e = $this->refused(ErrorCode::LIMIT_EXCEEDED, function (): void {
+            $this->service()->create($this->caller('reseller'), $this->input(array(
+                'allowances' => array('disk' => 50) + $this->input()['allowances']
+            )));
+        });
+
+        self::assertSame('disk', $e->getExtensions()['quota']);
+        self::assertSame('You are exceeding your disk space limit.', $e->getMessage());
+    }
+
+    public function testAWithheldLimitDoesNotBlockACreateEvenWhenTheResellerIsOverItsOwn(): void
+    {
+        // A9: before the fix, a reseller whose own consumption already
+        // exceeds its limit could create no customer at all, even one that
+        // withholds the very service the reseller is over on.
+        $this->db->execute(
+            'UPDATE reseller_props SET max_sql_db_cnt = 1, current_sql_db_cnt = 5 WHERE reseller_id = ?',
+            array($this->fixture->resellerId())
+        );
+
+        $ref = $this->service()->create($this->caller('reseller'), $this->input(array(
+            'allowances' => array('sqlDatabases' => -1, 'sqlUsers' => -1) + $this->input()['allowances']
+        )));
+
+        self::assertNotNull($ref);
     }
 
     public function testNothingIsWrittenWhenARefusalHappens(): void

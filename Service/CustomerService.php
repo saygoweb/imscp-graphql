@@ -103,20 +103,42 @@ final class CustomerService
         $contact = $this->contactFor($input, $core);
         $expiresAt = $this->expiryFor($input);
 
-        // 7. Every allowance against both ledgers (D21). A create has no
-        // customer consumption and no customer limit yet, so both are 0.
-        foreach (array_keys(LimitRules::SERVICES) as $service) {
-            $reason = LimitRules::reason(
-                $allowances->limit($service), 0, 0,
-                $reseller->usedOf($service), $reseller->maxOf($service), $service
-            );
+        // 7. The create path's own rule (Support\LimitRules::createReason()):
+        // the customer count, all six services and traffic/disk, in
+        // reseller_limits_check()'s order - not the edit page's
+        // isValidServiceLimit(), which D21 wrongly reused for both paths.
+        $wanted = array(
+            'subdomains'    => $allowances->limit('subdomains'),
+            'domainAliases' => $allowances->limit('domainAliases'),
+            'mailAccounts'  => $allowances->limit('mailAccounts'),
+            'ftpUsers'      => $allowances->limit('ftpUsers'),
+            'sqlDatabases'  => $allowances->limit('sqlDatabases'),
+            'sqlUsers'      => $allowances->limit('sqlUsers'),
+            'traffic'       => $allowances->storage('traffic'),
+            'disk'          => $allowances->storage('disk')
+        );
 
-            if ($reason !== null) {
-                throw Guard::limitExceeded($reason, array('quota' => $service));
-            }
+        // A10: $resellerMax notes which allowance it was last asked about.
+        // createReason() calls it exactly once per allowance it evaluates, in
+        // order, and returns the instant one refuses - so when it does, the
+        // last allowance $resellerMax saw is the one responsible, and its
+        // numbers are ready for the exception.
+        $triggered = null;
+        $resellerMax = function (string $allowance) use ($reseller, &$triggered): int {
+            $triggered = $allowance;
+
+            return $reseller->maxOf($allowance);
+        };
+
+        $reason = LimitRules::createReason($wanted, $resellerMax, array($reseller, 'usedOf'));
+
+        if ($reason !== null) {
+            throw Guard::limitExceeded($reason, array(
+                'quota' => $triggered,
+                'limit' => $reseller->maxOf($triggered),
+                'used'  => $reseller->usedOf($triggered)
+            ));
         }
-
-        $this->requireRoomForOneMoreCustomer($reseller);
 
         $columns = $allowances->domainColumns();
         $forward = VhostRules::noForwarding();
@@ -364,17 +386,5 @@ final class CustomerService
         return (int)$this->kit->db()->value(
             'SELECT COUNT(*) FROM admin WHERE admin_name = ?', array($username)
         ) > 0;
-    }
-
-    private function requireRoomForOneMoreCustomer(ResellerAccount $reseller): void
-    {
-        $max = $reseller->maxOf('customers');
-
-        if ($max > 0 && $reseller->usedOf('customers') >= $max) {
-            throw Guard::limitExceeded(
-                'You have reached the number of customers you may create.',
-                array('quota' => 'customers', 'limit' => $max, 'used' => $reseller->usedOf('customers'))
-            );
-        }
     }
 }
