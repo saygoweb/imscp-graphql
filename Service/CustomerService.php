@@ -30,6 +30,7 @@ use iMSCP\Plugin\SGW_GraphQL\Support\NodeType;
 use iMSCP\Plugin\SGW_GraphQL\Support\ObjectRef;
 use iMSCP\Plugin\SGW_GraphQL\Support\PlanProps;
 use iMSCP\Plugin\SGW_GraphQL\Support\VhostRules;
+use Throwable;
 
 /**
  * The customer lifecycle, as a reseller sees it.
@@ -247,18 +248,27 @@ final class CustomerService
 
         // 9, 10. C11 item 12: after the commit, so a rollback cannot leave a
         // customer holding credentials for an account that does not exist.
-        if (!empty($input['sendWelcomeEmail'])) {
-            $core->sendAccountCreatedEmail(
-                $reseller->getAdminId(), $username, $password, $contact['email'],
-                $contact['firstName'], $contact['lastName'], self::ROLE_LABEL
-            );
-        }
-
         $core->sendRequest();
         $core->writeLog(
             sprintf('A new customer (%s) has been created by: %s', $username, $caller->getUsername()),
             E_USER_NOTICE
         );
+
+        // The rows are committed and the daemon is on its way, so a mail that
+        // fails is a courtesy that failed, not a create that failed. C11 item
+        // 12 is why it is here at all rather than inside the transaction.
+        if (!empty($input['sendWelcomeEmail'])) {
+            try {
+                $core->sendAccountCreatedEmail(
+                    $reseller->getAdminId(), $username, $password, $contact['email'],
+                    $contact['firstName'], $contact['lastName'], self::ROLE_LABEL
+                );
+            } catch (Throwable $e) {
+                $core->writeLog(sprintf(
+                    "Couldn't send the welcome message to %s: %s", $username, $e->getMessage()
+                ), E_USER_ERROR);
+            }
+        }
 
         return new ObjectRef(NodeType::CUSTOMER, $written['adminId']);
     }

@@ -157,6 +157,29 @@ class CustomerServiceTest extends ServiceTestCase
         );
     }
 
+    public function testAFailedWelcomeMessageDoesNotStrandTheCustomer(): void
+    {
+        // A3: get_welcome_email()/send_mail() throw rather than return false,
+        // so a mail that fails must not undo, or appear to undo, a create
+        // that already committed and already poked the daemon.
+        $this->core->sendAccountCreatedEmailThrows = new \RuntimeException('SMTP is down');
+
+        $ref = $this->service()->create(
+            $this->caller('reseller'), $this->input(array('sendWelcomeEmail' => true))
+        );
+
+        $admin = $this->db->row('SELECT * FROM admin WHERE admin_id = ?', array($ref->getKey()));
+        self::assertSame('toadd', $admin['admin_status']);
+        self::assertContains(array('sendRequest'), $this->core->calls);
+
+        $errors = array_values(array_filter($this->core->logs, function (array $log): bool {
+            return $log[1] === E_USER_ERROR;
+        }));
+        self::assertCount(1, $errors);
+        self::assertStringContainsString('sgwnew.test', $errors[0][0]);
+        self::assertStringContainsString('SMTP is down', $errors[0][0]);
+    }
+
     public function testDefaultMailAccountsFollowThePanelsSetting(): void
     {
         $this->reconfigure(array('CREATE_DEFAULT_EMAIL_ADDRESSES' => false));

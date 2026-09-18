@@ -21,6 +21,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Double;
  */
 
 use iMSCP\Plugin\SGW_GraphQL\Service\Core;
+use Throwable;
 
 /**
  * A Core that records its side effects instead of performing them, and asks a
@@ -63,6 +64,15 @@ final class RecordingCore implements Core
 
     /** @var int */
     public $prunes = 0;
+
+    /**
+     * A test that wants sendAccountCreatedEmail() to fail, the way the
+     * panel's own get_welcome_email()/send_mail() do - by throwing rather
+     * than returning false - sets this instead of catching anything here.
+     *
+     * @var Throwable|null
+     */
+    public $sendAccountCreatedEmailThrows;
 
     /** @var Core */
     private $inner;
@@ -292,6 +302,10 @@ final class RecordingCore implements Core
         string $firstName, string $lastName, string $role
     ): bool {
         $this->record('sendAccountCreatedEmail', $createdBy, $username, $email, $firstName, $lastName, $role);
+
+        if ($this->sendAccountCreatedEmailThrows !== null) {
+            throw $this->sendAccountCreatedEmailThrows;
+        }
 
         return true;
     }
