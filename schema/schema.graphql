@@ -636,6 +636,11 @@ type Mutation {
   "One per host. A second is CONFLICT."
   mailCatchallCreate(input: MailCatchallCreateInput!): MailAccount!
   mailCatchallDelete(id: ID!): MailAccount!
+
+  "The login is username@ the chosen host's name."
+  ftpUserCreate(input: FtpUserCreateInput!): FtpUser!
+  ftpUserUpdate(id: ID!, input: FtpUserUpdateInput!): FtpUser!
+  ftpUserDelete(id: ID!): FtpUser!
 }
 
 input ForwardingInput {
@@ -732,4 +737,24 @@ input MailCatchallCreateInput {
   hostId: ID!
   "Where caught mail is delivered."
   addresses: [EmailAddress!]!
+}
+
+input FtpUserCreateInput {
+  "The Domain, Subdomain or DomainAlias the login is named after."
+  hostId: ID!
+  "The part before the @."
+  username: String!
+  password: Secret!
+  """
+  Where the user lands, relative to the customer's web root, e.g. /shop. It
+  must already exist. FtpUser.homeDirectory reads back the absolute path.
+  """
+  directory: String = "/"
+}
+
+"An absent field keeps its current value."
+input FtpUserUpdateInput {
+  password: Secret
+  "As FtpUserCreateInput.directory."
+  directory: String
 }

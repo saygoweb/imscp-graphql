@@ -33,6 +33,7 @@ use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
 use iMSCP\Plugin\SGW_GraphQL\Repository\VirtualHosts;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\CustomerResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\DnsResolver;
+use iMSCP\Plugin\SGW_GraphQL\Resolver\FtpMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\FtpSqlResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\MailMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\MailResolver;
@@ -52,6 +53,7 @@ use iMSCP\Plugin\SGW_GraphQL\Service\DetachedDirectoryProbe;
 use iMSCP\Plugin\SGW_GraphQL\Service\DirectoryProbe;
 use iMSCP\Plugin\SGW_GraphQL\Service\DomainAliasService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DomainService;
+use iMSCP\Plugin\SGW_GraphQL\Service\FtpService;
 use iMSCP\Plugin\SGW_GraphQL\Service\MailService;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlServer;
@@ -400,7 +402,8 @@ final class Container
                 $loader, new SubdomainService($kit), new DomainAliasService($kit),
                 new DomainService($kit), $virtualHosts, $toUnicode
             ))->map(),
-            'MailMutations' => (new MailMutations($loader, new MailService($kit), $mail))->map()
+            'MailMutations' => (new MailMutations($loader, new MailService($kit), $mail))->map(),
+            'FtpMutations' => (new FtpMutations($loader, new FtpService($kit), $ftpSql))->map()
         );
 
         return $this->maps;
