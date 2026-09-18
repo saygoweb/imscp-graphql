@@ -158,24 +158,41 @@ final class MailService
             throw Guard::badInput('id', 'A catch-all is changed with the catch-all mutations.');
         }
 
-        $named = array_intersect(array_keys($input), array('kind', 'password', 'quota', 'forwardTo'));
+        // An explicit null names nothing: every reader below uses isset().
+        $given = array_filter($input, static function ($value) {
+            return $value !== null;
+        });
+        $named = array_intersect(array_keys($given), array('kind', 'password', 'quota', 'forwardTo'));
 
         if ($named === array()) {
             throw Guard::badInput('input', 'The update names nothing to change.');
         }
 
-        $kind = isset($input['kind']) ? (string)$input['kind'] : $current;
+        $kind = isset($given['kind']) ? (string)$given['kind'] : $current;
 
         if (!in_array($kind, self::ACCOUNT_KINDS, true)) {
             throw Guard::badInput('input.kind', 'A mail account cannot become a catch-all.');
+        }
+
+        // A field the resulting kind cannot carry is refused, not dropped.
+        if ($kind === MailType::KIND_FORWARD && isset($given['password'])) {
+            throw Guard::badInput('input.password', 'A forward has no mailbox, so it has no password.');
+        }
+
+        if ($kind === MailType::KIND_FORWARD && isset($given['quota'])) {
+            throw Guard::badInput('input.quota', 'A forward has no mailbox, so it has no quota.');
+        }
+
+        if ($kind === MailType::KIND_MAILBOX && isset($given['forwardTo'])) {
+            throw Guard::badInput('input.forwardTo', 'A mailbox that does not forward has nothing to forward to.');
         }
 
         $address = (string)$row['mail_addr'];
         $hostName = substr($address, strpos($address, '@') + 1);
         $hadMailbox = $current !== MailType::KIND_FORWARD;
         $values = $this->accountValues(
-            $account, $kind, $hostName, $address, $input, $row,
-            isset($input['quota']) || !$hadMailbox
+            $account, $kind, $hostName, $address, $given, $row,
+            isset($given['quota']) || !$hadMailbox
         );
         $mailType = MailType::toMailType(MailType::hostTypeOf((string)$row['mail_type']), $kind);
         $mailId = (int)$target->getKey();

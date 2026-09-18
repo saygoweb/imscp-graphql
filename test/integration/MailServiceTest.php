@@ -332,6 +332,55 @@ class MailServiceTest extends ServiceTestCase
         self::assertSame('input', $e->getExtensions()['field']);
     }
 
+    public function testAnExplicitNullNamesNothing(): void
+    {
+        $e = $this->refused(ErrorCode::BAD_USER_INPUT, function () {
+            $this->service()->update($this->caller('customer'), $this->mailboxId(), array('quota' => null));
+        });
+
+        self::assertSame('input', $e->getExtensions()['field']);
+        self::assertSame('The update names nothing to change.', $e->getMessage());
+        self::assertSame('ok', $this->mail($this->fixture->mailboxId())['status']);
+    }
+
+    public function testAPasswordOnAForwardIsRefused(): void
+    {
+        $forward = GlobalId::encode(NodeType::MAIL_ACCOUNT, $this->fixture->forwardId());
+
+        $e = $this->refused(ErrorCode::BAD_USER_INPUT, function () use ($forward) {
+            $this->service()->update($this->caller('customer'), $forward, array('password' => 'N3wSecret'));
+        });
+
+        self::assertSame('input.password', $e->getExtensions()['field']);
+        self::assertSame('ok', $this->mail($this->fixture->forwardId())['status']);
+    }
+
+    public function testAForwardToOnAMailboxOnlyAccountIsRefused(): void
+    {
+        $this->giveTheMailboxAPassword();
+
+        $e = $this->refused(ErrorCode::BAD_USER_INPUT, function () {
+            $this->service()->update($this->caller('customer'), $this->mailboxId(), array(
+                'forwardTo' => array('elsewhere@example.net')
+            ));
+        });
+
+        self::assertSame('input.forwardTo', $e->getExtensions()['field']);
+    }
+
+    public function testChangingKindToForwardWhileSendingQuotaIsRefused(): void
+    {
+        $this->giveTheMailboxAPassword();
+
+        $e = $this->refused(ErrorCode::BAD_USER_INPUT, function () {
+            $this->service()->update($this->caller('customer'), $this->mailboxId(), array(
+                'kind' => 'FORWARD', 'forwardTo' => array('elsewhere@example.net'), 'quota' => (string)self::MIB
+            ));
+        });
+
+        self::assertSame('input.quota', $e->getExtensions()['field']);
+    }
+
     public function testAnUnsettledAccountCannotBeUpdated(): void
     {
         $this->db->execute("UPDATE mail_users SET status = 'toadd' WHERE mail_id = ?", array($this->fixture->mailboxId()));
