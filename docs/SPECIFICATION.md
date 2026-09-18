@@ -285,32 +285,19 @@ much as is safely reusable, listed explicitly.
 | Package | Role |
 | --- | --- |
 | `webonyx/graphql-php ^15` | The schema engine. Needs PHP 7.4, which §2.5 provides. Measured: v15.37.2 resolves and installs with `platform.php = 7.4.33`. |
-| `saygoweb/anorm ^3.1` | The **read** models and their batch loading. See below. Measured: v3.1.1 lints clean on 7.4 and on 8.3, 31 files, unmodified. |
 
-**Anorm, on the read side only.** An earlier draft of this section rejected
-Anorm outright, for a reason that had nothing to do with the PHP version: a
-write in this system is never "persist a model". It is validate → check quota →
-open a transaction → dispatch a before-event → INSERT with a `toadd` status →
-write a `php_ini` row → create default mail accounts → dispatch an
-after-event → commit → poke the daemon → `write_log()`. An ORM helps with one
-step in ten. **That reasoning is unchanged, and the write side of the
-`Service\` layer stays on `exec_query()`.**
-
-The read side is a different problem, and Anorm fits it unusually well. §10.1
-requires DataLoader-style batching, so that "list my customers, and for each
-their domain and its subdomains" is not an N+1. Anorm v3 already ships it:
-`Relationship\BatchLoadingOrchestrator` over `ManyHasOneBatchLoader`,
-`OneHasManyBatchLoader` and `ManyHasManyBatchLoader` — and, the part that
-matters, `loadRelationshipsForModels()` takes a **field selection**
-specification of the form `['posts', 'company:name,address']`, which is the
-shape of a GraphQL `ResolveInfo`. Feeding a resolver's requested fields into
-Anorm's batch loader is a mapping, not an implementation.
-
-The cost is two idioms in one codebase — Anorm for reads, `exec_query()` for
-writes. Each is defensible on its own side; the pair needs justifying, and the
-justification is that they are genuinely different problems. The cheapest
-reversal is to drop Anorm and hand-write the batch loaders; the decision point
-is the start of phase 2.
+**Anorm was chosen for the read side, and removed in phase 3.** It was taken
+on for its IN-clause batch loaders and its field-selection-aware orchestrator,
+and on the expectation that phase 3's writes would use its models. Neither held.
+Phase 2 measured that the orchestrator's default strategy chooses individual
+loading — the N+1 — below ten source models, and that its join loader is a stub,
+so the plugin called the two IN-clause loaders directly and kept the rest out of
+reach; by the end of phase 2 one read edge used them. Phase 3 measured that
+`DataMapper::write()` updates every mapped column (a lost update against the
+backend's own writes to the same row), interpolates the key, and inserts `NULL`
+for every unset property, which the panel's tables refuse. No write used it, and
+the dependency went. The batch loading §10.1 requires is `Repository\BatchLoader`,
+over graphql-php's `Deferred`, one IN-clause query per edge per level.
 
 **Rejected: `simpod/graphql-utils`**, which the `emdc-events` API uses for its
 `ObjectBuilder` / `FieldBuilder` fluent API. On PHP 7.4 it cannot be had
@@ -1735,11 +1722,8 @@ plugin still works; it just carries more duplication for longer.
    reverse before phase 2. Note that on PHP 7.4 the code-first route cannot use
    `simpod/graphql-utils` alongside graphql-php v15 at all (§3.3), so choosing
    it means either dropping to graphql-php v14 or writing the builders by hand.
-2. ~~Should Anorm be used?~~ **Answered in §3.3**: yes, for the read models and
-   their batch loading, on the strength of Anorm v3's field-selection-aware
-   batch loaders; no, for writes. What remains open is narrower — whether two
-   idioms in one codebase is worth that, with the decision point at the start
-   of phase 2.
+2. ~~Should Anorm be used?~~ **Answered, then reversed.** Used for the read
+   side in phase 2, removed in phase 3; §3.3 says why.
 3. **Scope granularity.** Fourteen scopes (§7.2) may be more than anyone will
    use. Three — `READ`, `WRITE`, `ADMIN` — would be simpler and harder to get
    wrong. Adding scopes later is compatible; removing them is not.

@@ -69,7 +69,7 @@ class VirtualHostsTest extends IntegrationTestCase
 
     public function testASubdomainNameIsTheLabelJoinedToItsParent(): void
     {
-        // The reason subdomains do not come through an Anorm relationship: the
+        // The reason subdomains do not come through a single-table query: the
         // subdomain table stores 'shop', not 'shop.example.test', and a
         // single-table IN-clause SELECT cannot produce the difference.
         $rows = $this->vhosts->ofKind(

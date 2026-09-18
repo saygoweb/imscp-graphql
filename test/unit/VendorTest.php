@@ -32,11 +32,6 @@ class VendorTest extends TestCase
         );
     }
 
-    public function testAnormIsAvailable(): void
-    {
-        self::assertTrue(class_exists(\Anorm\Model::class));
-    }
-
     public function testPluginNamespaceResolves(): void
     {
         self::assertTrue(

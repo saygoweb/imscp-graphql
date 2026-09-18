@@ -22,11 +22,8 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Repository;
 
 use GraphQL\Deferred;
 use GraphQL\Executor\Promise\Adapter\SyncPromise;
-use iMSCP\Plugin\SGW_GraphQL\Model\AdminModel;
 use iMSCP\Plugin\SGW_GraphQL\Repository\BatchLoader;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
-use InvalidArgumentException;
-use PDO;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -255,9 +252,9 @@ class BatchLoaderTest extends TestCase
         // failed batch rejects only the promise that happened to trigger it.
         // If the pending list were cleared before the loader ran, every
         // sibling in the batch would find nothing pending and fall through to
-        // "no answer for this key" - which keyed() spells null and byColumn()
-        // turns into an empty list. A dropped connection would then read as
-        // "this customer has nothing", inside a 200 response.
+        // "no answer for this key" - which keyed() spells null. A dropped
+        // connection would then read as "this customer has nothing", inside a
+        // 200 response.
         $loader = $this->loader();
         $throwing = $this->throwing();
 
@@ -273,57 +270,11 @@ class BatchLoaderTest extends TestCase
         );
     }
 
-    public function testAFailedByColumnFlushDoesNotReadAsNoRowsForSiblings(): void
-    {
-        // The same hazard one layer up. byColumn() ends in ->then(), which
-        // maps keyed()'s null to array(), so a sibling that fell through
-        // would hand a resolver an empty list of models.
-        $loader = new BatchLoader(new Db($this->createMock(PDO::class)));
-
-        $a = $loader->byColumn(AdminModel::class, 'created_by', 1);
-        $b = $loader->byColumn(AdminModel::class, 'created_by', 2);
-
-        $this->drain();
-
-        self::assertSame(SyncPromise::REJECTED, $a->state);
-        self::assertSame(
-            SyncPromise::REJECTED, $b->state,
-            'a failed query must not read as an empty result set'
-        );
-    }
-
-    public function testASiblingOfAFailedEdgeFlushDoesNotResolveToAnEmptyList(): void
-    {
-        // flushEdge()'s half of the same defect. Anorm's
-        // distributeBatchResults() is what assigns the edge property, so a
-        // batchLoad() that throws leaves every model's property untouched -
-        // null, never assigned - and edge()'s is_array() conversion turns
-        // that into array(). Ten customers, one dropped connection, nine
-        // reporting zero mail accounts.
-        $pdo = $this->createMock(PDO::class);
-        $loader = $this->loader();
-        $deferreds = array();
-
-        for ($i = 1; $i <= 2; $i++) {
-            $model = new AdminModel($pdo);
-            $model->admin_id = $i;
-            $deferreds[] = $loader->related($model, 'domains');
-        }
-
-        $this->drain();
-
-        self::assertSame(SyncPromise::REJECTED, $deferreds[0]->state);
-        self::assertSame(
-            SyncPromise::REJECTED, $deferreds[1]->state,
-            'a sibling of a failed edge batch must fail, not report no children'
-        );
-    }
-
     public function testANullKeyResolvesToNullWithoutAQuery(): void
     {
-        // domain.domain_ip_id is nullable, and byColumn(ServerIpModel::class,
-        // 'ip_id', null) is the caller. SQL's IN (NULL) is never true, so the
-        // query would cost a round trip to learn nothing.
+        // domain.domain_ip_id is nullable, and a keyed() load of server_ips by
+        // ip_id is the caller. SQL's IN (NULL) is never true, so the query
+        // would cost a round trip to learn nothing.
         $loader = $this->loader();
 
         $deferred = $loader->keyed('ips', null, $this->squares());
@@ -352,35 +303,6 @@ class BatchLoaderTest extends TestCase
         );
     }
 
-    public function testAColumnNameThatIsNotAnIdentifierIsRefused(): void
-    {
-        // byColumn() interpolates the column into backticks. The model class
-        // beside it is validated; this is the argument that would survive
-        // until one of them became caller-supplied.
-        $loader = $this->loader();
-
-        $this->expectException(InvalidArgumentException::class);
-
-        $loader->byColumn(AdminModel::class, 'admin_id` = 1 OR `1', 1);
-    }
-
-    public function testAColumnNameIsCheckedBeforeAnythingIsEnqueued(): void
-    {
-        // Eagerly, not at flush time: a rejected promise three levels into a
-        // document is a worse report than a refused call.
-        $loader = $this->loader();
-
-        try {
-            $loader->byColumn(AdminModel::class, 'no spaces allowed', 1);
-            self::fail('an invalid column must be refused');
-        } catch (InvalidArgumentException $e) {
-            self::assertStringContainsString('no spaces allowed', $e->getMessage());
-        }
-
-        $this->drain();
-        self::assertSame(0, $loader->flushes());
-    }
-
     public function testADetachedHandleRefusesToQuery(): void
     {
         // If a unit test ever reaches a real query it must say so, not return
@@ -388,30 +310,5 @@ class BatchLoaderTest extends TestCase
         $this->expectException(RuntimeException::class);
 
         Db::detached()->rows('SELECT 1');
-    }
-
-    public function testAnAnormStrategyClassIsNeverLoaded(): void
-    {
-        // The containment this whole design exists for. Anorm's Strategy layer
-        // decides, per call, whether to batch at all - and its default
-        // configuration picks individual loading, the N+1, at ten source
-        // models or fewer, which is exactly the size this API sees. Its
-        // JoinWithSelectionLoader is a stub that guesses table names. Neither
-        // is on this class's path, and this asserts it stays that way.
-        // class_exists(..., false) does not autoload, so this asserts what has
-        // actually been loaded rather than what could be.
-        $loader = $this->loader();
-        $loader->keyed('squares', 1, $this->squares());
-        $this->drain();
-
-        foreach (array(
-            'Anorm\Relationship\BatchLoadingOrchestrator',
-            'Anorm\Relationship\Strategy\QueryStrategySelector',
-            'Anorm\Relationship\Strategy\FieldSelectionParser',
-            'Anorm\Relationship\Strategy\DataSizeEstimator',
-            'Anorm\Relationship\Strategy\JoinWithSelectionLoader'
-        ) as $class) {
-            self::assertFalse(class_exists($class, false), $class . ' was loaded');
-        }
     }
 }

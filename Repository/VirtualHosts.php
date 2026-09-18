@@ -32,7 +32,7 @@ use InvalidArgumentException;
  * and the four tables differ in almost nothing but their column prefixes. The
  * union is written out here, once, so that no resolver has four code paths.
  *
- * This is where subdomains come from rather than from an Anorm relationship:
+ * This is where subdomains come from rather than from a single-table query:
  * `subdomain` stores the label alone ('shop'), and the fully qualified name is
  * that label joined to the parent's name, which a single-table IN-clause SELECT
  * cannot produce.

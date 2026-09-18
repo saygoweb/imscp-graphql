@@ -23,7 +23,6 @@ namespace iMSCP\Plugin\SGW_GraphQL\Resolver;
 use GraphQL\Executor\Promise\Adapter\SyncPromise;
 use GraphQL\Type\Definition\ResolveInfo;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Scope;
-use iMSCP\Plugin\SGW_GraphQL\Model\DomainModel;
 use iMSCP\Plugin\SGW_GraphQL\Repository\BatchLoader;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
 use iMSCP\Plugin\SGW_GraphQL\Repository\VirtualHosts;
@@ -243,7 +242,7 @@ final class VirtualHostResolver
                     );
                 }
 
-                return TypeResolver::dateTime($domain->domain_created);
+                return TypeResolver::dateTime($domain['domain_created']);
             });
     }
 
@@ -259,7 +258,7 @@ final class VirtualHostResolver
                 // TypeResolver::dateTime() turns that into null rather than
                 // 1970.
                 return $domain === null
-                    ? null : TypeResolver::dateTime($domain->domain_expires);
+                    ? null : TypeResolver::dateTime($domain['domain_expires']);
             });
     }
 
@@ -332,31 +331,35 @@ final class VirtualHostResolver
     }
 
     /**
-     * The `domain` model behind a vhost, for the two fields the normalised
+     * The two columns of the `domain` row behind a vhost that the normalised
      * vhost row does not carry: domain_created and domain_expires.
      *
-     * The one load in this phase that goes through Anorm rather than through
-     * hand-written SQL, and it is here because it is the only one that fits:
-     * one table, one column, no join, no filter, no aggregate.
-     * BatchLoader::byColumn() batches it exactly as keyed() would - it is
-     * built on keyed() - and hands back a DomainModel, so the two resolvers
-     * above read $domain->domain_created rather than $row['domain_created'].
-     * That is the DX case for Task 9's models stated in code: the column names
-     * are declared on the class, so an IDE completes them and a rename is a
-     * rename rather than a search for a string.
+     * One IN-clause query per level, whatever the number of vhosts asking,
+     * and one for createdAt and expiresAt together.
      *
-     * @return SyncPromise Resolves to DomainModel|null
+     * @return SyncPromise Resolves to array{domain_created: string, domain_expires: string}|null
      */
     private function domainRow(int $domainId): SyncPromise
     {
-        return $this->loader
-            ->byColumn(DomainModel::class, 'domain_id', $domainId)
-            ->then(static function (array $models) {
-                // byColumn() answers a list because a column need not be
-                // unique; domain_id is the primary key, so this one is never
-                // longer than one.
-                return $models === array() ? null : $models[0];
-            });
+        $db = $this->db;
+
+        return $this->loader->keyed(
+            'domain:dates',
+            $domainId,
+            static function (array $keys) use ($db) {
+                $byId = array();
+
+                foreach ($db->rows(
+                    'SELECT domain_id, domain_created, domain_expires FROM domain WHERE domain_id IN ('
+                        . $db->placeholders(count($keys)) . ')',
+                    $keys
+                ) as $row) {
+                    $byId[(int)$row['domain_id']] = $row;
+                }
+
+                return $byId;
+            }
+        );
     }
 
     /**

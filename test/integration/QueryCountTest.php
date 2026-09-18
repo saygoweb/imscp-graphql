@@ -34,8 +34,7 @@ class QueryCountTest extends IntegrationTestCase
      * customer list, the whole vhost tree below it including an alias's
      * subdomains, both paged connections, both directions of the SQL grant,
      * DNS with its host edge, the three value blocks that each cost their own
-     * batched query, and Domain.createdAt - the one load in this phase that
-     * goes through Anorm's byColumn(). If an edge is not in here it is not
+     * batched query, and Domain.createdAt. If an edge is not in here it is not
      * covered by the N+1 assertion, which is why this is a constant rather
      * than a literal buried in one method.
      */
@@ -171,7 +170,7 @@ class QueryCountTest extends IntegrationTestCase
         'sqldb:by-domain'                => array(1, 'Customer.sqlDatabases'),
         'sqluser:by-domain'              => array(1, 'Customer.sqlUsers'),
         'dns:by-domain'                  => array(1, 'Customer.dnsRecords'),
-        'col:DomainModel.domain_id'      => array(1, 'Domain.createdAt and .expiresAt together - the one Anorm load in the read path'),
+        'domain:dates'                   => array(1, 'Domain.createdAt and .expiresAt together'),
         'ip:row'                         => array(1, 'Domain.ipAddress'),
         'vhost:by-domain:sub'            => array(1, 'Domain.subdomains'),
         'vhost:by-domain:als'            => array(1, 'Domain.aliases'),

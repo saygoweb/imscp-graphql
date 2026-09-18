@@ -247,9 +247,9 @@ class Db
      * The number of statements this connection has sent to the server.
      *
      * MySQL counts them for us, which means the counter cannot drift out of
-     * step with a library the way a hand-written wrapper would: Anorm's
-     * queries, the plugin's own and exec_query()'s are all on this connection
-     * and all counted.
+     * step with the code the way a hand-written wrapper would: the plugin's
+     * own queries and exec_query()'s are all on this connection and all
+     * counted.
      *
      * This call is itself one of the statements it might be used to count,
      * which is exactly why countQueries() measures its cost at run time

@@ -4,60 +4,8 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "7ae449c374e9390e869e1f0b83780dd3",
+    "content-hash": "9d68b346bb90e8bc98b8bd00ea757e73",
     "packages": [
-        {
-            "name": "saygoweb/anorm",
-            "version": "v3.1.2",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/saygoweb/anorm.git",
-                "reference": "83a421eec20f2b7979c74efc5ee7b99fa82e0dfa"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/saygoweb/anorm/zipball/83a421eec20f2b7979c74efc5ee7b99fa82e0dfa",
-                "reference": "83a421eec20f2b7979c74efc5ee7b99fa82e0dfa",
-                "shasum": ""
-            },
-            "require": {
-                "php": "^7.4 || ^8.0",
-                "wp-cli/php-cli-tools": "^0.11.10"
-            },
-            "require-dev": {
-                "php-coveralls/php-coveralls": "^2.1",
-                "phpstan/phpstan": "^1.10",
-                "phpunit/phpunit": "^9.6",
-                "squizlabs/php_codesniffer": "^3.7"
-            },
-            "bin": [
-                "bin/anorm.php"
-            ],
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Anorm\\": "src/",
-                    "Anorm\\Test\\": "test/anorm/",
-                    "Anorm\\Tools\\": "tools/src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "cambell",
-                    "email": "cambell.prince@gmail.com"
-                }
-            ],
-            "description": "Another ORM for PHP",
-            "support": {
-                "issues": "https://github.com/saygoweb/anorm/issues",
-                "source": "https://github.com/saygoweb/anorm/tree/v3.1.2"
-            },
-            "time": "2026-09-05T12:11:00+00:00"
-        },
         {
             "name": "webonyx/graphql-php",
             "version": "v15.37.2",
@@ -137,69 +85,6 @@
                 }
             ],
             "time": "2026-08-14T06:29:42+00:00"
-        },
-        {
-            "name": "wp-cli/php-cli-tools",
-            "version": "v0.11.22",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/wp-cli/php-cli-tools.git",
-                "reference": "a6bb94664ca36d0962f9c2ff25591c315a550c51"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/wp-cli/php-cli-tools/zipball/a6bb94664ca36d0962f9c2ff25591c315a550c51",
-                "reference": "a6bb94664ca36d0962f9c2ff25591c315a550c51",
-                "shasum": ""
-            },
-            "require": {
-                "php": ">= 5.3.0"
-            },
-            "require-dev": {
-                "roave/security-advisories": "dev-latest",
-                "wp-cli/wp-cli-tests": "^4"
-            },
-            "type": "library",
-            "extra": {
-                "branch-alias": {
-                    "dev-master": "0.11.x-dev"
-                }
-            },
-            "autoload": {
-                "files": [
-                    "lib/cli/cli.php"
-                ],
-                "psr-0": {
-                    "cli": "lib/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Daniel Bachhuber",
-                    "email": "daniel@handbuilt.co",
-                    "role": "Maintainer"
-                },
-                {
-                    "name": "James Logsdon",
-                    "email": "jlogsdon@php.net",
-                    "role": "Developer"
-                }
-            ],
-            "description": "Console utilities for PHP",
-            "homepage": "http://github.com/wp-cli/php-cli-tools",
-            "keywords": [
-                "cli",
-                "console"
-            ],
-            "support": {
-                "issues": "https://github.com/wp-cli/php-cli-tools/issues",
-                "source": "https://github.com/wp-cli/php-cli-tools/tree/v0.11.22"
-            },
-            "time": "2023-12-03T19:25:05+00:00"
         }
     ],
     "packages-dev": [

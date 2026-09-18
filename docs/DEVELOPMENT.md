@@ -126,9 +126,9 @@ Set `IMSCP_VAGRANT_DIR` if the i-MSCP repository is not at `../imscp`.
 
 ## Dependencies
 
-Two runtime dependencies — `webonyx/graphql-php ^15` and `saygoweb/anorm ^3.1`
-— vendored into the release archive. Resolve them **against the panel's PHP**,
-so either install inside the box or pin the platform on the host:
+One runtime dependency — `webonyx/graphql-php ^15` — vendored into the release
+archive. Resolve it **against the panel's PHP**, so either install inside the
+box or pin the platform on the host:
 
 ```json
 "config": { "platform": { "php": "7.4.33" } }
