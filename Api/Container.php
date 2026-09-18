@@ -39,6 +39,7 @@ use iMSCP\Plugin\SGW_GraphQL\Resolver\MailMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\MailResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\QueryResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\ResellerResolver;
+use iMSCP\Plugin\SGW_GraphQL\Resolver\SqlMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\TypeResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\VirtualHostMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\VirtualHostResolver;
@@ -58,6 +59,7 @@ use iMSCP\Plugin\SGW_GraphQL\Service\MailService;
 use iMSCP\Plugin\SGW_GraphQL\Service\MariaDbSqlServer;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlServer;
+use iMSCP\Plugin\SGW_GraphQL\Service\SqlService;
 use iMSCP\Plugin\SGW_GraphQL\Service\SubdomainService;
 use iMSCP\Plugin\SGW_GraphQL\Service\Toolkit;
 use iMSCP\Plugin\SGW_GraphQL\Service\UncheckedDirectoryProbe;
@@ -421,7 +423,12 @@ final class Container
                 new DomainService($kit), $virtualHosts, $toUnicode
             ))->map(),
             'MailMutations' => (new MailMutations($loader, new MailService($kit), $mail))->map(),
-            'FtpMutations' => (new FtpMutations($loader, new FtpService($kit), $ftpSql))->map()
+            'FtpMutations' => (new FtpMutations($loader, new FtpService($kit), $ftpSql))->map(),
+            'SqlMutations' => (new SqlMutations($loader, new SqlService($kit, function () {
+                // Asked on first use, so that a request with no SQL mutation
+                // never reads mysql.data.
+                return $this->sqlServer();
+            }), $ftpSql))->map()
         );
 
         return $this->maps;

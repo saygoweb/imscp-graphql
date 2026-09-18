@@ -641,6 +641,23 @@ type Mutation {
   ftpUserCreate(input: FtpUserCreateInput!): FtpUser!
   ftpUserUpdate(id: ID!, input: FtpUserUpdateInput!): FtpUser!
   ftpUserDelete(id: ID!): FtpUser!
+
+  """
+  SQL databases and users are created by the panel at once, not by the
+  backend: there is no provisioning state to wait for.
+  """
+  sqlDatabaseCreate(input: SqlDatabaseCreateInput!): SqlDatabase!
+  """
+  Drops the database. A user granted only this database is dropped with it;
+  a user granted others too loses this grant only.
+  """
+  sqlDatabaseDelete(id: ID!): SqlDatabase!
+  "Creates a user and grants it the database, or grants the database to one of the same customer's existing users."
+  sqlUserCreate(input: SqlUserCreateInput!): SqlUser!
+  "The password of the SQL account itself, which is the same account on every database it is granted."
+  sqlUserSetPassword(id: ID!, password: Secret!): SqlUser!
+  "Removes this grant. The SQL account goes with its last grant."
+  sqlUserDelete(id: ID!): SqlUser!
 }
 
 input ForwardingInput {
@@ -757,4 +774,38 @@ input FtpUserUpdateInput {
   password: Secret
   "As FtpUserCreateInput.directory."
   directory: String
+}
+
+"Where the customer's domain id goes in a new SQL name, as the panel's MYSQL_PREFIX setting allows."
+enum SqlNamePrefix {
+  "The name as given."
+  NONE
+  "The domain id, an underscore, then the name."
+  START
+  "The name, an underscore, then the domain id."
+  END
+}
+
+input SqlDatabaseCreateInput {
+  "The customer's main domain."
+  domainId: ID!
+  "At most 64 characters, prefix included."
+  name: String!
+  "Where the panel is set to place the domain id itself, only that placement is accepted, and absent means it."
+  prefix: SqlNamePrefix
+}
+
+"""
+Either name (with password, and optionally host and prefix) for a new user,
+or existingUserId to grant this database to a user the customer already has.
+"""
+input SqlUserCreateInput {
+  databaseId: ID!
+  "At most 16 characters, prefix included."
+  name: String
+  "Where the user may connect from. Defaults to the panel's setting."
+  host: String
+  password: Secret
+  prefix: SqlNamePrefix
+  existingUserId: ID
 }
