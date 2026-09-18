@@ -80,9 +80,27 @@ final class Allowances
             $fields[$field] = (string)self::limitValue($input, $name);
         }
 
-        $fields['traffic'] = (string)self::mibFromBytes($input, 'traffic');
-        $fields['disk'] = (string)self::mibFromBytes($input, 'disk');
-        $fields['mailQuota'] = (string)self::mailQuota($input);
+        $trafficBytes = self::storageBytes($input, 'traffic');
+        $diskBytes = self::storageBytes($input, 'disk');
+        $mailQuota = self::mailQuota($input);
+
+        // A6: CORE-DEBT(C3): transcribed from user_add2.php:454-473. Both
+        // sides are bytes now, so this is the same comparison the panel
+        // makes in MiB - a finite disk limit ($diskBytes > 0) bounds the
+        // mail quota, and disallows an unlimited one.
+        if ($diskBytes > 0 && $mailQuota > $diskBytes) {
+            throw Guard::badInput('input.allowances.mailQuota', 'A mail quota cannot be larger than the disk limit.');
+        }
+
+        if ($diskBytes > 0 && $mailQuota === 0) {
+            throw Guard::badInput(
+                'input.allowances.mailQuota', 'A mail quota cannot be unlimited when the disk limit is not.'
+            );
+        }
+
+        $fields['traffic'] = (string)self::bytesToMib($trafficBytes);
+        $fields['disk'] = (string)self::bytesToMib($diskBytes);
+        $fields['mailQuota'] = (string)$mailQuota;
 
         foreach (array('php', 'cgi', 'customDns', 'externalMail') as $name) {
             $fields[self::UNDERSCORED[$name]] = self::flag($input, $name, false);
@@ -202,28 +220,34 @@ final class Allowances
     }
 
     /**
-     * A4/D3: disk and traffic arrive as bytes, like every other BigInt, but
-     * the props store them in MiB (the same unit PlanProps::mibToBytes()
-     * converts back from). -1 (withheld) and 0 (unlimited) pass through
-     * unconverted; a positive value that is not a whole number of MiB is
-     * refused rather than truncated.
+     * A4/D3: disk and traffic arrive as bytes, like every other BigInt. -1
+     * (withheld) and 0 (unlimited) are returned as they are; a positive value
+     * that is not a whole number of MiB is refused rather than truncated,
+     * because the props (and the A6 cross-check below) need the whole MiB.
      */
-    private static function mibFromBytes(array $input, string $name): int
+    private static function storageBytes(array $input, string $name): int
     {
         $bytes = self::limitValue($input, $name);
 
-        if ($bytes <= 0) {
-            return $bytes;
-        }
-
-        if ($bytes % 1048576 !== 0) {
+        if ($bytes > 0 && $bytes % 1048576 !== 0) {
             throw Guard::badInput(
                 'input.allowances.' . $name,
                 sprintf('A %s limit is a whole number of MiB, given in bytes.', $name)
             );
         }
 
-        return intdiv($bytes, 1048576);
+        return $bytes;
+    }
+
+    /**
+     * The props store disk and traffic in MiB (the same unit
+     * PlanProps::mibToBytes() converts back from); -1 and 0 pass through
+     * unconverted, and storageBytes() has already guaranteed a positive value
+     * divides exactly.
+     */
+    private static function bytesToMib(int $bytes): int
+    {
+        return $bytes <= 0 ? $bytes : intdiv($bytes, 1048576);
     }
 
     private static function mailQuota(array $input): int

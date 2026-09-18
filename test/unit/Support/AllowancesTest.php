@@ -132,6 +132,36 @@ class AllowancesTest extends TestCase
         });
     }
 
+    // ---- A6: user_add2.php:454-473 - the mail quota inside the disk limit ----
+
+    public function testAMailQuotaLargerThanAFiniteDiskLimitIsRefused(): void
+    {
+        $this->expectRefusal('input.allowances.mailQuota', function (): void {
+            Allowances::fromInput($this->complete(array('disk' => 1048576, 'mailQuota' => 1048576 + 1)));
+        });
+    }
+
+    public function testAnUnlimitedMailQuotaAgainstAFiniteDiskLimitIsRefused(): void
+    {
+        $this->expectRefusal('input.allowances.mailQuota', function (): void {
+            Allowances::fromInput($this->complete(array('disk' => 1048576, 'mailQuota' => 0)));
+        });
+    }
+
+    public function testAMailQuotaNoLargerThanTheDiskLimitIsAccepted(): void
+    {
+        $allowances = Allowances::fromInput($this->complete(array('disk' => 1048576, 'mailQuota' => 1048576)));
+
+        self::assertSame(1048576, $allowances->storage('mailQuota'));
+    }
+
+    public function testAnUnlimitedDiskLimitNeedsNoMailQuotaCheck(): void
+    {
+        $allowances = Allowances::fromInput($this->complete(array('disk' => 0, 'mailQuota' => 0)));
+
+        self::assertSame(0, $allowances->storage('mailQuota'));
+    }
+
     public function testAPlanAndAnInputProduceTheSameProps(): void
     {
         $props = '_yes_;_no_;5;3;20;10;4;4;10240;5120;_dmn_;_yes_;yes;no;no;no;no;0;0;0;0;0;_no_;_yes_;104857600';
