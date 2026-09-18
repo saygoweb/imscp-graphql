@@ -218,6 +218,32 @@ class Counts
     }
 
     /**
+     * The six countable allowances (Support\LimitRules::SERVICES) for the
+     * customer who owns $domainId, keyed by the GraphQL allowance name.
+     *
+     * ftp_users hangs off admin_id rather than domain_id (see ftpUsers()
+     * above), so the owning admin_id is looked up once and every count is
+     * still one of the batched methods above - no new counting query.
+     *
+     * @return array<string, int>
+     */
+    public function forCustomer(int $domainId): array
+    {
+        $adminId = (int)$this->db->value(
+            'SELECT domain_admin_id FROM domain WHERE domain_id = ?', array($domainId)
+        );
+
+        return array(
+            'subdomains'    => $this->subdomains(array($domainId))[$domainId],
+            'domainAliases' => $this->domainAliases(array($domainId))[$domainId],
+            'mailAccounts'  => $this->mailAccounts(array($domainId))[$domainId],
+            'ftpUsers'      => $this->ftpUsers(array($adminId))[$adminId],
+            'sqlDatabases'  => $this->sqlDatabases(array($domainId))[$domainId],
+            'sqlUsers'      => $this->sqlUsers(array($domainId))[$domainId]
+        );
+    }
+
+    /**
      * Run one grouped count and return a map with every requested key present,
      * so a resolver never has to tell "no rows" from "not asked".
      *

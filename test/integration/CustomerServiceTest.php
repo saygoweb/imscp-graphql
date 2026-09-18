@@ -391,4 +391,130 @@ class CustomerServiceTest extends ServiceTestCase
 
         self::assertSame($before, (int)$this->db->value('SELECT COUNT(*) FROM admin'));
     }
+
+    // ---- update() ---------------------------------------------------------
+
+    private function customerUsername(): string
+    {
+        return (string)$this->db->value(
+            'SELECT admin_name FROM admin WHERE admin_id = ?', array($this->fixture->customerId())
+        );
+    }
+
+    public function testTheContactDetailsChangeWithoutTouchingTheLimits(): void
+    {
+        $id = GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId());
+        $before = $this->db->row('SELECT * FROM domain WHERE domain_admin_id = ?', array($this->fixture->customerId()));
+
+        $this->service()->update($this->caller('reseller'), $id, array(
+            'contact' => array('email' => 'new@sgwt.test', 'firstName' => 'Grace')
+        ));
+
+        $admin = $this->db->row('SELECT * FROM admin WHERE admin_id = ?', array($this->fixture->customerId()));
+        self::assertSame('new@sgwt.test', $admin['email']);
+        self::assertSame('Grace', $admin['fname']);
+        self::assertSame(
+            $before, $this->db->row('SELECT * FROM domain WHERE domain_admin_id = ?', array($this->fixture->customerId()))
+        );
+    }
+
+    public function testAPasswordChangeForcesTheCustomerToLogInAgain(): void
+    {
+        $id = GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId());
+        $this->db->execute(
+            'INSERT INTO login (session_id, ipaddr, user_name, lastaccess) VALUES (?, ?, ?, ?)',
+            array('sgwt-session', '127.0.0.1', $this->customerUsername(), time())
+        );
+
+        $this->service()->update($this->caller('reseller'), $id, array('password' => 'An0therSecret!'));
+
+        $admin = $this->db->row('SELECT * FROM admin WHERE admin_id = ?', array($this->fixture->customerId()));
+        self::assertStringStartsWith('$apr1$', $admin['admin_pass']);
+        self::assertSame('tochangepwd', $admin['admin_status']);
+        self::assertSame(
+            0,
+            (int)$this->db->value('SELECT COUNT(*) FROM login WHERE user_name = ?', array($this->customerUsername()))
+        );
+    }
+
+    public function testAnUpdateThatNamesNothingIsRefused(): void
+    {
+        $this->refused(ErrorCode::BAD_USER_INPUT, function (): void {
+            $this->service()->update(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()), array()
+            );
+        });
+    }
+
+    public function testLoweringALimitBelowWhatIsUsedIsRefused(): void
+    {
+        // The fixture's customer already has subdomains.
+        $used = (int)$this->db->value(
+            'SELECT COUNT(*) FROM subdomain WHERE domain_id = ?', array($this->fixture->domainId())
+        );
+        self::assertGreaterThan(0, $used, 'the fixture must have a subdomain for this to measure anything');
+
+        $this->refused(ErrorCode::LIMIT_EXCEEDED, function () use ($used): void {
+            $this->service()->update(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+                array('allowances' => array('subdomains' => $used - 1))
+            );
+        });
+    }
+
+    public function testChangingALimitSchedulesTheDomainAndPokesTheDaemon(): void
+    {
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('allowances' => array('mailAccounts' => 42))
+        );
+
+        $domain = $this->db->row('SELECT * FROM domain WHERE domain_admin_id = ?', array($this->fixture->customerId()));
+        self::assertSame(42, (int)$domain['domain_mailacc_limit']);
+        self::assertContains(array('sendRequest'), $this->core->calls);
+        self::assertContains(array('updateResellerCounters', $this->fixture->resellerId()), $this->core->calls);
+    }
+
+    public function testWithdrawingCustomDnsRemovesTheCustomersOwnRecords(): void
+    {
+        // domain_edit.php:920-927: the records go, the plugin-owned ones stay.
+        $this->db->execute("UPDATE domain SET domain_dns = 'yes' WHERE domain_id = ?", array($this->fixture->domainId()));
+        $this->insert('domain_dns', array(
+            'domain_id' => $this->fixture->domainId(), 'alias_id' => 0, 'domain_dns' => "sgwt.\t3600",
+            'domain_class' => 'IN', 'domain_type' => 'A', 'domain_text' => '203.0.113.9',
+            'owned_by' => 'custom_dns_feature', 'domain_dns_status' => 'ok'
+        ));
+        $keptId = $this->insert('domain_dns', array(
+            'domain_id' => $this->fixture->domainId(), 'alias_id' => 0, 'domain_dns' => "plugin.\t3600",
+            'domain_class' => 'IN', 'domain_type' => 'A', 'domain_text' => '203.0.113.10',
+            'owned_by' => 'some_plugin', 'domain_dns_status' => 'ok'
+        ));
+
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('allowances' => array('customDns' => false))
+        );
+
+        self::assertSame(
+            0,
+            (int)$this->db->value(
+                "SELECT COUNT(*) FROM domain_dns WHERE domain_id = ? AND owned_by = 'custom_dns_feature'",
+                array($this->fixture->domainId())
+            )
+        );
+        self::assertSame(
+            1, (int)$this->db->value('SELECT COUNT(*) FROM domain_dns WHERE domain_dns_id = ?', array($keptId))
+        );
+    }
+
+    public function testACustomerOfAnotherResellerIsNotFound(): void
+    {
+        $this->refused(ErrorCode::NOT_FOUND, function (): void {
+            $this->service()->update(
+                $this->caller('otherReseller'),
+                GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+                array('contact' => array('email' => 'thief@example.test'))
+            );
+        });
+    }
 }

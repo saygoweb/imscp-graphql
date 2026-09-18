@@ -29,6 +29,7 @@ use iMSCP\Plugin\SGW_GraphQL\Support\LimitRules;
 use iMSCP\Plugin\SGW_GraphQL\Support\NodeType;
 use iMSCP\Plugin\SGW_GraphQL\Support\ObjectRef;
 use iMSCP\Plugin\SGW_GraphQL\Support\PlanProps;
+use iMSCP\Plugin\SGW_GraphQL\Support\Provisioning;
 use iMSCP\Plugin\SGW_GraphQL\Support\VhostRules;
 use Throwable;
 
@@ -47,6 +48,16 @@ final class CustomerService
      * translate into, so the untranslated word is what the placeholder gets.
      */
     const ROLE_LABEL = 'Customer';
+
+    /** Allowance name => the `domain` column holding the customer's own limit. */
+    const LIMIT_COLUMNS = array(
+        'subdomains'    => 'domain_subd_limit',
+        'domainAliases' => 'domain_alias_limit',
+        'mailAccounts'  => 'domain_mailacc_limit',
+        'ftpUsers'      => 'domain_ftpacc_limit',
+        'sqlDatabases'  => 'domain_sqld_limit',
+        'sqlUsers'      => 'domain_sqlu_limit'
+    );
 
     /** @var Toolkit */
     private $kit;
@@ -284,6 +295,187 @@ final class CustomerService
     }
 
     /**
+     * CORE-DEBT(C3): transcribed from gui/public/reseller/user_edit.php:44-120
+     *   (the account) and gui/public/reseller/domain_edit.php:607-1010 (the
+     *   allowances). The page splits them because it has two forms; one
+     *   customer is one object here, so one mutation changes either.
+     *   Retire when CustomerService lands in core.
+     */
+    public function update(Identity $caller, string $id, array $input): ObjectRef
+    {
+        $kit = $this->kit;
+        $core = $kit->core();
+
+        // 2, 3.
+        $target = $kit->guard()->target($caller, $id, array(NodeType::CUSTOMER), Scope::CUSTOMERS_WRITE, 'id');
+        $customer = $kit->accounts()->customer($target->getKey());
+        $reseller = $kit->accounts()->reseller($customer->getResellerId());
+
+        // 5. A customer in transit is not changed (spec section 8.3).
+        Guard::requireState((string)$customer->domain('domain_status'), array(Provisioning::STATE_OK));
+
+        // 6. An explicit null names nothing, as phase 3's checkpoint C settled.
+        $given = array_filter($input, static function ($value) {
+            return $value !== null;
+        });
+        $named = array_intersect(
+            array_keys($given), array('password', 'contact', 'allowances', 'hostingPlanId', 'expiresAt', 'ipAddressId')
+        );
+
+        if ($named === array()) {
+            throw Guard::badInput('input', 'The update names nothing to change.');
+        }
+
+        if (isset($given['allowances']) && isset($given['hostingPlanId'])) {
+            throw Guard::badInput('input', 'Give at most one of hostingPlanId and allowances.');
+        }
+
+        $password = null;
+
+        if (isset($given['password'])) {
+            $password = (string)$given['password'];
+
+            if ($password === '' || !$core->isAcceptablePassword($password)) {
+                throw Guard::badInput('input.password', "The password does not meet the panel's password policy.");
+            }
+        }
+
+        $contact = isset($given['contact']) ? $this->contactFor($given, $core) : null;
+        $allowances = isset($given['allowances']) || isset($given['hostingPlanId'])
+            ? $this->allowancesForUpdate($reseller, $customer, $given)
+            : null;
+        $ipId = isset($given['ipAddressId']) ? $this->ipFor($reseller, $given) : null;
+        $expiresAt = array_key_exists('expiresAt', $input) ? $this->expiryOrNever($input) : null;
+
+        // 7. Both ledgers again, now with the customer's own consumption.
+        if ($allowances !== null) {
+            $used = $kit->counts()->forCustomer($customer->getDomainId());
+
+            foreach (array_keys(LimitRules::SERVICES) as $service) {
+                $customerLimit = (int)$customer->domain(self::LIMIT_COLUMNS[$service]);
+
+                // domain_edit.php:636-692: each of the six is only checked at
+                // all "if ($data['fallback_domain_X_limit'] != -1)" - a
+                // service already withheld for this customer is not
+                // re-validated when the form resubmits it unchanged.
+                if ($customerLimit === LimitRules::WITHHELD) {
+                    continue;
+                }
+
+                $reason = LimitRules::reason(
+                    $allowances->limit($service), (int)($used[$service] ?? 0), $customerLimit,
+                    $reseller->usedOf($service), $reseller->maxOf($service), $service
+                );
+
+                if ($reason !== null) {
+                    throw Guard::limitExceeded($reason, array('quota' => $service));
+                }
+            }
+        }
+
+        $adminId = (int)$target->getKey();
+        $domainId = $customer->getDomainId();
+        $username = $customer->getUsername();
+        $withdrawsDns = $allowances !== null
+            && $allowances->feature('customDns') === '_no_'
+            && (string)$customer->domain('domain_dns') === 'yes';
+        // domain_edit.php:905-919: the daemon is needed when the IP, the mail
+        // feature, PHP, CGI or the web folder protection changed.
+        $needsDaemon = $allowances !== null || $ipId !== null;
+
+        $kit->writer()->run(function () use (
+            $kit, $core, $adminId, $domainId, $username, $password, $contact,
+            $allowances, $ipId, $expiresAt, $withdrawsDns, $needsDaemon
+        ) {
+            $db = $kit->db();
+            $core->dispatch(Events::onBeforeEditUser, array('userId' => $adminId));
+
+            if ($password !== null || $contact !== null) {
+                $db->execute(
+                    "
+                        UPDATE admin
+                        SET admin_pass = IFNULL(?, admin_pass), fname = IFNULL(?, fname), lname = IFNULL(?, lname),
+                            firm = IFNULL(?, firm), zip = IFNULL(?, zip), city = IFNULL(?, city),
+                            state = IFNULL(?, state), country = IFNULL(?, country), email = IFNULL(?, email),
+                            phone = IFNULL(?, phone), fax = IFNULL(?, fax), street1 = IFNULL(?, street1),
+                            street2 = IFNULL(?, street2), gender = IFNULL(?, gender),
+                            admin_status = IF(?, 'tochangepwd', admin_status)
+                        WHERE admin_id = ?
+                    ",
+                    array(
+                        $password === null ? null : $core->hashAccountPassword($password),
+                        $contact === null ? null : $contact['firstName'],
+                        $contact === null ? null : $contact['lastName'],
+                        $contact === null ? null : $contact['company'],
+                        $contact === null ? null : $contact['postcode'],
+                        $contact === null ? null : $contact['city'],
+                        $contact === null ? null : $contact['state'],
+                        $contact === null ? null : $contact['country'],
+                        $contact === null ? null : $contact['email'],
+                        $contact === null ? null : $contact['phone'],
+                        $contact === null ? null : $contact['fax'],
+                        $contact === null ? null : $contact['street1'],
+                        $contact === null ? null : $contact['street2'],
+                        $contact === null ? null : $contact['gender'],
+                        $password === null ? 0 : 1, $adminId
+                    )
+                );
+
+                // user_edit.php:92 - a password or an email change ends the
+                // customer's sessions.
+                $db->execute('DELETE FROM login WHERE user_name = ?', array($username));
+            }
+
+            if ($withdrawsDns) {
+                $db->execute(
+                    "DELETE FROM domain_dns WHERE domain_id = ? AND owned_by = 'custom_dns_feature'",
+                    array($domainId)
+                );
+            }
+
+            if ($allowances !== null || $ipId !== null || $expiresAt !== null) {
+                $columns = $allowances === null ? array() : $allowances->domainColumns();
+                $sets = array('domain_last_modified = ?');
+                $bind = array(time());
+
+                foreach ($columns as $column => $value) {
+                    $sets[] = $column . ' = ?';
+                    $bind[] = $value;
+                }
+
+                if ($ipId !== null) {
+                    $sets[] = 'domain_ip_id = ?';
+                    $bind[] = $ipId;
+                }
+
+                if ($expiresAt !== null) {
+                    $sets[] = 'domain_expires = ?';
+                    $bind[] = $expiresAt;
+                }
+
+                $sets[] = 'domain_status = ?';
+                $bind[] = $needsDaemon ? 'tochange' : 'ok';
+                $bind[] = $domainId;
+
+                $db->execute('UPDATE domain SET ' . implode(', ', $sets) . ' WHERE domain_id = ?', $bind);
+            }
+
+            $core->updateResellerCounters($kit->accounts()->customer($adminId)->getResellerId());
+            $core->dispatch(Events::onAfterEditUser, array('userId' => $adminId));
+        });
+
+        if ($needsDaemon) {
+            $core->sendRequest();
+        }
+
+        $core->writeLog(
+            sprintf('The %s user has been updated by %s', $username, $caller->getUsername()), E_USER_NOTICE
+        );
+
+        return new ObjectRef(NodeType::CUSTOMER, $adminId);
+    }
+
+    /**
      * D30: a reseller creates under itself and may not name another; an
      * administrator has no customers of its own, so it must name one.
      */
@@ -339,6 +531,81 @@ final class CustomerService
         }
 
         return Allowances::fromPlanProps(PlanProps::parse((string)$props));
+    }
+
+    /**
+     * An update's allowances are partial. A hosting plan replaces them whole;
+     * an explicit `allowances` is merged over the customer's current values,
+     * because an input that names only `mailAccounts` must not reset the
+     * customer's PHP permissions to an input default.
+     */
+    private function allowancesForUpdate(ResellerAccount $reseller, CustomerAccount $customer, array $given): Allowances
+    {
+        if (isset($given['hostingPlanId'])) {
+            return $this->allowancesFor($reseller, array('hostingPlanId' => $given['hostingPlanId']));
+        }
+
+        return Allowances::fromInput(((array)$given['allowances']) + $this->currentAllowances($customer));
+    }
+
+    /**
+     * The customer's `domain` row, read back in CustomerAllowancesInput's
+     * terms. `domain_disk_limit` and `domain_traffic_limit` are stored in
+     * MiB (M7); `Allowances::fromInput()` takes every BigInt as bytes (D3,
+     * checkpoint A finding A4), so both are scaled up here on the way out -
+     * the same 1048576 `PlanProps::mibToBytes()` and `Allowances::bytesToMib()`
+     * use on their own round trips. `mail_quota` is already bytes.
+     */
+    private function currentAllowances(CustomerAccount $customer): array
+    {
+        $backup = (string)$customer->domain('allowbackup');
+        $targets = array();
+
+        foreach (explode('|', $backup) as $one) {
+            $key = '_' . $one . '_';
+
+            if (isset(PlanProps::BACKUP_TARGETS[$key])) {
+                $targets[] = PlanProps::BACKUP_TARGETS[$key];
+            }
+        }
+
+        return array(
+            'subdomains'    => (int)$customer->domain('domain_subd_limit'),
+            'domainAliases' => (int)$customer->domain('domain_alias_limit'),
+            'mailAccounts'  => (int)$customer->domain('domain_mailacc_limit'),
+            'ftpUsers'      => (int)$customer->domain('domain_ftpacc_limit'),
+            'sqlDatabases'  => (int)$customer->domain('domain_sqld_limit'),
+            'sqlUsers'      => (int)$customer->domain('domain_sqlu_limit'),
+            'traffic'       => self::mibLimitToBytes((int)$customer->domain('domain_traffic_limit')),
+            'disk'          => self::mibLimitToBytes((int)$customer->domain('domain_disk_limit')),
+            'mailQuota'     => (int)$customer->domain('mail_quota'),
+            'php'           => (string)$customer->domain('domain_php') === 'yes',
+            'cgi'           => (string)$customer->domain('domain_cgi') === 'yes',
+            'customDns'     => (string)$customer->domain('domain_dns') === 'yes',
+            'externalMail'  => (string)$customer->domain('domain_external_mail') === 'yes',
+            'webFolderProtection' => (string)$customer->domain('web_folder_protection') === 'yes',
+            'backup'        => $targets,
+            'phpEditor'     => (string)$customer->domain('phpini_perm_system') === 'yes',
+            'phpiniAllowUrlFopen'    => (string)$customer->domain('phpini_perm_allow_url_fopen') === 'yes',
+            'phpiniDisplayErrors'    => (string)$customer->domain('phpini_perm_display_errors') === 'yes',
+            'phpiniDisableFunctions' => (string)$customer->domain('phpini_perm_disable_functions') === 'yes',
+            'phpMailFunction'        => (string)$customer->domain('phpini_perm_mail_function') === 'yes'
+        );
+    }
+
+    /**
+     * -1 (withheld) and 0 (unlimited) pass through; a positive MiB limit
+     * becomes the bytes `Allowances::fromInput()` expects.
+     */
+    private static function mibLimitToBytes(int $mib): int
+    {
+        return $mib <= 0 ? $mib : $mib * 1048576;
+    }
+
+    /** expiresAt: a date, or an explicit null meaning "never expires". */
+    private function expiryOrNever(array $input): int
+    {
+        return $input['expiresAt'] === null ? 0 : $this->expiryFor($input);
     }
 
     /** M17, and C11 item 13: identity, not a loose comparison. */
