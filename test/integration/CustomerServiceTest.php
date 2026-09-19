@@ -517,6 +517,21 @@ class CustomerServiceTest extends ServiceTestCase
         });
     }
 
+    /**
+     * C6: unlike expiresAt (B8), null carries no meaning for password,
+     * contact, allowances, hostingPlanId or ipAddressId - each names
+     * nothing when given as an explicit null, the same as an absent key.
+     */
+    public function testAnExplicitNullPasswordNamesNothing(): void
+    {
+        $this->refused(ErrorCode::BAD_USER_INPUT, function (): void {
+            $this->service()->update(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+                array('password' => null)
+            );
+        });
+    }
+
     public function testLoweringALimitBelowWhatIsUsedIsRefused(): void
     {
         // The fixture's customer already has subdomains.

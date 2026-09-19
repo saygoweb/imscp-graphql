@@ -250,10 +250,20 @@ final class ResellerService
 
         $reseller = $kit->accounts()->reseller($target->getKey());
 
-        // 6. A key present names a change, the same rule B8 settled for a
-        // customer's expiresAt.
+        // 6. C6: B8's rule - a key present names a change - is right only
+        // where null is itself a value (a customer's expiresAt, meaning
+        // "never expires"). None of this input's fields carry that meaning;
+        // for all of them null names nothing, the same as an absent key, so
+        // $named is built from the keys whose value is not null. Without
+        // this, resellerUpdate(id, {password: null}) passed this gate,
+        // wrote nothing (every consumer below reads isset(), not
+        // array_key_exists()) and still reached the unconditional
+        // DELETE FROM login below.
         $named = array_intersect(
-            array_keys($input), array('password', 'contact', 'ipAddressIds', 'allowances', 'supportSystem')
+            array_keys(array_filter($input, static function ($value): bool {
+                return $value !== null;
+            })),
+            array('password', 'contact', 'ipAddressIds', 'allowances', 'supportSystem')
         );
 
         if ($named === array()) {

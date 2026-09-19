@@ -750,7 +750,7 @@ type Mutation {
   """
   customerSetState(id: ID!, state: AccountState!): Customer!
 
-  "Withdrawing access refuses the account's next API request; its tokens are left alone."
+  "Withdrawing access refuses the account's next API request and revokes its tokens."
   customerSetApiAccess(id: ID!, allowed: Boolean!): Customer!
 
   "Reseller and administrator only. A plan is written at once: there is no provisioning state."
@@ -1174,6 +1174,10 @@ input ResellerAllowancesInput {
   disk: BigInt
 }
 
+"""
+PHP permissions are set to the panel's defaults when the reseller is created
+and cannot be changed through this API; use the panel.
+"""
 input ResellerCreateInput {
   username: String!
   password: Secret!
@@ -1192,7 +1196,9 @@ input ResellerCreateInput {
 """
 Partial: an absent field keeps its value, and the update must name at least
 one. `allowances` is merged over what the reseller has today, the same rule
-customerUpdate's own allowances follows.
+customerUpdate's own allowances follows. PHP permissions are set to the
+panel's defaults when the reseller is created and cannot be changed through
+this API; use the panel.
 """
 input ResellerUpdateInput {
   password: Secret

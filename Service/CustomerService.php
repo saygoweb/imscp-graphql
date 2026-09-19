@@ -327,17 +327,27 @@ final class CustomerService
         // 5. A customer in transit is not changed (spec section 8.3).
         Guard::requireState((string)$customer->domain('domain_status'), array(Provisioning::STATE_OK));
 
-        // 6. An explicit null names nothing, as phase 3's checkpoint C
-        // settled - except that a key present with a null value still names
-        // a change (B8): expiresAt: null is how "never expires" is said, and
-        // $given alone would filter that key away before $named ever saw it,
-        // making it unreachable. $given still governs the value reads below.
+        // 6. C6: an explicit null names nothing, as phase 3's checkpoint C
+        // settled - except where null is itself a value (B8): expiresAt:
+        // null is how "never expires" is said, and $given alone would
+        // filter that key away before $named ever saw it, making it
+        // unreachable. B8's exception belongs to expiresAt alone, not to
+        // every field: password, contact, allowances, hostingPlanId and
+        // ipAddressId name nothing when given as an explicit null, so
+        // customerUpdate(id, {password: null}) must be refused as naming
+        // nothing, not accepted as a no-op that still dispatches the edit
+        // events and logs a change that never happened. $given still
+        // governs the value reads below.
         $given = array_filter($input, static function ($value) {
             return $value !== null;
         });
         $named = array_intersect(
-            array_keys($input), array('password', 'contact', 'allowances', 'hostingPlanId', 'expiresAt', 'ipAddressId')
+            array_keys($given), array('password', 'contact', 'allowances', 'hostingPlanId', 'ipAddressId')
         );
+
+        if (array_key_exists('expiresAt', $input)) {
+            $named[] = 'expiresAt';
+        }
 
         if ($named === array()) {
             throw Guard::badInput('input', 'The update names nothing to change.');

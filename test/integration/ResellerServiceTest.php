@@ -502,6 +502,34 @@ class ResellerServiceTest extends ServiceTestCase
         self::assertSame(2048, (int)$after['max_traff_amnt']);
     }
 
+    /**
+     * C6: password, contact, ipAddressIds, allowances and supportSystem are
+     * none of them B8's expiresAt - null names nothing for any of them, the
+     * same as an absent key. Before the fix this passed the "names nothing"
+     * gate and still reached the unconditional DELETE FROM login below,
+     * silently logging the reseller out for a request that changed nothing.
+     */
+    public function testAnExplicitNullNamesNothing(): void
+    {
+        $username = $this->fixture->identity('reseller')->getUsername();
+        $this->db->execute(
+            'INSERT INTO login (session_id, ipaddr, user_name, lastaccess) VALUES (?, ?, ?, ?)',
+            array('sgwt-reseller-c6-session', '127.0.0.1', $username, time())
+        );
+
+        $this->refused(ErrorCode::BAD_USER_INPUT, function (): void {
+            $this->service()->update(
+                $this->caller('admin'), GlobalId::encode(NodeType::RESELLER, $this->fixture->resellerId()),
+                array('password' => null)
+            );
+        });
+
+        self::assertSame(
+            1, (int)$this->db->value('SELECT COUNT(*) FROM login WHERE user_name = ?', array($username)),
+            'a refusal must not force the reseller to log in again'
+        );
+    }
+
     public function testAllowancesAreMergedNotReplaced(): void
     {
         $before = $this->db->row(
