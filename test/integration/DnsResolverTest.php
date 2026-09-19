@@ -128,6 +128,21 @@ class DnsResolverTest extends IntegrationTestCase
         self::assertSame('eth0', $ip['card']);
     }
 
+    public function testAllReturnsEveryServerIpNotJustAReferencedOne(): void
+    {
+        // Unfiltered: the box's own addresses may or may not be seeded, but
+        // the fixture's is always there, so its presence is what tells this
+        // apart from ipReference()'s single-id lookup.
+        $addresses = $this->value($this->resolver->all());
+        $numbers = array();
+
+        foreach ($addresses as $address) {
+            $numbers[] = $address['address'];
+        }
+
+        self::assertContains('203.0.113.7', $numbers);
+    }
+
     public function testTenIpReferencesCostOneQuery(): void
     {
         $resolver = $this->resolver;

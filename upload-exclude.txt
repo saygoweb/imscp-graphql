@@ -6,3 +6,9 @@
 ./test
 ./tools
 ./composer.lock
+./.claude
+./worktrees
+./.serena
+./.superpowers
+./log
+./SGW_GraphQL.tgz

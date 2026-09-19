@@ -42,7 +42,11 @@ class ResolverCoverageTest extends TestCase
     const SHAPED_IN_PLACE = array(
         'Provisioning', 'Forwarding', 'ContactDetails', 'Quota', 'Storage',
         'CustomerQuotas', 'CustomerFeatures', 'Autoresponder', 'PlanAllowance',
-        'PlanQuotas', 'PlanStorage', 'PlanFeatures', 'ResellerQuotas'
+        'PlanQuotas', 'PlanStorage', 'PlanFeatures', 'ResellerQuotas',
+        // TokenIssueResult.apiToken. The token is shaped by the mutation that
+        // minted it - there is no query that returns one, by design - so it
+        // arrives as a ready array inside the result and needs no edge.
+        'ApiToken'
     );
 
     private function container(): Container

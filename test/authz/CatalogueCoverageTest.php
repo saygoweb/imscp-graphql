@@ -49,6 +49,36 @@ class CatalogueCoverageTest extends TestCase
         'subdomainUpdate'
     );
 
+    /**
+     * The two mutations of spec section 5.3, which the matrix cannot express.
+     *
+     * The matrix asks one question: an object belongs to one account, which
+     * of the six may reach it? Neither of these has such an object.
+     *
+     * `tokenIssue` is the one field in the schema served without a
+     * credential. Its actor is not the caller at all - it is the username and
+     * password in the input - so running it "as" each of the six accounts
+     * would run the same document six times and learn nothing; and a row
+     * whose `expected` was OK for all six would read as a claim about
+     * authorisation that the field does not make.
+     *
+     * `tokenRevoke` acts on the caller's own tokens and on nothing else, and
+     * requires no scope (a credential that could not burn itself would be
+     * worse than useless - see Resolver\TokenMutations::resolveTokenRevoke).
+     * The matrix's two scope cases and its "hand one object between six
+     * accounts" shape therefore have nothing to bite on: every account owns
+     * its own tokens and reaches no others.
+     *
+     * Both are specified instead by test/integration/TokenMutationsTest,
+     * case for case, including the ownership question the matrix would have
+     * asked (testRevokingSomeoneElsesTokenIsNotFound). They are named here,
+     * rather than simply left out, so that this exclusion is a visible line
+     * in the file the coverage test lives in - and
+     * testTheUnmatchedMutationsAreStillInTheSchema below keeps the name from
+     * outliving the field.
+     */
+    const OUTSIDE_THE_MATRIX = array('tokenIssue', 'tokenRevoke');
+
     /** The six fixture accounts every row must answer for. */
     const ACTORS = array('customer', 'sibling', 'otherCustomer', 'reseller', 'otherReseller', 'admin');
 
@@ -95,8 +125,26 @@ class CatalogueCoverageTest extends TestCase
 
         self::assertSame(
             array(),
-            array_values(array_diff($fields, array_keys(MutationCatalogue::all()))),
+            array_values(array_diff(
+                $fields, array_keys(MutationCatalogue::all()), self::OUTSIDE_THE_MATRIX
+            )),
             'A mutation reached the schema with no row in the authorisation matrix.'
+        );
+    }
+
+    public function testTheUnmatchedMutationsAreStillInTheSchema(): void
+    {
+        // The other side of OUTSIDE_THE_MATRIX: a name left there after its
+        // field had gone would silently excuse nothing for ever.
+        $schema = (new SchemaFactory(
+            dirname(__DIR__, 2) . '/schema/schema.graphql', null, new ResolverMap(array()),
+            array(TypeResolver::class, 'resolveType')
+        ))->create();
+        $mutation = $schema->getMutationType();
+        $fields = $mutation === null ? array() : array_keys($mutation->getFields());
+
+        self::assertSame(
+            array(), array_values(array_diff(self::OUTSIDE_THE_MATRIX, $fields))
         );
     }
 

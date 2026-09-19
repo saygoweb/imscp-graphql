@@ -458,7 +458,7 @@ final class ResellerResolver
     {
         $identity = TypeResolver::requireScope($context, Scope::CUSTOMERS_READ);
         $resellerId = (int)$source['__key'];
-        $page = TypeResolver::page($args['page'] ?? null);
+        $page = TypeResolver::page($args['page'] ?? null, $context);
         $customerRefs = $this->customerRefs;
 
         if ($identity->getRole() === Identity::ROLE_CUSTOMER) {

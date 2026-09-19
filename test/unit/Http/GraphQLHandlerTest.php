@@ -400,4 +400,127 @@ class GraphQLHandlerTest extends TestCase
         self::assertArrayHasKey('errors', $body);
         self::assertSame('INTERNAL', $body['errors'][0]['extensions']['code']);
     }
+
+    // ---- Specification section 10.3's second bucket ----
+
+    /**
+     * The handler is the only place that knows a document is a mutation - the
+     * middleware sees a raw body - so it is the only place the `mutations`
+     * bucket can be charged. These pin *when* it charges, which is the part a
+     * reader of RateLimitMiddleware cannot see.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function postCharging(
+        string $query, array &$charged, int $retryAfter = 0, array $options = []
+    ): Response {
+        $handler = $this->handler(array_merge([
+            'chargeMutation' => static function ($request) use (&$charged, $retryAfter) {
+                $charged[] = $request;
+
+                return $retryAfter;
+            }
+        ], $options));
+
+        $env = Environment::mock([
+            'REQUEST_METHOD' => 'POST', 'REQUEST_URI' => '/api/graphql',
+            'CONTENT_TYPE' => 'application/json',
+        ]);
+        $stream = fopen('php://temp', 'r+');
+        fwrite($stream, json_encode(['query' => $query]));
+        rewind($stream);
+        $request = Request::createFromEnvironment($env)
+            ->withBody(new \Slim\Http\Stream($stream))
+            ->withAttribute('identity', $this->identity());
+
+        return $handler($request, new Response(), []);
+    }
+
+    public function testAMutationIsChargedToTheMutationsBucket(): void
+    {
+        $charged = [];
+        $this->postCharging('mutation { subdomainDelete(id: "x") { id } }', $charged);
+
+        self::assertCount(1, $charged);
+    }
+
+    public function testAQueryIsNotChargedToTheMutationsBucket(): void
+    {
+        // Without this the test above would pass against a handler that
+        // charged every request twice, which would make the queries limit a
+        // quarter of what an operator configured.
+        $charged = [];
+        $this->postCharging('{ apiVersion }', $charged);
+
+        self::assertSame([], $charged);
+    }
+
+    public function testANamedMutationInADocumentOfSeveralOperationsIsCharged(): void
+    {
+        $charged = [];
+        $handler = $this->handler([
+            'chargeMutation' => static function () use (&$charged) {
+                $charged[] = true;
+
+                return 0;
+            }
+        ]);
+
+        $env = Environment::mock([
+            'REQUEST_METHOD' => 'POST', 'REQUEST_URI' => '/api/graphql',
+            'CONTENT_TYPE' => 'application/json',
+        ]);
+        $stream = fopen('php://temp', 'r+');
+        fwrite($stream, json_encode([
+            'query' => 'query Read { apiVersion } mutation Write { subdomainDelete(id: "x") { id } }',
+            'operationName' => 'Write'
+        ]));
+        rewind($stream);
+        $request = Request::createFromEnvironment($env)
+            ->withBody(new \Slim\Http\Stream($stream))
+            ->withAttribute('identity', $this->identity());
+
+        $handler($request, new Response(), []);
+
+        self::assertCount(1, $charged, 'the named operation decides, not the first one');
+    }
+
+    public function testARefusedMutationIsA429WithNoDataKey(): void
+    {
+        $charged = [];
+        $response = $this->postCharging(
+            'mutation { subdomainDelete(id: "x") { id } }', $charged, 17
+        );
+        $body = json_decode((string)$response->getBody(), true);
+
+        self::assertSame(429, $response->getStatusCode());
+        self::assertSame('17', $response->getHeaderLine('Retry-After'));
+        self::assertSame('RATE_LIMITED', $body['errors'][0]['extensions']['code']);
+        self::assertSame(17, $body['errors'][0]['extensions']['retryAfterSeconds']);
+        self::assertArrayNotHasKey('data', $body, 'the document must not have executed');
+    }
+
+    public function testADocumentThatWillNotParseIsNotCharged(): void
+    {
+        // Nothing that cannot run is charged for - and the syntax error must
+        // still come back looking exactly as it always did, which is what the
+        // second assertion is for.
+        $charged = [];
+        $response = $this->postCharging('mutation { this is not graphql', $charged);
+        $body = json_decode((string)$response->getBody(), true);
+
+        self::assertSame([], $charged);
+        self::assertSame(400, $response->getStatusCode());
+        self::assertArrayHasKey('errors', $body);
+        self::assertArrayNotHasKey('data', $body);
+    }
+
+    public function testAHandlerWithNoChargerBehavesExactlyAsItAlwaysDid(): void
+    {
+        // The option is absent from every GraphQLHandler built before this
+        // round, the unit suite's own included; an absent charger is 0.
+        $response = $this->post('mutation { subdomainDelete(id: "x") { id } }');
+
+        self::assertNotSame(429, $response->getStatusCode());
+    }
 }

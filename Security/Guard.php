@@ -238,4 +238,24 @@ final class Guard
     {
         return new ApiException(ErrorCode::NOT_FOUND, 'No such object, or it is not yours to read.');
     }
+
+    /**
+     * No credential, or one that was not accepted.
+     *
+     * The only refusal in this class with no extension at all, and
+     * deliberately: `tokenIssue` is the one unauthenticated field, and the
+     * three ways a credential can fail there - an unknown username, a known
+     * username with the wrong password, and an account whose status is not ok
+     * - must be one answer. An extension naming which of them happened would
+     * make the field an oracle for valid usernames, which is exactly what the
+     * two rate buckets in front of it exist to prevent; there is no point
+     * charging for an answer and then giving it away in the error.
+     *
+     * $message is a parameter only so that the field's own sentence reads
+     * naturally. It is never composed from anything the caller sent.
+     */
+    public static function unauthenticated(string $message): ApiException
+    {
+        return new ApiException(ErrorCode::UNAUTHENTICATED, $message);
+    }
 }

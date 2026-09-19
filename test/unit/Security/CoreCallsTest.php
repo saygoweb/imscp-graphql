@@ -90,7 +90,15 @@ class CoreCallsTest extends TestCase
         'tr'                            => 'Returns a translation; used by the plugin class\'s '
             . 'navigation labels, never exits.',
         'l10n_addtranslations'          => 'Registers the plugin\'s own translation resources on '
-            . 'a Zend_Translate adapter, from explicit arguments; no session, no exit.'
+            . 'a Zend_Translate adapter, from explicit arguments; no session, no exit.',
+        'init_login'                    => 'Registers the panel\'s own login listeners - the '
+            . 'credential handler, the BruteForce plugin and login_checkDomainAccount() - on an '
+            . 'explicit event manager. gui/public/index.php is the only other caller, so without '
+            . 'this AuthService::authenticate() would run with no handler at all and answer '
+            . 'FAILURE_UNCATEGORIZED for every password there is. It reads no session, takes its '
+            . 'event manager as an argument, and every one of its three effects is a listener '
+            . 'registration plus one DELETE of expired `login` rows; nothing in it exits or '
+            . 'issues DDL. Called once per process by Service\\PanelCore::authenticate().'
     );
 
     /**

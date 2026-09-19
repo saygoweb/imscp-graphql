@@ -25,7 +25,9 @@ use iMSCP\Plugin\SGW_GraphQL\Auth\IdentityShim;
 use iMSCP\Plugin\SGW_GraphQL\Http\AuthenticateMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\CorsMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\GraphQLHandler;
+use iMSCP\Plugin\SGW_GraphQL\Http\RateLimitMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\TlsMiddleware;
+use iMSCP\Plugin\SGW_GraphQL\Resolver\TypeResolver;
 use LogicException;
 use PHPUnit\Framework\TestCase;
 use Slim\Http\Environment;
@@ -62,6 +64,15 @@ class ContainerTest extends TestCase
                 'max_query_depth' => 15, 'max_query_complexity' => 1000,
                 'require_tls' => true, 'allowed_origins' => [],
                 'allow_session_auth' => true,
+                // Unlimited, because none of these tests is about the rate
+                // limit and the Container they build has a detached Db - the
+                // limiter would have nowhere to count and would rightly say
+                // so. A negative limit is the operator-facing way to turn a
+                // bucket off (RateLimiter::charge()), so this also drives that
+                // rule through the real pipeline; the limit itself is covered
+                // by test/integration/RateLimitTest.php, against a real one.
+                'rate_limit_queries' => -1,
+                'rate_limit_mutations' => -1,
             ], $configOverrides),
             function (string $sql, array $bind = []) { return null; },
             $accountLoader ?? function (int $adminId) { return null; },
@@ -96,6 +107,34 @@ class ContainerTest extends TestCase
         self::assertInstanceOf(GraphQLHandler::class, $this->container()->handler());
     }
 
+    /**
+     * Checkpoint E, finding E8: config.php's max_page_size was displayed on
+     * the audit page and read by nothing at all. It now reaches the handler,
+     * which puts it on the request context for TypeResolver::page().
+     */
+    public function testTheHandlerCarriesTheConfiguredPageCeiling(): void
+    {
+        self::assertSame(10, $this->handlerOptions(['max_page_size' => 10])['maxPageSize']);
+    }
+
+    public function testAnInstallationThatConfiguresNoPageCeilingGetsTheShippedOne(): void
+    {
+        self::assertSame(
+            TypeResolver::PAGE_MAX, $this->handlerOptions([])['maxPageSize']
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function handlerOptions(array $configOverrides): array
+    {
+        $property = new \ReflectionProperty(GraphQLHandler::class, 'options');
+        $property->setAccessible(true);
+
+        return $property->getValue($this->container($configOverrides)->handler());
+    }
+
     public function testTheMiddlewareIsOrderedOutermostFirst(): void
     {
         // Slim applies middleware in reverse order of addition, so the array is
@@ -105,7 +144,13 @@ class ContainerTest extends TestCase
 
         self::assertInstanceOf(TlsMiddleware::class, $middleware[0]);
         self::assertInstanceOf(CorsMiddleware::class, $middleware[1]);
-        self::assertInstanceOf(AuthenticateMiddleware::class, $middleware[2]);
+        // The rate limit is outside authentication (checkpoint D, D4), so
+        // that a credential which is presented and refused is counted rather
+        // than answered 401 for free. It keys on the presented token's
+        // prefix, which needs no verification to read.
+        self::assertInstanceOf(RateLimitMiddleware::class, $middleware[2]);
+        self::assertInstanceOf(AuthenticateMiddleware::class, $middleware[3]);
+        self::assertCount(4, $middleware);
     }
 
     public function testTheSchemaBuildsThroughTheContainer(): void
@@ -220,7 +265,7 @@ class ContainerTest extends TestCase
         $body = json_decode((string)$response->getBody(), true);
 
         self::assertSame(200, $response->getStatusCode(), (string)$response->getBody());
-        self::assertSame('1.2.0', $body['data']['apiVersion']);
+        self::assertSame('2.0.0', $body['data']['apiVersion']);
     }
 
     /**

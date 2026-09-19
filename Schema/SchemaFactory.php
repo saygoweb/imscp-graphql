@@ -23,6 +23,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Schema;
 use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Language\AST\InterfaceTypeDefinitionNode;
 use GraphQL\Language\Parser;
+use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\ResolveInfo;
 use GraphQL\Type\Schema;
 use GraphQL\Utils\AST;
@@ -54,6 +55,24 @@ final class SchemaFactory
     private $resolveType;
 
     /**
+     * @var Schema|null The one this instance has already built.
+     *
+     * Building a schema validates the whole SDL (BuildSchema::buildSchema()
+     * calls DocumentValidator::assertValidSDL() unless told not to), and the
+     * endpoint now has two consumers for the same one - the executor and
+     * spec section 11's redaction, which must walk the very types the
+     * executor used. Memoised per instance, not per process: the cache
+     * invalidation that matters is the SDL's mtime, and that is decided in
+     * document() on the first build, exactly as before.
+     */
+    private $schema;
+
+    /**
+     * @var array<string, callable> 'Type.field' => fn(int $childComplexity, array $args): int
+     */
+    private $complexity = array();
+
+    /**
      * @param callable|null $resolveType fn($value, $context, ResolveInfo): string
      *                                   Attached to every interface in the SDL.
      *                                   Optional so that plan 1's three-argument
@@ -70,12 +89,40 @@ final class SchemaFactory
         $this->resolveType = $resolveType;
     }
 
+    /**
+     * Spec section 10.2: a list field declares a complexity proportional to
+     * its limit, so that graphql-php's QueryComplexity rule - which reads
+     * FieldDefinition::$complexityFn straight off the built schema - charges
+     * a page of 200 more than a page of one.
+     *
+     * Must be called before create() has built the schema: a schema already
+     * built has already handed its FieldDefinition instances to whichever
+     * validator holds it, and setting the property afterwards would not
+     * reach them.
+     *
+     * @param array<string, callable> $fields 'Type.field' => fn(int $childComplexity, array $args): int
+     */
+    public function withComplexity(array $fields): void
+    {
+        if ($this->schema !== null) {
+            throw new RuntimeException(
+                'SchemaFactory::withComplexity() must be called before create().'
+            );
+        }
+
+        $this->complexity = $fields;
+    }
+
     public function create(): Schema
     {
+        if ($this->schema !== null) {
+            return $this->schema;
+        }
+
         $resolvers = $this->resolvers;
         $resolveType = $this->resolveType;
 
-        return BuildSchema::build(
+        $this->schema = BuildSchema::build(
             $this->document(),
             static function (array $typeConfig, $typeDefinitionNode) use (
                 $resolvers, $resolveType
@@ -117,6 +164,31 @@ final class SchemaFactory
                 return $typeConfig;
             }
         );
+
+        $this->applyComplexity();
+
+        return $this->schema;
+    }
+
+    /**
+     * Attaches each declared complexity to the field it names, on the schema
+     * this instance just built.
+     */
+    private function applyComplexity(): void
+    {
+        foreach ($this->complexity as $key => $fn) {
+            list($typeName, $fieldName) = explode('.', $key, 2);
+            $type = $this->schema->getType($typeName);
+
+            if (!$type instanceof ObjectType) {
+                throw new RuntimeException(sprintf(
+                    'withComplexity() named "%s", which is not an object type in the schema.',
+                    $typeName
+                ));
+            }
+
+            $type->getField($fieldName)->complexityFn = $fn;
+        }
     }
 
     private function document(): DocumentNode

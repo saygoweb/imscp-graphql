@@ -23,6 +23,9 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test;
 use iMSCP\Plugin\SGW_GraphQL\Api\Container;
 use iMSCP\Plugin\SGW_GraphQL\SGW_GraphQL;
 use iMSCP\Registry;
+use Slim\Http\Environment;
+use Slim\Http\Request;
+use Slim\Http\Response;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -163,5 +166,146 @@ class SGW_GraphQLTest extends TestCase
         $checker = $property->getValue($container);
 
         self::assertFalse($checker(90009));
+    }
+
+    /**
+     * Checkpoint E, finding E4: "Navigation must not offer a page the key
+     * disables."
+     *
+     * The three menu entries under their three parents, driven through the
+     * real setupNavigation() against a navigation object that records what
+     * was added to it.
+     *
+     * @param string $level
+     * @param string $parentUri
+     * @param string $explorerUri
+     */
+    private function navigationFor(array $config, $level, array $parentUris)
+    {
+        $navigation = new \SGW_GraphQL_Test_FakeNavigation($parentUris);
+        Registry::set('navigation', $navigation);
+
+        $plugin = new \SGW_GraphQL_Test_FakeContainerPlugin($config);
+        $method = new \ReflectionMethod(SGW_GraphQL::class, 'setupNavigation');
+        $method->setAccessible(true);
+        $method->invoke($plugin, $level);
+
+        return $navigation;
+    }
+
+    public function testTheMenuOffersNoExplorerOnAStockInstall(): void
+    {
+        // Stock: 'explorer' absent from the configuration entirely, so the
+        // default this reads is the one the code carries. Introspection is
+        // on, which is what used to be enough to serve the page.
+        $stock = array('introspection' => true);
+
+        self::assertSame(
+            array('/client/api_tokens.php'),
+            $this->navigationFor(
+                $stock, 'client',
+                array('/client/profile.php', '/client/domains_manage.php')
+            )->addedUris()
+        );
+
+        self::assertSame(
+            array('/reseller/api_access.php', '/reseller/api_tokens.php'),
+            $this->navigationFor(
+                $stock, 'reseller',
+                array('/reseller/users.php', '/reseller/profile.php')
+            )->addedUris()
+        );
+
+        self::assertSame(
+            array('/admin/api_audit.php'),
+            $this->navigationFor(
+                $stock, 'admin', array('/admin/system_info.php')
+            )->addedUris()
+        );
+    }
+
+    /**
+     * Checkpoint E, finding E9: a missing explorer asset was served as an
+     * empty 200. @file_get_contents() suppressed the failure and `false` was
+     * cast to '', so a partial deploy rendered a blank explorer with
+     * "GraphiQL is not defined" in the browser console and nothing at all on
+     * the server side.
+     */
+    private function assetHandler(string $dir, string $file): callable
+    {
+        $method = new \ReflectionMethod(SGW_GraphQL::class, 'explorerAssetRoutes');
+        $method->setAccessible(true);
+
+        foreach ($method->invoke(null, $dir) as $route) {
+            if ($route['pattern'] === '/api/graphql/explorer-assets/' . $file) {
+                return $route['handler'];
+            }
+        }
+
+        self::fail('no route serves ' . $file);
+    }
+
+    public function testAMissingExplorerAssetIs404AndSaysSoInTheLog(): void
+    {
+        $GLOBALS['sgw_graphql_test_log'] = array();
+
+        $handler = $this->assetHandler('/nonexistent-plugin-dir', 'graphiql.min.js');
+        $response = $handler(
+            Request::createFromEnvironment(Environment::mock()), new Response()
+        );
+
+        self::assertSame(404, $response->getStatusCode());
+        self::assertStringStartsWith(
+            'text/plain', $response->getHeaderLine('Content-Type')
+        );
+
+        self::assertCount(1, $GLOBALS['sgw_graphql_test_log']);
+        self::assertStringContainsString(
+            'graphiql.min.js', $GLOBALS['sgw_graphql_test_log'][0]['message']
+        );
+        self::assertSame(E_USER_ERROR, $GLOBALS['sgw_graphql_test_log'][0]['level']);
+    }
+
+    public function testAnAssetThatIsThereIsStillServedWithItsOwnContentType(): void
+    {
+        $GLOBALS['sgw_graphql_test_log'] = array();
+
+        $handler = $this->assetHandler(dirname(__DIR__, 2), 'graphiql.min.css');
+        $response = $handler(
+            Request::createFromEnvironment(Environment::mock()), new Response()
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('text/css; charset=utf-8', $response->getHeaderLine('Content-Type'));
+        self::assertNotSame('', (string)$response->getBody());
+        self::assertSame(array(), $GLOBALS['sgw_graphql_test_log']);
+    }
+
+    public function testTheMenuOffersTheExplorerOnceTheKeyIsOn(): void
+    {
+        $on = array('explorer' => true, 'introspection' => true);
+
+        self::assertContains(
+            '/client/api_explorer.php',
+            $this->navigationFor(
+                $on, 'client',
+                array('/client/profile.php', '/client/domains_manage.php')
+            )->addedUris()
+        );
+
+        self::assertContains(
+            '/reseller/api_explorer.php',
+            $this->navigationFor(
+                $on, 'reseller',
+                array('/reseller/users.php', '/reseller/profile.php')
+            )->addedUris()
+        );
+
+        self::assertContains(
+            '/admin/api_explorer.php',
+            $this->navigationFor(
+                $on, 'admin', array('/admin/system_info.php')
+            )->addedUris()
+        );
     }
 }

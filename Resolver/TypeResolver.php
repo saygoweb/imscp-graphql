@@ -58,6 +58,29 @@ final class TypeResolver
     const PAGE_MAX = 200;
 
     /**
+     * What a `page`-less list costs the complexity budget.
+     *
+     * This is an *estimate*, not an upper bound on rows. A plain list -
+     * a domain's subdomains, a customer's SQL databases - takes no `page`
+     * argument, so there is no limit to read and no per-field figure the
+     * complexity callable could read either: graphql-php hands it the
+     * field's own arguments and nothing else, never its parent value, so
+     * "this customer's subdomain limit" is not knowable where the charge is
+     * made. What bounds those lists in practice is i-MSCP's own per-customer
+     * allowance, and 25 is a figure for a typical one.
+     *
+     * A customer with 200 subdomains is therefore under-charged, and that is
+     * the deliberate trade. The complexity rule exists to refuse documents
+     * that are structurally abusive - nested pages multiplying into millions
+     * of points - not to meter rows; `max_page_size` bounds the paged lists
+     * and the per-request rate limits bound the actual work. Charging a flat
+     * list the paged cap instead made any two nested flat lists cost
+     * 200 x 200 = 40,000, which refused a customer reading its own account
+     * (checkpoint E, finding E1).
+     */
+    const FLAT_LIST_COST = 25;
+
+    /**
      * @return array<string, callable>
      */
     public function map(): array
@@ -252,18 +275,49 @@ final class TypeResolver
     }
 
     /**
+     * The configured ceiling for a paged list.
+     *
+     * `max_page_size` in config.php, carried on the request context the way
+     * the identity is, because the complexity rule and the resolvers have to
+     * agree about it and only the request knows what the installation
+     * configured. PAGE_MAX is the default, so an installation that sets
+     * nothing behaves exactly as it did before the key was read - and so does
+     * any caller that builds a context by hand, the unit suite included.
+     *
+     * Until checkpoint E's finding E8 nothing read the key at all: the audit
+     * page displayed it, PAGE_MAX was hardcoded here, and an operator who
+     * lowered it saw the page change and behaviour not.
+     *
+     * @param mixed $context
+     */
+    public static function pageMax($context): int
+    {
+        $configured = is_array($context) ? ($context['pageMax'] ?? null) : null;
+
+        if ($configured === null) {
+            return self::PAGE_MAX;
+        }
+
+        // A misconfigured 0 or a negative would make every page empty, which
+        // is not what any operator means by a page size; one row is the
+        // smallest page that is still a page.
+        return max(1, (int)$configured);
+    }
+
+    /**
      * Spec section 7.9's PageInput, normalised and capped.
      *
      * @param array<string, mixed>|null $pageInput
+     * @param mixed $context The request context, for the configured ceiling.
      * @return array{limit: int, offset: int}
      */
-    public static function page(?array $pageInput): array
+    public static function page(?array $pageInput, $context = null): array
     {
         $limit = (int)($pageInput['limit'] ?? self::PAGE_DEFAULT);
         $offset = (int)($pageInput['offset'] ?? 0);
 
         return array(
-            'limit'  => max(1, min(self::PAGE_MAX, $limit)),
+            'limit'  => max(1, min(self::pageMax($context), $limit)),
             'offset' => max(0, $offset)
         );
     }

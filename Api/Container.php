@@ -26,6 +26,7 @@ use iMSCP\Plugin\SGW_GraphQL\Auth\TokenService;
 use iMSCP\Plugin\SGW_GraphQL\Http\AuthenticateMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\CorsMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\GraphQLHandler;
+use iMSCP\Plugin\SGW_GraphQL\Http\RateLimitMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\TlsMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Accounts;
 use iMSCP\Plugin\SGW_GraphQL\Repository\BatchLoader;
@@ -44,6 +45,7 @@ use iMSCP\Plugin\SGW_GraphQL\Resolver\QueryResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\ResellerMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\ResellerResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\SqlMutations;
+use iMSCP\Plugin\SGW_GraphQL\Resolver\TokenMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\TypeResolver;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\VirtualHostMutations;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\VirtualHostResolver;
@@ -52,6 +54,8 @@ use iMSCP\Plugin\SGW_GraphQL\Schema\ResolverMap;
 use iMSCP\Plugin\SGW_GraphQL\Schema\SchemaFactory;
 use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Security\OwnershipResolver;
+use iMSCP\Plugin\SGW_GraphQL\Service\ApcuStore;
+use iMSCP\Plugin\SGW_GraphQL\Service\Audit;
 use iMSCP\Plugin\SGW_GraphQL\Service\Core;
 use iMSCP\Plugin\SGW_GraphQL\Service\CustomerService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DetachedCore;
@@ -65,6 +69,7 @@ use iMSCP\Plugin\SGW_GraphQL\Service\HostingPlanService;
 use iMSCP\Plugin\SGW_GraphQL\Service\MailService;
 use iMSCP\Plugin\SGW_GraphQL\Service\MariaDbSqlServer;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
+use iMSCP\Plugin\SGW_GraphQL\Service\RateLimiter;
 use iMSCP\Plugin\SGW_GraphQL\Service\ResellerService;
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlServer;
 use iMSCP\Plugin\SGW_GraphQL\Service\SqlService;
@@ -132,6 +137,15 @@ final class Container
 
     /** @var Toolkit|null */
     private $toolkit;
+
+    /** @var RateLimiter|null */
+    private $rateLimiter;
+
+    /** @var Audit|null */
+    private $audit;
+
+    /** @var SchemaFactory|null */
+    private $schemaFactory;
 
     private function __construct(
         string $pluginDir, array $config, callable $query, callable $accountLoader,
@@ -242,13 +256,34 @@ final class Container
      *                                       must pass a DirectoryProbe.
      * @param SqlServer|null      $sqlServer Defaults to none; a test that runs
      *                                       an SQL mutation must pass a fake.
+     * @param RateLimiter|null    $rateLimiter Defaults to the one
+     *                                       rateLimiter() builds, which is
+     *                                       what production gets. A test
+     *                                       passes one to drive a clock, or to
+     *                                       choose which of the two counters
+     *                                       answers - the reference box
+     *                                       disables APCu on the CLI, so a
+     *                                       suite that took whatever the
+     *                                       process happened to offer would
+     *                                       only ever exercise one of them.
+     * @param Audit|null          $audit     Defaults to the one audit()
+     *                                       builds, which is what production
+     *                                       gets. A test passes one to drive
+     *                                       a clock, to choose a mode without
+     *                                       a whole config.php, or to point
+     *                                       the row at a table that is not
+     *                                       there - decision D27's failure,
+     *                                       which cannot be staged with DDL
+     *                                       because DDL commits the fixture's
+     *                                       transaction out from under it.
      */
     public static function forTesting(
         string $pluginDir, array $config, callable $query, callable $accountLoader,
         callable $apiAccessChecker, ?Db $db = null, array $panelConfig = array(),
-        ?Core $core = null, ?DirectoryProbe $probe = null, ?SqlServer $sqlServer = null
+        ?Core $core = null, ?DirectoryProbe $probe = null, ?SqlServer $sqlServer = null,
+        ?RateLimiter $rateLimiter = null, ?Audit $audit = null
     ): self {
-        return new self(
+        $container = new self(
             $pluginDir, $config, $query, $accountLoader, $apiAccessChecker,
             // A handle that throws on use rather than one that is null: the
             // unit suite builds the whole resolver map, and a resolver that
@@ -261,6 +296,10 @@ final class Container
             $probe ?? new DetachedDirectoryProbe(),
             $sqlServer
         );
+        $container->rateLimiter = $rateLimiter;
+        $container->audit = $audit;
+
+        return $container;
     }
 
     public function tokens(): TokenService
@@ -301,6 +340,36 @@ final class Container
         }
 
         return $this->toolkit;
+    }
+
+    /**
+     * The one limiter the request uses, shared by RateLimitMiddleware's
+     * `queries` charge and the handler's `mutations` charge.
+     *
+     * One instance rather than two because isApproximate() is a property of
+     * the request - which counter actually answered - and a second limiter
+     * would have its own answer to that, and its own first-charge decision
+     * about whether APCu is usable.
+     *
+     * Both backends are always offered. ApcuStore decides for itself whether
+     * it can count (it asks apcu_enabled(), not function_exists()), and the
+     * database is there for when it cannot; there is no configuration switch
+     * between them, because an operator choosing the wrong one would be an
+     * operator switching the limiter off by accident.
+     */
+    public function rateLimiter(): RateLimiter
+    {
+        if ($this->rateLimiter === null) {
+            $this->rateLimiter = new RateLimiter(
+                static function () {
+                    return time();
+                },
+                new ApcuStore(),
+                $this->db
+            );
+        }
+
+        return $this->rateLimiter;
     }
 
     public function sqlServer(): ?SqlServer
@@ -445,14 +514,33 @@ final class Container
             ))->map(),
             'ResellerMutations' => (new ResellerMutations(
                 $loader, new ResellerService($kit), $resellers, $toUnicode
+            ))->map(),
+            // The one unauthenticated field, and the only resolver that takes
+            // the limiter directly: its two buckets are charged inside the
+            // resolver rather than by RateLimitMiddleware, because they are
+            // keyed by the username in the input, which no middleware has.
+            'TokenMutations' => (new TokenMutations(
+                $this->core, $this->tokens(), $this->rateLimiter(),
+                $this->apiAccessChecker, $this->config, self::clientIp()
             ))->map()
         );
 
         return $this->maps;
     }
 
+    /**
+     * Memoised, so that the handler and the audit share one schema.
+     *
+     * SchemaFactory::create() validates the whole SDL on every build, and
+     * spec section 11's redaction needs the same types the executor uses.
+     * Two Containers are still two schemas; one Container is one request.
+     */
     public function schemaFactory(): SchemaFactory
     {
+        if ($this->schemaFactory !== null) {
+            return $this->schemaFactory;
+        }
+
         $merged = array();
 
         foreach ($this->resolverMaps() as $owner => $map) {
@@ -470,12 +558,120 @@ final class Container
             }
         }
 
-        return new SchemaFactory(
+        $this->schemaFactory = new SchemaFactory(
             $this->pluginDir . '/schema/schema.graphql',
             defined('CACHE_PATH') ? CACHE_PATH : null,
             new ResolverMap($merged),
             array(TypeResolver::class, 'resolveType')
         );
+
+        $this->schemaFactory->withComplexity($this->complexity());
+
+        return $this->schemaFactory;
+    }
+
+    /**
+     * config.php's `max_page_size`, the ceiling a paged list is both capped
+     * at and charged for.
+     *
+     * TypeResolver::PAGE_MAX is the default rather than the value: before
+     * checkpoint E's finding E8 nothing read the key at all, so the audit
+     * page displayed a number that changed nothing. One method so that the
+     * two readers - handler(), where the page is applied, and complexity(),
+     * where it is charged - cannot drift apart.
+     */
+    private function maxPageSize(): int
+    {
+        return max(1, (int)($this->config['max_page_size'] ?? TypeResolver::PAGE_MAX));
+    }
+
+    /**
+     * Spec section 10.2: every list field's cost is proportional to what it
+     * will actually return.
+     *
+     * A connection is charged for the page it will fetch - capped, because a
+     * client asking for 5000 rows gets TypeResolver::PAGE_MAX back regardless
+     * (spec section 7.9) and must be charged for that many, not for 5000 and
+     * not for TypeResolver::PAGE_DEFAULT.
+     *
+     * A plain list takes no `page` argument to read a limit from, so it is
+     * charged TypeResolver::FLAT_LIST_COST - an explicit estimate for a list
+     * i-MSCP bounds by the customer's own allowance, not an upper bound on
+     * rows. That constant's docblock says why, and why the paged cap was the
+     * wrong figure to reuse here.
+     *
+     * @return array<string, callable> 'Type.field' => fn(int $childComplexity, array $args): int
+     */
+    private function complexity(): array
+    {
+        $page = static function (int $cap): callable {
+            return static function (int $childComplexity, array $args) use ($cap): int {
+                $limit = (int)($args['page']['limit'] ?? TypeResolver::PAGE_DEFAULT);
+
+                return max(1, min($limit, $cap)) * $childComplexity;
+            };
+        };
+
+        $flat = static function (int $estimate): callable {
+            return static function (int $childComplexity) use ($estimate): int {
+                return $estimate * $childComplexity;
+            };
+        };
+
+        $paged = $page($this->maxPageSize());
+        $bounded = $flat(TypeResolver::FLAT_LIST_COST);
+
+        return array(
+            // Every *Connection field in the SDL.
+            'Query.customers'       => $paged,
+            'Query.resellers'       => $paged,
+            'Reseller.customers'    => $paged,
+            'Customer.mailAccounts' => $paged,
+            'Customer.ftpUsers'     => $paged,
+
+            // Plain lists with no `page` argument, bounded by i-MSCP's own
+            // limits rather than by anything the caller asked for.
+            'Query.pending'          => $bounded,
+            'Query.ipAddresses'      => $bounded,
+            'Domain.subdomains'      => $bounded,
+            'Domain.aliases'         => $bounded,
+            'DomainAlias.subdomains' => $bounded,
+            'Customer.subdomains'    => $bounded,
+            'Customer.domainAliases' => $bounded,
+            'Customer.sqlDatabases'  => $bounded,
+            'Customer.sqlUsers'      => $bounded,
+            'Customer.dnsRecords'    => $bounded,
+            'SqlDatabase.users'      => $bounded,
+            'SqlUser.databases'      => $bounded,
+            'Reseller.ipAddresses'   => $bounded,
+            'Reseller.hostingPlans'  => $bounded
+        );
+    }
+
+    /**
+     * Specification section 11's recorder, built once per request.
+     *
+     * The Core is passed because decision D27 says a failed audit write is
+     * reported to the panel's log and swallowed; an Audit built without one
+     * would swallow it with nothing said anywhere, which is the failure this
+     * whole table exists to prevent a version of.
+     */
+    public function audit(): Audit
+    {
+        if ($this->audit === null) {
+            $this->audit = new Audit(
+                $this->db,
+                $this->schemaFactory()->create(),
+                (string)($this->config['audit'] ?? Audit::MODE_MUTATIONS),
+                (int)($this->config['audit_retention_days'] ?? 90),
+                static function () {
+                    return time();
+                },
+                $this->core
+            );
+        }
+
+        return $this->audit;
     }
 
     /**
@@ -580,18 +776,91 @@ final class Container
         return (bool)($panelConfig['COUNT_DEFAULT_EMAIL_ADDRESSES'] ?? true);
     }
 
+    /**
+     * The address this request came from, for `tokenIssue`'s per-address
+     * bucket.
+     *
+     * Read from $_SERVER rather than passed down from the request, because a
+     * resolver map is built once per Container and a Container is built once
+     * per request - the same reason panelConfig() reads the Registry here.
+     * RateLimitMiddleware reads the identical value off the PSR-7 request's
+     * server parameters, which Slim populates from this superglobal, so the
+     * two agree about who a caller is.
+     *
+     * X-Forwarded-For is deliberately not consulted: a header anyone can send
+     * would let one attacker spread its attempts over as many buckets as it
+     * cared to invent. TlsMiddleware's trusted_proxies list exists for a
+     * header whose absence would break the endpoint outright; a rate limit
+     * that counted a little too coarsely behind a proxy is the safe failure.
+     */
+    private static function clientIp(): string
+    {
+        return (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    }
+
     public function handler(): GraphQLHandler
     {
+        $limiter = $this->rateLimiter();
+        $limit = (int)($this->config['rate_limit_mutations'] ?? 30);
+        // D35. Normalised once here, the same way it is normalised once for
+        // the 'queries' bucket's own RateLimitMiddleware instance in
+        // middleware() below - two normalisations of the same config value
+        // rather than one middleware reaching into another's state.
+        $limitTrusted = (int)($this->config['rate_limit_mutations_trusted'] ?? 600);
+        $trustedClients = RateLimitMiddleware::normalizeAddressList(
+            (array)($this->config['trusted_clients'] ?? array())
+        );
+
         return new GraphQLHandler($this->schemaFactory(), array(
             'debug'               => (bool)($this->config['debug'] ?? false),
             'introspection'       => (bool)($this->config['introspection'] ?? true),
             'maxQueryDepth'       => (int)($this->config['max_query_depth'] ?? 15),
-            'maxQueryComplexity'  => (int)($this->config['max_query_complexity'] ?? 1000)
+            // 50000, matching config.php's shipped default: see the
+            // Query cost comment there for the measurements behind it.
+            'maxQueryComplexity'  => (int)($this->config['max_query_complexity'] ?? 50000),
+            // Spec section 7.9's ceiling, from config.php rather than from
+            // TypeResolver::PAGE_MAX, which is now only the default. It is
+            // read in two places that must agree - here, where the page is
+            // applied, and in complexity() above, where the page is charged -
+            // and until finding E8 it was read in neither.
+            'maxPageSize'         => $this->maxPageSize(),
+            // Spec section 10.3's second bucket. The handler is the first
+            // place that knows the document is a mutation, so it is the only
+            // place this charge can be made; the key comes from
+            // RateLimitMiddleware so that both buckets are charged to the same
+            // caller. See RateLimitMiddleware's docblock.
+            //
+            // D35: a request from `trusted_clients` is charged against
+            // `rate_limit_mutations_trusted` instead of the ordinary limit -
+            // still charged, never exempt. isTrustedClient() is
+            // RateLimitMiddleware's own static method so that this and the
+            // 'queries' bucket agree about who is trusted without a second
+            // definition of it here.
+            'chargeMutation'      => static function ($request) use (
+                $limiter, $limit, $limitTrusted, $trustedClients
+            ) {
+                $effectiveLimit = RateLimitMiddleware::isTrustedClient($request, $trustedClients)
+                    ? $limitTrusted
+                    : $limit;
+
+                return $limiter->charge(
+                    RateLimiter::BUCKET_MUTATIONS,
+                    RateLimitMiddleware::keyFor($request),
+                    $effectiveLimit,
+                    RateLimiter::WINDOW_MINUTE
+                );
+            },
+            // Spec section 11. The handler is where the row is written from,
+            // because it is the only layer that has the document, the
+            // variables and the result envelope at once - and its `finally`
+            // is what makes a request that threw on its way out audited too.
+            'audit'               => $this->audit()
         ));
     }
 
     /**
-     * Outermost first: TLS, then CORS, then authentication.
+     * Outermost first: TLS, then CORS, then the rate limit, then
+     * authentication.
      *
      * This is not handed to Slim as route middleware — PluginRoutesInjector
      * cannot attach it in either shape it offers, see the note on
@@ -617,6 +886,22 @@ final class Container
                 (array)($this->config['trusted_proxies'] ?? array())
             ),
             new CorsMiddleware((array)($this->config['allowed_origins'] ?? array())),
+            // Before authentication, so that a bogus, expired or revoked
+            // bearer is counted rather than refused for free (checkpoint D,
+            // D4). It keys on the presented token's prefix, which
+            // TokenService::splitPresented() reads without verifying anything.
+            // See RateLimitMiddleware.
+            new RateLimitMiddleware($this->rateLimiter(), array(
+                'queries'        => (int)($this->config['rate_limit_queries'] ?? 120),
+                // D35. 'trustedClients' takes the array (array) so that a
+                // single address written as a bare string still configures
+                // one client rather than being read as a list of its
+                // characters, the same reason 'trusted_proxies' is cast the
+                // same way just above - and an absent key is the empty list,
+                // trusting nothing.
+                'queriesTrusted' => (int)($this->config['rate_limit_queries_trusted'] ?? 1200),
+                'trustedClients' => (array)($this->config['trusted_clients'] ?? array())
+            )),
             new AuthenticateMiddleware(
                 $this->tokens(),
                 $this->accountLoader,
@@ -628,7 +913,8 @@ final class Container
 
     /**
      * The whole pipeline collapsed into one Slim-invokable callable: the
-     * transport checks, then authentication, then the GraphQL handler.
+     * transport checks, then the rate limit, then authentication, then the
+     * GraphQL handler.
      *
      * PluginRoutesInjector (gui/src/Plugin/PluginRoutesInjector.php) cannot
      * attach middleware from a route spec at all, in either of the two shapes
@@ -712,9 +998,14 @@ final class Container
 
     public function apiVersion(): string
     {
-        // Spec section 18: this is the schema's version, not the plugin's.
-        // Phase 2 added the read model (1.1.0); phase 3 added Mutation and its
-        // inputs, additive again, so a minor bump.
-        return '1.2.0';
+        // Spec section 18: this is the schema's version, not the plugin's
+        // (info.php). Phase 2 added the read model (1.1.0); phase 3 added
+        // Mutation and its inputs (1.2.0). Phase 4 (this release) doubles the
+        // mutation surface again - reseller and administrator writes,
+        // tokenIssue and tokenRevoke, the ipAddresses query - marked here as
+        // 2.0.0 rather than a further minor bump, plan 4's call on the scale
+        // of the addition rather than a break in compatibility: everything
+        // 1.2.0 promised still holds (section 18's additive rule).
+        return '2.0.0';
     }
 }

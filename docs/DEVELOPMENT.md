@@ -143,6 +143,85 @@ php7.4 /var/www/imscp/gui/bin/composer.phar install --no-dev
 
 `vendor/` is not committed. It is added at packaging time.
 
+## The explorer's vendored assets
+
+Decision D28 (`docs/SPECIFICATION.md` §16): the in-panel API explorer is
+GraphiQL, and its assets are committed under
+`themes/default/assets/graphiql/` rather than pulled from a CDN at runtime —
+the panel is frequently run on a server with no outbound access, and a
+control panel should not make requests to third parties. `SGW_GraphQL.php`
+serves each one from a small route of its own
+(`explorerAssetRoutes()`), the same way `Container::schemaRouteHandler()`
+serves the SDL, because `gui/plugins/` is not under the panel's document
+root.
+
+Committed, from the CDN bundle each project itself publishes for exactly
+this "no build step" use case:
+
+| File                            | Package          | Version | Source                                                             |
+|----------------------------------|------------------|---------|---------------------------------------------------------------------|
+| `react.production.min.js`        | `react`          | 18.3.1  | `https://unpkg.com/react@18.3.1/umd/react.production.min.js`        |
+| `react-dom.production.min.js`    | `react-dom`      | 18.3.1  | `https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js`|
+| `graphiql.min.js`, `.min.css`    | `graphiql`       | 3.9.0   | `https://unpkg.com/graphiql@3.9.0/graphiql.min.{js,css}`             |
+
+`graphiql.min.js` is graphiql-js's own CDN bundle: it embeds `graphql-js`
+and `@graphiql/react` (its only runtime dependencies besides React), so
+nothing beyond these four files and react/react-dom is needed. `LICENSE-*.txt`
+alongside them are each package's MIT licence, fetched from the same npm
+release. The two `//# sourceMappingURL=...` comments the CDN copies carry
+were stripped, since no `.map` file ships with them.
+
+`graphiql` 3.9.0 is the last release of the 3.x line (CodeMirror-based, one
+self-contained UMD bundle, React 16/17/18 as peers). 4.x and the current
+5.x rewrote the editor onto Monaco and split the CDN bundle into a tree of
+ES modules with their own dependency graph (`@radix-ui/*`, `framer-motion`,
+`monaco-editor`, `monaco-graphql`, …) - many more files to vendor, and a
+different mounting API. It also only supports React 19, which itself no
+longer ships a `umd/react.production.min.js` at all (confirmed: 19.3.0's
+package has no `umd/` directory on unpkg), so moving to 5.x is not a version
+bump but a re-architecture of this vendoring approach, and was judged out of
+scope for the task that first vendored these assets (Task 15).
+
+**Known issue: a query's first execution can blank the explorer in
+Chromium.** Clicking "Execute query" sometimes throws
+`NotFoundError: Failed to execute 'removeChild' on 'Node'` from inside
+`react-dom.production.min.js` and unmounts the whole GraphiQL root, leaving
+the panel content area blank; reloading the page recovers it. Confirmed
+reproducible in Task 15 against a current Chromium build:
+
+- with both graphiql 3.7.1 and 3.9.0;
+- with both react-dom 18.2.0 and 18.3.1 (the newest 18.x - React 19 drops the
+  UMD build, see above);
+- with the stock "Welcome to GraphiQL" placeholder query *and* with a short
+  custom `defaultQuery`, ruling out "the placeholder comment is a long list";
+- identically whether the click is dispatched through Chrome DevTools
+  Protocol or as a plain in-page `button.click()`, ruling out an automation
+  artifact;
+- **not** reproducible in a bare `React.createElement` test swapping a
+  200-element list for a single element in the same browser session, so it
+  is specific to something in GraphiQL/CodeMirror's own DOM structure, not a
+  blanket React-18-vs-this-Chrome incompatibility.
+
+This matches an open, unresolved upstream report -
+[facebook/react#31281](https://github.com/facebook/react/issues/31281) -
+of `removeChild` failing on a large-list re-render in Chrome and Edge
+specifically (not Firefox or Safari), closed by the React team as
+not-planned. It is a rendering bug in the vendored UI layer only: every
+request the explorer sends still reaches the endpoint, authenticates and
+returns correctly regardless of whether the result renders (verified against
+the panel's own Network panel and against `api_audit` rows during the same
+crashing session - see the Task 15 report). A future fix most likely means
+the 5.x/Monaco/React 19 re-vendor described above, once that is worth the
+much larger vendored tree it requires.
+
+Re-vendoring a newer release is a manual step: fetch the four files (and
+licences) at the new version from the URLs above, replace them in place, and
+re-run `test/lint/all.sh` — its "External origins under themes/" check
+(decision D28) only catches a *page* that points at a CDN, not a reference
+buried inside these files' own source comments, so a diff of the new files
+against the old is worth a skim for anything that looks like a runtime
+`fetch()` to a remote host, not just a comment.
+
 ## Exporting the schema
 
 `schema/schema.graphql` is the source of truth, and what `GET

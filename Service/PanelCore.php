@@ -21,6 +21,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Service;
  */
 
 use Exception;
+use iMSCP\Authentication\AuthService;
 use iMSCP\Crypt;
 use iMSCP\Database\DatabaseMySQL;
 use iMSCP\Event\EventAggregator;
@@ -50,6 +51,154 @@ final class PanelCore implements Core
     public function __construct(bool $pokeDaemon = true)
     {
         $this->pokeDaemon = $pokeDaemon;
+    }
+
+    /**
+     * Whether init_login() has already registered the panel's login
+     * listeners in this process.
+     *
+     * gui/public/index.php calls init_login() once per request and nothing
+     * else calls it at all, so the panel's own listeners are not registered
+     * on an API request. They have to be, or AuthService::authenticate() runs
+     * with no credential handler and answers FAILURE_UNCATEGORIZED for every
+     * password there is. Registering them twice would run login_credentials
+     * twice and build a second BruteForce, so this is the once-per-process
+     * flag that a request in production gets for free.
+     *
+     * @var bool
+     */
+    private static $loginInitialised = false;
+
+    /**
+     * CORE-DEBT(C1): AuthService::authenticate() takes its credentials from
+     *   $_POST through the registered handler (M21), and on success calls
+     *   setIdentity(), which regenerates the session and writes a `login`
+     *   row. Spec section 5.3 wants neither.
+     *
+     * **The whole call runs under a session id that belongs to nothing else**
+     * (decision D34, which supersedes D32). Everything the panel's login
+     * touches in `login` it addresses by `session_id()`, and `login`'s primary
+     * key is `session_id`, so borrowing the caller's session id means writing
+     * over - and deleting - rows that are not this call's to write over:
+     *
+     * - `AuthService::unsetIdentity()` runs
+     *   `DELETE FROM login WHERE session_id = ?` with `session_id()`
+     *   (gui/src/Authentication/AuthService.php:176), whatever else that row
+     *   happens to be. `AuthService::authenticate()` calls it itself, before
+     *   `setIdentity()`, on every successful result (:120);
+     * - `BruteForce` looks its counter up by `ipaddr` and `user_name` but
+     *   *stores* it with `session_id = session_id()`, captured in its
+     *   constructor (gui/src/Plugin/BruteForce.php:132,325) - and it stores it
+     *   with `REPLACE INTO login`, so under the caller's session id it
+     *   replaces the caller's own row outright;
+     * - `setIdentity()` calls `session_regenerate_id()` *before* its INSERT
+     *   (:214-227), so on the success path the identity row's session id is a
+     *   fresh one and deleting by it deletes the identity row and nothing
+     *   else.
+     *
+     * So: the caller's session, if there is one, is closed untouched; a
+     * throwaway session with a random id is started for the duration; and an
+     * identity is unset only when one was actually set, which - by that last
+     * fact - is the only case in which the row being deleted is this call's
+     * own. On the failure path nothing is deleted at all, because the row
+     * under that id is then BruteForce's, and BruteForce has to be able to
+     * count past one for spec section 5.3's one unauthenticated field to be
+     * defended at all.
+     *
+     * `init_login()` is called *inside* the throwaway session for the same
+     * reason: it is what constructs `BruteForce`, and `BruteForce` captures
+     * `session_id()` there and then.
+     *
+     * $_POST and $_SESSION are emptied for the call and restored afterwards,
+     * and the throwaway session is destroyed and the caller's reopened, in a
+     * `finally` so that the throwing path is left as tidy as the others.
+     *
+     * Everything the panel does on a login - the BruteForce plugin, the
+     * account status and expiry checks in login_checkDomainAccount(), the
+     * APR-1 rehash of a legacy password - happens inside this call and is not
+     * reimplemented.
+     *
+     * **`$result->isValid()` is not the answer on its own.** A disabled or
+     * expired account authenticates: login_credentials() sets SUCCESS on the
+     * password alone, and login_checkDomainAccount() refuses it afterwards by
+     * stopping the onBeforeSetIdentity event, which makes setIdentity() return
+     * before it writes anything. AuthResult still says valid, and the panel's
+     * own pages tell the difference exactly as this does - by asking whether
+     * an identity actually reached the session (AuthService::hasIdentity(),
+     * gui/include/Login.php's check_login()). Reading isValid() alone would
+     * hand a token to every disabled account on the box.
+     *
+     * $_SESSION is emptied first for the same reason: a request that happened
+     * to carry a panel session would otherwise leave a `user_identity` in
+     * place that this method would read back as its own success.
+     *
+     * @return array{admin_id: int, admin_name: string, admin_type: string}|null
+     */
+    public function authenticate(string $username, string $password): ?array
+    {
+        $callerSessionId = session_id();
+        $callerSessionWasOpen = session_status() === PHP_SESSION_ACTIVE;
+
+        if ($callerSessionWasOpen) {
+            // Closed, never destroyed: its data and its `login` row are the
+            // caller's and this call has no business with either.
+            session_write_close();
+        }
+
+        $savedPost = $_POST;
+        $savedSession = isset($_SESSION) ? $_SESSION : array();
+
+        // Nothing in the system owns this id, so nothing in the system can be
+        // deleted or replaced by it.
+        session_id(bin2hex(random_bytes(16)));
+        session_start();
+
+        try {
+            if (!self::$loginInitialised) {
+                init_login(EventAggregator::getInstance());
+                self::$loginInitialised = true;
+            }
+
+            $_POST = array('uname' => $username, 'upass' => $password);
+            $_SESSION = array();
+
+            $result = AuthService::getInstance()->authenticate();
+
+            if (!$result->isValid() || !isset($_SESSION['user_identity'])) {
+                return null;
+            }
+
+            $identity = $_SESSION['user_identity'];
+
+            return array(
+                'admin_id'   => (int)$identity->admin_id,
+                'admin_name' => (string)$identity->admin_name,
+                'admin_type' => (string)$identity->admin_type
+            );
+        } finally {
+            // Only when an identity was really set. setIdentity() regenerated
+            // the session id before inserting, so the row this deletes is the
+            // identity row it inserted. With no identity there is no row of
+            // this call's to remove, and the one that is there is BruteForce's.
+            if (isset($_SESSION['user_identity'])) {
+                AuthService::getInstance()->unsetIdentity();
+            }
+
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_destroy();
+            }
+
+            $_POST = $savedPost;
+            $_SESSION = $savedSession;
+
+            if ($callerSessionWasOpen) {
+                session_id($callerSessionId);
+                session_start();
+                // session_start() refills $_SESSION from the store; the
+                // caller's own copy is what it is owed.
+                $_SESSION = $savedSession;
+            }
+        }
     }
 
     public function dispatch(string $event, array $params): void

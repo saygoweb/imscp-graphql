@@ -148,6 +148,30 @@ final class DnsResolver
         });
     }
 
+    /**
+     * Every row of server_ips, shaped the same way ipReferences() shapes the
+     * subset it is handed - the rows Query.ipAddresses and a reseller's own
+     * Reseller.ipAddresses answer with are the same table, just not filtered
+     * to an id list here.
+     */
+    public function all(): SyncPromise
+    {
+        $db = $this->db;
+
+        return new Deferred(static function () use ($db) {
+            $addresses = array();
+
+            foreach ($db->rows(
+                'SELECT ip_id, ip_number, ip_netmask, ip_card FROM server_ips'
+                    . ' ORDER BY ip_number'
+            ) as $row) {
+                $addresses[] = self::shapeIp($row);
+            }
+
+            return $addresses;
+        });
+    }
+
     public function ipReference(int $ipId): SyncPromise
     {
         return $this->ipRow($ipId)->then(static function ($row) {

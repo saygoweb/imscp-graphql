@@ -14,8 +14,12 @@ scalar DomainName
 scalar EmailAddress
 
 """
-A write-only value. Never appears in a response, and is redacted from the audit
-log. Passwords are of this type.
+A write-only value, redacted from the audit log. Passwords are of this type.
+
+It appears in a response in exactly one place: `TokenIssueResult.token`, the
+bearer token at the moment it is minted, which is the only time it exists in
+the clear at all. Nothing in `Query` returns one, and no field of `ApiToken`
+carries it.
 """
 scalar Secret
 
@@ -129,6 +133,43 @@ type Viewer {
 
   "Set when role is RESELLER."
   reseller: Reseller
+}
+
+"""
+One of an account's API tokens, as the panel's token page shows it. The
+secret is not part of it and never was: only a SHA-256 of the secret is
+stored, so there is nothing here to read back.
+"""
+type ApiToken {
+  id: ID!
+
+  """
+  The eight characters before the secret, stored in the clear. What the panel
+  shows so a user can tell two tokens apart.
+  """
+  prefix: String!
+
+  "Chosen by whoever minted the token."
+  name: String!
+
+  "Never wider than the account's role; usually narrower."
+  scopes: [Scope!]!
+
+  "CIDRs the token may be presented from. Empty means anywhere."
+  ipAllowlist: [String!]!
+
+  createdAt: DateTime!
+
+  "Null for a token that does not expire."
+  expiresAt: DateTime
+
+  "Stamped at most once a minute, so it means \"recently\" and not more."
+  lastUsedAt: DateTime
+
+  lastUsedIp: String
+
+  "Set once the token has been revoked. A revoked token is never accepted again."
+  revokedAt: DateTime
 }
 
 """
@@ -607,13 +648,36 @@ type Query {
 
   viewer: Viewer!
 
-  "Any object by its opaque identifier. Null when the caller cannot reach it."
+  """
+  Any object by its opaque identifier. An object that does not exist, and one
+  the caller may not reach, both answer `NOT_FOUND` (§6.3); the two are
+  deliberately indistinguishable, so this field cannot be used to discover
+  whether someone else's object exists.
+  
+  It raises rather than returning null, so a caller checking reachability
+  before acting must catch `NOT_FOUND` — a null test passes the error
+  through untouched.
+  """
   node(id: ID!): Node
 
+  """
+  One customer. Answers `NOT_FOUND` both for a customer that does not exist
+  and for one the caller may not reach, exactly as `node` does.
+  """
   customer(id: ID!): Customer
+
   customers(filter: CustomerFilter, page: PageInput): CustomerConnection!
+
+  """
+  One reseller. Answers `NOT_FOUND` both for a reseller that does not exist
+  and for one the caller may not reach, exactly as `node` does.
+  """
   reseller(id: ID!): Reseller
+
   resellers(filter: ResellerFilter, page: PageInput): ResellerConnection!
+
+  "Every IP address the server has. Administrator only: a reseller reaches its own through `viewer.reseller.ipAddresses`, and a customer has no business enumerating them."
+  ipAddresses: [IpAddress!]!
 
   "Everything the caller owns that the backend has not finished with."
   pending: [Node!]!
@@ -643,6 +707,18 @@ work those earlier fields did still happened; read it back with node(id:) or
 pending rather than from this response.
 """
 type Mutation {
+  """
+  The only field that may be called without authentication. Rate limited far
+  more tightly than anything else (5 a minute per source address, 10 an hour
+  per username), and disabled entirely when `allow_password_grant` is false.
+  
+  The secret in `token` is shown once, here, and can never be read back.
+  """
+  tokenIssue(input: TokenIssueInput!): TokenIssueResult!
+
+  "Revokes one of the caller's own tokens. Revoking a revoked token succeeds."
+  tokenRevoke(id: ID!): ApiToken!
+
   "Forwarding, document root and wildcard of a customer's main domain."
   domainUpdate(id: ID!, input: DomainUpdateInput!): Domain!
 
@@ -782,6 +858,32 @@ type Mutation {
 
   "Withdrawing access refuses the account's next API request and revokes its tokens. Administrator only."
   resellerSetApiAccess(id: ID!, allowed: Boolean!): Reseller!
+}
+
+input TokenIssueInput {
+  username: String!
+  password: Secret!
+
+  "Shown in the panel so a user can tell their tokens apart."
+  name: String!
+  scopes: [Scope!]!
+
+  """
+  Capped by `token_max_ttl_days`; absent means `token_default_ttl_days`. A
+  token that never expires cannot be asked for here.
+  """
+  expiresInDays: Int
+
+  "CIDRs the token may be presented from. Empty means anywhere."
+  ipAllowlist: [String!]
+}
+
+type TokenIssueResult {
+  "The bearer token, in full. This is the only time it is ever returned."
+  token: Secret!
+
+  apiToken: ApiToken!
+  expiresAt: DateTime
 }
 
 input ForwardingInput {

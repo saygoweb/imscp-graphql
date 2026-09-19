@@ -250,4 +250,46 @@ class TypeResolverTest extends TestCase
             array(TypeResolver::TAG => 'Htaccess'), $this->context(), $this->info()
         );
     }
+
+    /**
+     * Checkpoint E, finding E8: config.php's `max_page_size` was displayed on
+     * the audit page and read by nothing. It is now the ceiling, carried on
+     * the request context; PAGE_MAX is only the default for a context that
+     * does not carry one.
+     */
+    public function testTheConfiguredCeilingCapsThePage(): void
+    {
+        self::assertSame(
+            array('limit' => 10, 'offset' => 0),
+            TypeResolver::page(array('limit' => 5000), array('pageMax' => 10))
+        );
+    }
+
+    public function testTheConfiguredCeilingIsNotADefaultLimit(): void
+    {
+        // A ceiling raised above PAGE_DEFAULT does not change what an
+        // unspecified page asks for.
+        self::assertSame(
+            array('limit' => TypeResolver::PAGE_DEFAULT, 'offset' => 0),
+            TypeResolver::page(null, array('pageMax' => 1000))
+        );
+    }
+
+    public function testAContextWithNoCeilingFallsBackToPageMax(): void
+    {
+        self::assertSame(TypeResolver::PAGE_MAX, TypeResolver::pageMax(null));
+        self::assertSame(TypeResolver::PAGE_MAX, TypeResolver::pageMax(array()));
+        self::assertSame(
+            TypeResolver::PAGE_MAX,
+            TypeResolver::pageMax(array('identity' => 'whatever'))
+        );
+    }
+
+    public function testAMisconfiguredCeilingStillReturnsARow(): void
+    {
+        // 0 or a negative would make every page empty, which is not what any
+        // operator means by a page size.
+        self::assertSame(1, TypeResolver::pageMax(array('pageMax' => 0)));
+        self::assertSame(1, TypeResolver::pageMax(array('pageMax' => -5)));
+    }
 }

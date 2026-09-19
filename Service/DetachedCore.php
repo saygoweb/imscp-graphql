@@ -39,6 +39,11 @@ final class DetachedCore implements Core
     const MESSAGE = 'This Core is detached: a test that runs a mutation '
         . 'must pass a Core to Container::forTesting().';
 
+    public function authenticate(string $username, string $password): ?array
+    {
+        throw new LogicException(self::MESSAGE);
+    }
+
     public function dispatch(string $event, array $params): void
     {
         throw new LogicException(self::MESSAGE);

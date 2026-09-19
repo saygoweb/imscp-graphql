@@ -89,6 +89,7 @@ class SGW_GraphQL extends AbstractPlugin
             array(
                 Events::onClientScriptStart,
                 Events::onResellerScriptStart,
+                Events::onAdminScriptStart,
                 // An account that goes away must take its credentials with it.
                 Events::onAfterDeleteCustomer,
                 Events::onAfterDeleteUser
@@ -172,6 +173,16 @@ class SGW_GraphQL extends AbstractPlugin
     }
 
     /**
+     * onAdminScriptStart event listener
+     *
+     * @return void
+     */
+    public function onAdminScriptStart()
+    {
+        $this->setupNavigation('admin');
+    }
+
+    /**
      * onAfterDeleteCustomer event listener
      *
      * @param Event $event
@@ -236,7 +247,7 @@ class SGW_GraphQL extends AbstractPlugin
         $plugin = $this;
         $pluginDir = $this->getPluginManager()->pluginGetRootDir() . '/' . $this->getName();
 
-        return array(
+        return array_merge(array(
             array(
                 'name'    => 'sgw_graphql_endpoint',
                 'pattern' => $this->getConfigParam('endpoint', '/api/graphql'),
@@ -267,8 +278,90 @@ class SGW_GraphQL extends AbstractPlugin
             ),
             '/client/api_tokens.php'    => $pluginDir . '/frontend/client/api_tokens.php',
             '/reseller/api_tokens.php'  => $pluginDir . '/frontend/reseller/api_tokens.php',
-            '/reseller/api_access.php'  => $pluginDir . '/frontend/reseller/api_access.php'
+            '/reseller/api_access.php'  => $pluginDir . '/frontend/reseller/api_access.php',
+            '/client/api_explorer.php'   => $pluginDir . '/frontend/client/api_explorer.php',
+            '/reseller/api_explorer.php' => $pluginDir . '/frontend/reseller/api_explorer.php',
+            '/admin/api_explorer.php'    => $pluginDir . '/frontend/admin/api_explorer.php',
+            '/admin/api_audit.php'       => $pluginDir . '/frontend/admin/api_audit.php'
+        ), self::explorerAssetRoutes($pluginDir));
+    }
+
+    /**
+     * Routes that serve the explorer's vendored GraphiQL assets.
+     *
+     * Decision D28: these files ship inside `themes/default/assets/graphiql/`
+     * and are read straight off disk here — nothing is fetched from a CDN at
+     * runtime. `gui/plugins/` is not under the panel's document root (only
+     * `gui/public/` is; see the class docblock's note on §2.6), so a browser
+     * cannot reach these files as ordinary static files the way it reaches
+     * `themes/default/assets/js` under the panel's own theme — each needs a
+     * route the same way `schemaRouteHandler()` gives the SDL one.
+     *
+     * Unauthenticated and unmiddlewared, deliberately: these are public
+     * library files with no request-specific content, exactly like the
+     * schema route (`Container::schemaRouteHandler()`), which is the
+     * precedent this follows.
+     *
+     * @param string $pluginDir
+     * @return array
+     */
+    protected static function explorerAssetRoutes($pluginDir)
+    {
+        $dir = $pluginDir . '/themes/default/assets/graphiql';
+
+        // filename => Content-Type
+        $files = array(
+            'react.production.min.js'     => 'application/javascript; charset=utf-8',
+            'react-dom.production.min.js' => 'application/javascript; charset=utf-8',
+            'graphiql.min.js'             => 'application/javascript; charset=utf-8',
+            'graphiql.min.css'            => 'text/css; charset=utf-8'
         );
+
+        $routes = array();
+
+        foreach ($files as $file => $contentType) {
+            $path = $dir . '/' . $file;
+
+            $routes[] = array(
+                'name'    => 'sgw_graphql_explorer_asset_' . $file,
+                'pattern' => '/api/graphql/explorer-assets/' . $file,
+                'methods' => array('GET'),
+                // Not `static`: see routeHandler()'s docblock on the bindTo()
+                // hazard. This closure does not use $this either, so the
+                // rebinding Slim performs is harmless.
+                'handler' => function ($request, $response) use ($path, $contentType, $file) {
+                    // The @ stays - the failure is handled here, so PHP's own
+                    // warning would only duplicate the log line below - but
+                    // `false` is no longer cast to '' and served as a 200.
+                    // A partial deploy did that, and the browser rendered a
+                    // blank explorer with "GraphiQL is not defined" and
+                    // nothing said anywhere on the server (checkpoint E,
+                    // finding E9). A missing asset is a deployment fault, so
+                    // it says so in the panel's log and answers 404.
+                    $body = @file_get_contents($path);
+
+                    if ($body === false) {
+                        write_log(sprintf(
+                            'SGW_GraphQL: explorer asset %s could not be read at %s. '
+                                . 'The plugin is installed incompletely; reinstall it '
+                                . 'or disable the explorer in its configuration.',
+                            $file, $path
+                        ), E_USER_ERROR);
+
+                        $response->getBody()->write('Not found');
+
+                        return $response->withStatus(404)
+                            ->withHeader('Content-Type', 'text/plain; charset=utf-8');
+                    }
+
+                    $response->getBody()->write($body);
+
+                    return $response->withHeader('Content-Type', $contentType);
+                }
+            );
+        }
+
+        return $routes;
     }
 
     /**
@@ -338,7 +431,7 @@ class SGW_GraphQL extends AbstractPlugin
     /**
      * Inject links into the navigation object
      *
-     * @param string $level UI level (reseller|client)
+     * @param string $level UI level (admin|reseller|client)
      * @return void
      */
     protected function setupNavigation($level)
@@ -350,6 +443,13 @@ class SGW_GraphQL extends AbstractPlugin
         /** @var \Zend_Navigation $navigation */
         $navigation = Registry::get('navigation');
 
+        // config.php's 'explorer', off by default. The menu must not offer a
+        // page the key disables: the page itself refuses (it says which
+        // switch is off), but a menu entry that always leads to "switched
+        // off" is a menu entry that teaches people to ignore the menu.
+        // Checkpoint E, finding E4.
+        $explorer = (bool)$this->getConfigParam('explorer', false);
+
         if ($level == 'client') {
             if (($page = $navigation->findOneBy('uri', '/client/profile.php'))) {
                 $page->addPage(array(
@@ -358,23 +458,69 @@ class SGW_GraphQL extends AbstractPlugin
                     'title_class' => 'profile'
                 ));
             }
+            // Follows SGW_ApacheCache::setupNavigation(): the explorer sits
+            // beside the panel's own domain pages, not under Profile - it is
+            // a tool for working on the account's domains, not an account
+            // setting.
+            if ($explorer
+                && ($page = $navigation->findOneBy('uri', '/client/domains_manage.php'))
+            ) {
+                $page->addPage(array(
+                    'label'       => tr('API explorer'),
+                    'uri'         => '/client/api_explorer.php',
+                    'title_class' => 'domains'
+                ));
+            }
             return;
         }
 
-        if (($page = $navigation->findOneBy('uri', '/reseller/users.php'))) {
-            $page->addPage(array(
-                'label'              => tr('API access'),
-                'uri'                => '/reseller/api_access.php',
-                'title_class'        => 'users',
-                'privilege_callback' => array('name' => 'resellerHasCustomers')
-            ));
+        if ($level == 'reseller') {
+            if (($page = $navigation->findOneBy('uri', '/reseller/users.php'))) {
+                $page->addPage(array(
+                    'label'              => tr('API access'),
+                    'uri'                => '/reseller/api_access.php',
+                    'title_class'        => 'users',
+                    'privilege_callback' => array('name' => 'resellerHasCustomers')
+                ));
+            }
+            if (($page = $navigation->findOneBy('uri', '/reseller/profile.php'))) {
+                $page->addPage(array(
+                    'label'       => tr('API tokens'),
+                    'uri'         => '/reseller/api_tokens.php',
+                    'title_class' => 'profile'
+                ));
+            }
+            // Unlike API access above, the explorer runs queries as the
+            // reseller's own account (exactly like its API tokens do), so it
+            // carries no resellerHasCustomers gate - a reseller with no
+            // customers yet still has an account worth exploring the API as.
+            if ($explorer
+                && ($page = $navigation->findOneBy('uri', '/reseller/users.php'))
+            ) {
+                $page->addPage(array(
+                    'label'       => tr('API explorer'),
+                    'uri'         => '/reseller/api_explorer.php',
+                    'title_class' => 'users'
+                ));
+            }
+            return;
         }
-        if (($page = $navigation->findOneBy('uri', '/reseller/profile.php'))) {
+
+        // Spec section 16: the admin pages live under System tools.
+        if (($page = $navigation->findOneBy('uri', '/admin/system_info.php'))) {
             $page->addPage(array(
-                'label'       => tr('API tokens'),
-                'uri'         => '/reseller/api_tokens.php',
-                'title_class' => 'profile'
+                'label'       => tr('API'),
+                'uri'         => '/admin/api_audit.php',
+                'title_class' => 'webtools'
             ));
+
+            if ($explorer) {
+                $page->addPage(array(
+                    'label'       => tr('API explorer'),
+                    'uri'         => '/admin/api_explorer.php',
+                    'title_class' => 'webtools'
+                ));
+            }
         }
     }
 

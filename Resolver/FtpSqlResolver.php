@@ -222,7 +222,7 @@ final class FtpSqlResolver
     ): SyncPromise {
         TypeResolver::requireScope($context, Scope::FTP_READ);
 
-        $page = TypeResolver::page($args['page'] ?? null);
+        $page = TypeResolver::page($args['page'] ?? null, $context);
         $db = $this->db;
 
         // Keyed by admin_id: ftp_users has no domain_id column at all.

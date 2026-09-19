@@ -215,7 +215,7 @@ final class MailResolver
 
         $filter = isset($args['filter']) && is_array($args['filter'])
             ? $args['filter'] : array();
-        $page = TypeResolver::page($args['page'] ?? null);
+        $page = TypeResolver::page($args['page'] ?? null, $context);
         $db = $this->db;
         $toUnicode = $this->toUnicode;
 

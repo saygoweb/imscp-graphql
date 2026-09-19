@@ -150,6 +150,19 @@ Two ways out: stop the `onBeforeSetIdentity` event, which prevents the session b
 
 *Cost if wrong:* a `tokenIssue` that throws between the two calls leaves a `login` row for a session nobody holds, which the panel's own session garbage collection removes.
 
+**D35 — a trusted client gets a bigger bucket, not no bucket, and never for `tokenIssue`.**
+
+A first-party integration — the panel at `my.saygoweb.com` mirroring its resellers — runs on this box or a peer of it, and will exceed 120 queries and 30 mutations a minute the first time it mirrors anything. The mechanism to recognise it already exists: `trusted_proxies` is the precedent for an operator-configured address list, and `TokenService::addressIsAllowed()` is a tested CIDR matcher.
+
+**Decision:** `trusted_clients` (CIDRs, empty by default) selects `rate_limit_queries_trusted` and `rate_limit_mutations_trusted` in place of the ordinary buckets. Two things it deliberately is not:
+
+- **Not an exemption.** A runaway first-party integration is a real failure mode, and "unlimited" means it can take the panel down. Ten times the ordinary limit solves mirroring while still catching a loop.
+- **Not applied to `tokenIssue`.** That is the one unauthenticated field. Tokens last a year by default, so a mirroring integration mints rarely, and an install that genuinely needs a burst raises `rate_limit_token_issue` globally or mints through the panel UI. The argument for relaxing it — that Checkpoint D restored the panel's BruteForce plugin on this path, and spec §10.3 makes the plugin's limit additional to it rather than instead of it — is real but does not survive the deployment the plugin actually ships into: on a shared box, "same box" includes every tenant's PHP, and an IP-based exemption there is unlimited credential guessing at the plugin layer. The reference install is operator-controlled, but the shipped default must be safe for the install that is not.
+
+*Cost if wrong:* an operator with a genuinely trusted integration that mints many tokens at once has to raise one more key, which is visible and reversible.
+
+---
+
 **D33 — phase 7 is a task, not a ceremony.**
 
 **Decision:** Task 16 does the release work as one commit series: `CHANGELOG.md`, `README.md`, the version bump in `info.php`, the schema version, `tools/package.sh` and one green `test/api/provision.php` run extended with a customer lifecycle. No task in this plan is "prepare for release"; the release is the last task and it either passes or it does not.
@@ -3121,7 +3134,7 @@ Everything Waves 1 and 2 built, behind GraphQL. The SDL, one resolver class, the
 
 **Files:**
 - Create: `Resolver/CustomerMutations.php`
-- Modify: `schema/schema.graphql`, `Api/Container.php`, `test/schema/schema.printed.graphql`
+- Modify: `schema/schema.graphql`, `Api/Container.php`, `schema/schema.printed.graphql`
 - Modify: `test/authz/MutationCatalogue.php`
 - Create: `test/integration/CustomerMutationsTest.php`
 
@@ -3308,7 +3321,7 @@ final class CustomerMutations
 
 Add the ten `Mutation.*` entries to `Schema/ResolverMap.php` and build the resolver in `Api/Container.php` beside `mailMutations()`. Then:
 
-Run: `php tools/print-schema.php > test/schema/schema.printed.graphql`
+Run: `composer schema` (inside the box or container: `../imscp/docker/imscp exec sh -c 'cd /var/www/imscp-plugins/imscp-graphql && php7.4 /var/www/imscp/gui/bin/composer.phar schema'`)
 Expected: the snapshot gains the ten fields and the five inputs. Never hand-edit it.
 
 - [ ] **Step 4: Add the matrix rows**
@@ -3324,7 +3337,7 @@ Create `test/integration/CustomerMutationsTest.php` with three cases, in `AuthzT
 Run: `tools/test.sh --testsuite integration --filter CustomerMutationsTest`, `tools/test.sh --testsuite authz`, then `tools/test.sh`.
 
 ```bash
-git add schema/schema.graphql test/schema/schema.printed.graphql Resolver/CustomerMutations.php \
+git add schema/schema.graphql schema/schema.printed.graphql Resolver/CustomerMutations.php \
         Schema/ResolverMap.php Api/Container.php test/authz/MutationCatalogue.php \
         test/authz/AuthorisationMatrixTest.php test/integration/CustomerMutationsTest.php
 git commit -m "Open the customer, hosting plan and alias order mutations"
@@ -3338,7 +3351,7 @@ Phase 5 of the spec, in one task: M16's create, the edit page's update, `deleteC
 
 **Files:**
 - Create: `Service/ResellerService.php`, `Resolver/ResellerMutations.php`, `test/integration/ResellerServiceTest.php`
-- Modify: `schema/schema.graphql`, `Api/Container.php`, `Schema/ResolverMap.php`, `test/schema/schema.printed.graphql`, `test/authz/MutationCatalogue.php`
+- Modify: `schema/schema.graphql`, `Api/Container.php`, `Schema/ResolverMap.php`, `schema/schema.printed.graphql`, `test/authz/MutationCatalogue.php`
 - Modify: `Service/Core.php`, `Service/PanelCore.php`, `test/unit/Security/CoreCallsTest.php`
 
 **Interfaces:**
@@ -3408,7 +3421,7 @@ Run: `tools/test.sh --testsuite integration --filter ResellerServiceTest`, `tool
 
 ```bash
 git add Service/ResellerService.php Resolver/ResellerMutations.php Service/Core.php Service/PanelCore.php \
-        schema/schema.graphql test/schema/schema.printed.graphql Schema/ResolverMap.php Api/Container.php \
+        schema/schema.graphql schema/schema.printed.graphql Schema/ResolverMap.php Api/Container.php \
         test/unit/Security/CoreCallsTest.php test/authz/MutationCatalogue.php \
         test/integration/ResellerServiceTest.php
 git commit -m "Create, change and delete resellers"
@@ -3577,7 +3590,7 @@ The only unauthenticated field in the schema (spec §5.3). Everything about this
 
 **Files:**
 - Create: `Resolver/TokenMutations.php`, `test/integration/TokenMutationsTest.php`
-- Modify: `schema/schema.graphql`, `Api/Container.php`, `Schema/ResolverMap.php`, `test/schema/schema.printed.graphql`
+- Modify: `schema/schema.graphql`, `Api/Container.php`, `Schema/ResolverMap.php`, `schema/schema.printed.graphql`
 - Modify: `Service/Core.php`, `Service/PanelCore.php`, `test/unit/Security/CoreCallsTest.php`
 - Modify: `Http/AuthenticateMiddleware.php` (let an unauthenticated request through to the handler)
 
@@ -3760,7 +3773,7 @@ Create `Resolver/TokenMutations.php`. The order inside `issue()` is the whole se
 
 ```bash
 git add Resolver/TokenMutations.php Service/Core.php Service/PanelCore.php Security/Guard.php \
-        Http/AuthenticateMiddleware.php schema/schema.graphql test/schema/schema.printed.graphql \
+        Http/AuthenticateMiddleware.php schema/schema.graphql schema/schema.printed.graphql \
         Schema/ResolverMap.php Api/Container.php test/unit/Security/CoreCallsTest.php \
         test/integration/TokenMutationsTest.php
 git commit -m "Mint and revoke tokens over the API"
@@ -4014,7 +4027,7 @@ tools/package.sh
 
 ```bash
 git add docs/API.md CHANGELOG.md README.md info.php schema/schema.graphql \
-        test/schema/schema.printed.graphql test/api/provision.php tools/package.sh
+        schema/schema.printed.graphql test/api/provision.php tools/package.sh
 git commit -m "Close phase 4: schema 2.0.0, and a plugin that packages"
 ```
 

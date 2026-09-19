@@ -22,3 +22,24 @@
 // autoloader is registered here. Anything needing exec_query() or $_SESSION
 // belongs in the integration suite, not this one.
 require_once dirname(__DIR__) . '/vendor/autoload.php';
+
+// The session functions have to work in this process, because
+// Service\PanelCore::authenticate() runs the panel's login under a session of
+// its own and the tests for that are the specification of checkpoint D's
+// first finding. Measured in the box: once anything has been written to
+// stdout - and PHPUnit writes its banner before the first test - headers_sent()
+// is true, and PHP then refuses session_id(), session_start() and even
+// ini_set() of any session key. Two settings are what it refuses them over: it
+// will not send a session cookie, and it will not send a cache limiter. This
+// file is loaded before the banner, which is the last moment either can be
+// turned off, and neither matters to a CLI process that has no client to send
+// a header to.
+//
+// Nothing else is affected: the panel's own bootstrap starts no session under
+// the CLI SAPI at all (iMSCP\Application::startSession() returns early for
+// PHP_SAPI == 'cli'), so the only session in this process is the throwaway one
+// PanelCore opens and destroys inside a single call.
+if (PHP_SAPI === 'cli') {
+    ini_set('session.use_cookies', '0');
+    ini_set('session.cache_limiter', '');
+}

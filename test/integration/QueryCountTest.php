@@ -266,8 +266,21 @@ class QueryCountTest extends IntegrationTestCase
 
         $count = $this->db->countQueries(
             function () use ($schema, $context, $variables, &$response) {
+                // Validation rules explicitly empty, not left to default to
+                // "all available rules". DOCUMENT is deliberately the widest
+                // document this schema can shape - it exists to prove every
+                // edge is batched, not to fit inside a budget - and Task 14
+                // gave every one of its list fields a real cost, so it now
+                // measures well past any reasonable max_query_complexity.
+                // Worse, GraphQLHandler::applyValidationRules() registers its
+                // QueryComplexity into graphql-php's DocumentValidator by
+                // class name, which is process-global state (see that
+                // method's docblock): whichever limit the last test in this
+                // process asked for would otherwise leak in here, and this
+                // test counts SQL queries, not complexity.
                 $result = GraphQL::executeQuery(
-                    $schema, self::DOCUMENT, null, $context, $variables
+                    $schema, self::DOCUMENT, null, $context, $variables,
+                    null, null, array()
                 );
                 $response = $result->toArray(DebugFlag::INCLUDE_DEBUG_MESSAGE);
             }

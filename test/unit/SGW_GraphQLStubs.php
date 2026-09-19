@@ -99,11 +99,113 @@ namespace iMSCP {
             {
                 return self::$store[$key];
             }
+
+            /**
+             * Needed by SGW_GraphQL::setupNavigation(), which returns early
+             * when no navigation is registered.
+             *
+             * @param string $key
+             * @return bool
+             */
+            public static function isRegistered($key)
+            {
+                return array_key_exists($key, self::$store);
+            }
         }
     }
 }
 
 namespace {
+
+    // The panel's log. SGW_GraphQL::explorerAssetRoutes()'s handler writes to
+    // it when an asset cannot be read, and that line is half of what finding
+    // E9 is about, so it is recorded here rather than discarded.
+    if (!isset($GLOBALS['sgw_graphql_test_log'])) {
+        $GLOBALS['sgw_graphql_test_log'] = array();
+    }
+
+    if (!function_exists('write_log')) {
+        function write_log($message, $level = E_USER_WARNING)
+        {
+            $GLOBALS['sgw_graphql_test_log'][] = array(
+                'message' => $message, 'level' => $level
+            );
+        }
+    }
+
+    // setupNavigation() labels every menu entry with the panel's tr().
+    if (!function_exists('tr')) {
+        function tr($message)
+        {
+            return $message;
+        }
+    }
+
+    /**
+     * The two halves of Zend_Navigation that setupNavigation() touches: it
+     * finds an existing page by its uri and adds a child to it. Nothing here
+     * models the rest of Zend_Navigation, because nothing here needs to.
+     */
+    if (!class_exists('SGW_GraphQL_Test_FakeNavPage', false)) {
+        class SGW_GraphQL_Test_FakeNavPage
+        {
+            /** @var array The child pages added to this one. */
+            public $added = array();
+
+            public function addPage(array $page)
+            {
+                $this->added[] = $page;
+            }
+        }
+    }
+
+    if (!class_exists('SGW_GraphQL_Test_FakeNavigation', false)) {
+        class SGW_GraphQL_Test_FakeNavigation
+        {
+            /** @var array uri => SGW_GraphQL_Test_FakeNavPage */
+            private $pages = array();
+
+            public function __construct(array $uris)
+            {
+                foreach ($uris as $uri) {
+                    $this->pages[$uri] = new SGW_GraphQL_Test_FakeNavPage();
+                }
+            }
+
+            /**
+             * @param string $property
+             * @param string $value
+             * @return SGW_GraphQL_Test_FakeNavPage|null
+             */
+            public function findOneBy($property, $value)
+            {
+                if ($property !== 'uri') {
+                    return null;
+                }
+
+                return isset($this->pages[$value]) ? $this->pages[$value] : null;
+            }
+
+            /**
+             * Every uri added under any page, which is what the explorer
+             * gate is asserted against.
+             *
+             * @return array
+             */
+            public function addedUris()
+            {
+                $uris = array();
+
+                foreach ($this->pages as $page) {
+                    foreach ($page->added as $child) {
+                        $uris[] = $child['uri'];
+                    }
+                }
+
+                return $uris;
+            }
+        }
+    }
 
     // A fake row source for the api_perm lookup inside
     // SGW_GraphQL::customerHasApiAccess(). false means "no row" (the

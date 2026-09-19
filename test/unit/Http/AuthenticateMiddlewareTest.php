@@ -117,16 +117,57 @@ class AuthenticateMiddlewareTest extends TestCase
         self::assertSame(7, $_SESSION['user_id'], 'the shim must be applied');
     }
 
-    public function testNoCredentialIsA401(): void
+    public function testNoCredentialReachesTheHandlerWithANullIdentity(): void
     {
+        // Spec section 5.3: tokenIssue is served without a credential, and
+        // this middleware cannot tell which field a document asks for. So a
+        // request that presents nothing goes through - with the attribute
+        // set, and set to null, which is what keeps every other resolver
+        // refused (TypeResolver::identity()) and what tells GraphQLHandler
+        // this request did pass through here.
         $mw = new AuthenticateMiddleware(
             $this->tokenServiceReturning(null), function () { return null; }, false,
             $this->accessCheckerMustNotBeCalled()
         );
 
-        $response = $mw($this->request(), new Response(), function ($rq, $rs) {
-            self::fail('the handler must not run');
+        $reached = false;
+        $attributes = array();
+        $response = $mw($this->request(), new Response(), function ($rq, $rs) use (&$reached, &$attributes) {
+            $reached = true;
+            $attributes = $rq->getAttributes();
+
+            return $rs;
         });
+
+        self::assertTrue($reached, 'an unauthenticated request must reach the handler');
+        self::assertArrayHasKey('identity', $attributes);
+        self::assertNull($attributes['identity']);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame([], $_SESSION, 'no shim is applied for a caller with no identity');
+    }
+
+    public function testAPresentedSessionThatIsRefusedIsStillA401(): void
+    {
+        // The line the change above must not cross: "presented" is decided by
+        // what the request carries, not by whether it turned out to be any
+        // good. A caller must not be able to convert a refused credential
+        // into an unauthenticated request by presenting a broken one - here,
+        // a session cookie with no CSRF header to go with it.
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $mw = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            true,
+            $this->accessCheckerMustNotBeCalled()
+        );
+
+        $response = $mw(
+            $this->request(['CONTENT_TYPE' => 'application/json']),
+            new Response(),
+            function ($rq, $rs) { self::fail('the handler must not run'); }
+        );
 
         self::assertSame(401, $response->getStatusCode());
         self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
@@ -291,11 +332,24 @@ class AuthenticateMiddlewareTest extends TestCase
     {
         $checker = $this->accessCheckerMustNotBeCalled();
 
-        $noCredential = new AuthenticateMiddleware(
-            $this->tokenServiceReturning(null), function () { return null; }, false, $checker
+        // A session cookie with no CSRF header: presented, and refused. The
+        // "no credential at all" case is no longer one of these - it is not a
+        // failure any more, it is an unauthenticated request going through
+        // (see testNoCredentialReachesTheHandlerWithANullIdentity) - so this
+        // takes its place as the baseline every other refusal must match.
+        $_SESSION['user_id'] = 7;
+        $_SESSION['graphql_csrf'] = 'sekrit';
+
+        $session = new AuthenticateMiddleware(
+            $this->tokenServiceReturning(null),
+            function () { return $this->customerRow(); },
+            true,
+            $checker
         );
-        $bodyNoCredential = (string)$noCredential(
-            $this->request(), new Response(), function ($rq, $rs) { return $rs; }
+        $bodyNoCredential = (string)$session(
+            $this->request(['CONTENT_TYPE' => 'application/json']),
+            new Response(),
+            function ($rq, $rs) { return $rs; }
         )->getBody();
 
         $rejected = new AuthenticateMiddleware(

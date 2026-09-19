@@ -60,3 +60,25 @@ if (!function_exists('tohtml')) {
         return htmlspecialchars($string, ENT_QUOTES, 'UTF-8');
     }
 }
+
+// safeJs() calls tojs(), which the real panel wires to
+// Zend\Escaper\Escaper::escapeJs(). Confirmed against the box's own tojs():
+// tojs('{NEW_TOKEN}') === '\x7BNEW_TOKEN\x7D' and tojs('a=b') === 'a\x3Db',
+// with '-' also escaped (\x2D) - the immune set is [A-Za-z0-9,._], one
+// character narrower than escapeHtmlAttr()'s. This stub reproduces that
+// ASCII behaviour; it does not attempt escapeJs()'s Unicode (`\uHHHH`)
+// handling, which nothing here needs.
+if (!function_exists('tojs')) {
+    function tojs($string)
+    {
+        $string = (string)$string;
+
+        return preg_replace_callback(
+            '/[^A-Za-z0-9,._]/',
+            function ($matches) {
+                return sprintf('\\x%02X', ord($matches[0]));
+            },
+            $string
+        );
+    }
+}

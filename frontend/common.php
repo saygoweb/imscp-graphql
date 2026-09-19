@@ -69,6 +69,97 @@ function csrfToken(): string
 }
 
 /**
+ * Which switch keeps the in-panel explorer off, or null when it is on.
+ *
+ * Two keys have to be true for the explorer to work, and they are true for
+ * different reasons. `explorer` is the operator's decision about whether a
+ * developer tool belongs on this production panel, and it is off by default.
+ * `introspection` is about the API itself; an explorer without it is a broken
+ * tool rather than a reduced one, because GraphiQL's documentation pane, its
+ * completions and its validation are all the introspection query.
+ *
+ * Before this existed the pages gated on `introspection` alone, which
+ * defaults to true - so a stock install shipped the explorer *enabled* while
+ * `config.php`, `CHANGELOG.md`, `docs/API.md` and the specification all said
+ * it was off by default, and an operator who followed them and set
+ * `'explorer' => false` changed nothing at all (checkpoint E, finding E4).
+ *
+ * `explorer` is named first when both are off: it is the switch an operator
+ * reaches for, and naming `introspection` there would send them to turn on
+ * something they may deliberately have turned off.
+ *
+ * @return string|null The config key that is off, or null when neither is.
+ */
+function explorerDisabledBy(bool $explorerEnabled, bool $introspectionEnabled): ?string
+{
+    if (!$explorerEnabled) {
+        return 'explorer';
+    }
+
+    if (!$introspectionEnabled) {
+        return 'introspection';
+    }
+
+    return null;
+}
+
+/**
+ * Every key `config.php` declares, in the order it declares them, so an
+ * administrator reading the audit page's "Effective configuration" sees
+ * exactly what the plugin would read if it consulted `config.php` right now -
+ * including any override an installation has layered over the shipped
+ * default.
+ *
+ * The promise in that first sentence is the whole point of the list, and it
+ * was quietly broken once: the wave that added `trusted_clients`,
+ * `rate_limit_queries_trusted` and `rate_limit_mutations_trusted` did not add
+ * them here, so the one page an administrator uses to see who is exempt from
+ * the ordinary rate limits did not show the exemption list (checkpoint E,
+ * finding E6). CommonTest asserts this list against config.php's own keys, so
+ * the next key added without a line here fails the suite.
+ *
+ * @return string[]
+ */
+function configKeys(): array
+{
+    return array(
+        'endpoint', 'schema_endpoint', 'allowed_by_default', 'require_tls',
+        'trusted_proxies', 'allowed_origins', 'allow_session_auth',
+        'allow_password_grant', 'explorer', 'token_default_ttl_days',
+        'token_max_ttl_days', 'token_max_per_account', 'introspection',
+        'max_query_depth', 'max_query_complexity', 'max_page_size',
+        'rate_limit_queries', 'rate_limit_mutations', 'rate_limit_token_issue',
+        'trusted_clients', 'rate_limit_queries_trusted',
+        'rate_limit_mutations_trusted', 'audit', 'audit_retention_days',
+        'debug', 'validate_ftp_home_dir'
+    );
+}
+
+/**
+ * A config value, formatted for display - not for any consumer that would
+ * have to parse it back.
+ *
+ * The is_array() branch is what renders the address lists - 'trusted_proxies',
+ * 'allowed_origins' and 'trusted_clients' - and '(none)' is the honest
+ * rendering of the empty default each of them ships with.
+ *
+ * @param mixed $value
+ * @return string
+ */
+function formatConfigValue($value): string
+{
+    if (is_bool($value)) {
+        return $value ? 'true' : 'false';
+    }
+
+    if (is_array($value)) {
+        return $value === array() ? '(none)' : implode(', ', $value);
+    }
+
+    return (string)$value;
+}
+
+/**
  * A timestamp as the panel shows dates, or a dash.
  */
 function formatWhen(?int $timestamp): string
@@ -96,6 +187,20 @@ function safeText(string $value): string
 function safeAttr(string $value): string
 {
     return str_replace(array('{', '}'), '', tohtml($value, 'htmlAttr'));
+}
+
+/**
+ * As safeText(), for a value assigned into an inline `<script>` block's
+ * single-quoted string literal - the API explorer's endpoint and CSRF token
+ * (see api_explorer.php in each role directory).
+ *
+ * tojs() (Zend Escaper's escapeJs()) escapes the characters that would break
+ * out of the string literal; the brace strip is the same defence safeText()
+ * and safeAttr() carry, for the same reason.
+ */
+function safeJs(string $value): string
+{
+    return str_replace(array('{', '}'), '', tojs($value));
 }
 
 /**

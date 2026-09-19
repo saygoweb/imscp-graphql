@@ -1488,7 +1488,7 @@ return array(
     // Query cost
     'introspection'               => true,
     'max_query_depth'             => 15,
-    'max_query_complexity'        => 1000,
+    'max_query_complexity'        => 50000,      // see docs/API.md's "Query cost"
     'max_page_size'               => 200,
 
     // Rate limits, per minute unless stated
@@ -1803,6 +1803,17 @@ and to `deleteSubdomain()`, `deleteSubdomainAlias()`, `deleteDomainAlias()`,
 `deleteCustomer()`, `delete_sql_database()`, `sql_delete_user()`,
 `change_domain_status()`. Key `customerHasFeature()`'s `static` cache by
 `$adminId` while you are there.
+
+The same shape, one layer up: `AuthService::authenticate()`
+(`gui/src/Authentication/AuthService.php`) takes its credentials from `$_POST`
+through whatever handler `init_login()` registered, and reports success by
+writing `$_SESSION['user_identity']` and a `login` row rather than by
+returning an identity — so its caller has to read a superglobal to find out
+what happened, and a caller that wanted neither the session nor the row (§5.3's
+`tokenIssue`) has to put both back afterwards. An `authenticate(string
+$username, string $password): AuthResult` that leaves `setIdentity()` to the
+caller would be additive: the existing no-argument overload keeps its
+behaviour, and `gui/public/index.php` is unchanged.
 
 *Why i-MSCP wants it anyway.* The `static` cache at `gui/include/Client.php:84`
 is not keyed by user. Any page that asks about two different customers in one

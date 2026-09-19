@@ -140,6 +140,20 @@ final class RecordingCore implements Core
         return array();
     }
 
+    /**
+     * Delegated, not recorded beyond the username: this is the panel's own
+     * credential check and the integration suite is exactly what it is for.
+     * The password is not recorded - a Secret reaches the hasher and nothing
+     * else (spec section 12), and a double that kept one would make that
+     * property untestable from here.
+     */
+    public function authenticate(string $username, string $password): ?array
+    {
+        $this->record('authenticate', $username);
+
+        return $this->inner->authenticate($username, $password);
+    }
+
     public function dispatch(string $event, array $params): void
     {
         $this->record('dispatch', $event, $params);

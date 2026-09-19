@@ -36,6 +36,21 @@ use InvalidArgumentException;
  */
 interface Core
 {
+    /**
+     * The panel's own credential check, for `tokenIssue` (spec section 5.3).
+     *
+     * Null for every failure - an unknown username, a wrong password, an
+     * account whose status or expiry date the panel refuses - with no way for
+     * the caller to tell which, because the field in front of it must not be
+     * an oracle for valid usernames.
+     *
+     * Neither a `login` row nor a session survives the call. See PanelCore's
+     * implementation for why that takes a `finally` rather than a condition.
+     *
+     * @return array{admin_id: int, admin_name: string, admin_type: string}|null
+     */
+    public function authenticate(string $username, string $password): ?array;
+
     /** EventAggregator::dispatch(), with the panel's own event name and parameters. */
     public function dispatch(string $event, array $params): void;
 

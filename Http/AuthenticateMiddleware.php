@@ -36,6 +36,29 @@ use Psr\Http\Message\ServerRequestInterface;
  * The two credentials are alternatives, not a chain: a request that presents a
  * bearer is answered by that bearer, whether it verifies or not. See
  * __invoke().
+ *
+ * **A request that presents no credential at all is not refused here.** Spec
+ * section 5.3's `tokenIssue` is the one field in the schema that may be
+ * called without one, and a middleware cannot tell whether that is the field
+ * a document asks for without parsing the document - which is the handler's
+ * job, and which would mean two parsers disagreeing about what an operation
+ * is. So the request goes through with the identity attribute set to null,
+ * and nothing downstream is loosened to let it: GraphQLHandler names the one
+ * exempt field on the parsed document and answers UNAUTHENTICATED for a
+ * credential-less request that asks for anything else - the introspection
+ * meta-fields included, which touch no resolver and so would otherwise have
+ * been answered in full (checkpoint D, D3). Beneath that,
+ * TypeResolver::identity() still throws UNAUTHENTICATED for a null identity,
+ * one field at a time. The attribute is always *set*, null or not, so that
+ * GraphQLHandler can still tell "no credential" from "this request never
+ * passed through this middleware", which is a wiring bug and still a 500.
+ *
+ * A credential that was *presented* and refused is still refused here, with
+ * the same 401 it always had. "Presented" means an Authorization header, or a
+ * panel session cookie whose user_id is set - not whether that credential
+ * turned out to be any good, and not whether allow_session_auth happens to be
+ * on. Anything else would let a caller convert a refused credential into an
+ * unauthenticated request simply by presenting a broken one.
  */
 final class AuthenticateMiddleware
 {
@@ -102,6 +125,13 @@ final class AuthenticateMiddleware
             : $this->fromSession($request);
 
         if ($identity === null) {
+            // Nothing was presented, so nothing was refused: through, with a
+            // null identity, for `tokenIssue` alone to make use of. See the
+            // class docblock.
+            if ($presented === null && empty($_SESSION['user_id'])) {
+                return $next($request->withAttribute('identity', null), $response);
+            }
+
             return $this->unauthenticated($response);
         }
 

@@ -9,3 +9,10 @@ composer.phar
 .ssh-config
 .serena/
 test/.phpunit.result.cache
+
+# Agent scratch, and any git worktree made inside the checkout. A linked
+# worktree is a whole second copy of the tree, so anything that walks the
+# directory - the lint, a grep, a packaging script - counts it twice unless
+# it is excluded here and in test/lint/all.sh.
+.claude/
+worktrees/

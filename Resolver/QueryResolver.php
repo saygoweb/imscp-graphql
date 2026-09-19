@@ -94,12 +94,13 @@ final class QueryResolver
     public function map(): array
     {
         return array(
-            'Query.node'      => array($this, 'resolveNode'),
-            'Query.customer'  => array($this, 'resolveCustomer'),
-            'Query.customers' => array($this, 'resolveCustomers'),
-            'Query.reseller'  => array($this, 'resolveReseller'),
-            'Query.resellers' => array($this, 'resolveResellers'),
-            'Query.pending'   => array($this, 'resolvePending')
+            'Query.node'        => array($this, 'resolveNode'),
+            'Query.customer'    => array($this, 'resolveCustomer'),
+            'Query.customers'   => array($this, 'resolveCustomers'),
+            'Query.reseller'    => array($this, 'resolveReseller'),
+            'Query.resellers'   => array($this, 'resolveResellers'),
+            'Query.ipAddresses' => array($this, 'resolveIpAddresses'),
+            'Query.pending'     => array($this, 'resolvePending')
         );
     }
 
@@ -298,7 +299,7 @@ final class QueryResolver
         $identity = TypeResolver::requireScope($context, Scope::CUSTOMERS_READ);
         $filter = isset($args['filter']) && is_array($args['filter'])
             ? $args['filter'] : array();
-        $page = TypeResolver::page($args['page'] ?? null);
+        $page = TypeResolver::page($args['page'] ?? null, $context);
 
         $sql = '
             SELECT a.admin_id
@@ -359,7 +360,7 @@ final class QueryResolver
         $identity = TypeResolver::requireScope($context, Scope::RESELLERS_READ);
         $filter = isset($args['filter']) && is_array($args['filter'])
             ? $args['filter'] : array();
-        $page = TypeResolver::page($args['page'] ?? null);
+        $page = TypeResolver::page($args['page'] ?? null, $context);
 
         if ($identity->getRole() === Identity::ROLE_CUSTOMER) {
             // A customer has no business enumerating resellers, and an empty
@@ -415,6 +416,35 @@ final class QueryResolver
                 );
             }
         );
+    }
+
+    /**
+     * Query.ipAddresses - every IP address the server has, administrator
+     * only.
+     *
+     * NodeType::IP_ADDRESS's own scope is RESELLERS_READ (see SCOPES above),
+     * because a reseller reaches its own subset through
+     * Reseller.ipAddresses / Viewer.reseller.ipAddresses and a customer has
+     * no business here at all - but that scope alone would still let a
+     * reseller enumerate the whole server's pool, not just its own. This
+     * field exists for the caller with no reseller of its own to ask
+     * through: an administrator cannot create its first reseller without
+     * knowing an IP id, and there is no other field this credential can read
+     * one from.
+     *
+     * @throws ApiException FORBIDDEN
+     */
+    public function resolveIpAddresses($source, array $args, $context, ResolveInfo $info): SyncPromise
+    {
+        $identity = TypeResolver::requireScope($context, Scope::RESELLERS_READ);
+
+        if ($identity->getRole() !== Identity::ROLE_ADMIN) {
+            throw Guard::forbidden(
+                'Only an administrator may list every IP address the server has.'
+            );
+        }
+
+        return $this->dns->all();
     }
 
     /**

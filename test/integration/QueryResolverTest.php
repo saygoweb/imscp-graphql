@@ -371,6 +371,52 @@ class QueryResolverTest extends IntegrationTestCase
         self::assertSame('sgwtreseller', $connection['nodes'][0]['username']);
     }
 
+    public function testAnAdministratorListsEveryIpAddressTheServerHas(): void
+    {
+        $addresses = $this->value($this->resolver->resolveIpAddresses(
+            null, array(), $this->context('admin'), $this->info()
+        ));
+
+        $numbers = array();
+
+        foreach ($addresses as $address) {
+            $numbers[] = $address['address'];
+        }
+
+        // The fixture's own IP, TEST-NET-3 and never routable, is enough to
+        // prove this reached server_ips rather than a reseller's subset of
+        // it - the box's other addresses may or may not be there too.
+        self::assertContains('203.0.113.7', $numbers);
+    }
+
+    public function testAResellerMayNotListEveryIpAddressTheServerHas(): void
+    {
+        // RESELLERS_READ is the scope IpAddress carries (see
+        // QueryResolver::SCOPES), and a reseller holds it - Reseller.ipAddresses
+        // is exactly that scope reading exactly this type - but the pool
+        // itself belongs to the administrator, not to any one reseller.
+        try {
+            $this->resolver->resolveIpAddresses(
+                null, array(), $this->context('reseller'), $this->info()
+            );
+            self::fail('a reseller must not list every IP address the server has');
+        } catch (ApiException $e) {
+            self::assertSame(ErrorCode::FORBIDDEN, $e->getErrorCode());
+        }
+    }
+
+    public function testACustomerMayNotListEveryIpAddressTheServerHas(): void
+    {
+        try {
+            $this->resolver->resolveIpAddresses(
+                null, array(), $this->context('customer'), $this->info()
+            );
+            self::fail('a customer must not list every IP address the server has');
+        } catch (ApiException $e) {
+            self::assertSame(ErrorCode::FORBIDDEN, $e->getErrorCode());
+        }
+    }
+
     public function testPendingReturnsTheOneUnsettledObjectTheCustomerOwns(): void
     {
         // The fixture writes exactly one: the alias subdomain, status 'toadd'.

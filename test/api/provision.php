@@ -33,6 +33,14 @@
  * script runs as that customer's own identity, so it cannot reach another
  * customer's objects. A run aimed at a different customer must be swept by
  * naming that customer again.
+ *
+ * It also runs a whole customer through customerCreate and customerDelete, as
+ * an administrator: a throwaway account and domain (also sgwe2e*), created
+ * under the primary customer's own reseller, settled, checked in the
+ * database and on disk, then deleted and checked again. That part is swept by
+ * admin_name rather than by the primary customer's own reachable objects, so
+ * it is found and cleaned up regardless of which customer this script was
+ * pointed at.
  */
 
 require '/var/www/imscp/gui/include/imscp-lib.php';
@@ -86,7 +94,7 @@ $account = $db->row(
     "
         SELECT a.admin_id, a.admin_name, a.admin_type, a.created_by, a.email, d.domain_id, d.domain_name,
             d.domain_status, d.domain_subd_limit, d.domain_mailacc_limit, d.domain_ftpacc_limit,
-            d.domain_sqld_limit, d.domain_sqlu_limit, d.domain_dns, d.mail_quota
+            d.domain_sqld_limit, d.domain_sqlu_limit, d.domain_dns, d.mail_quota, d.domain_ip_id
         FROM admin AS a JOIN domain AS d ON d.domain_admin_id = a.admin_id
         WHERE a.admin_type = 'user' AND d.domain_status = 'ok'" . ($login === null ? '' : ' AND a.admin_name = ?') . "
         ORDER BY a.admin_id LIMIT 1
@@ -113,12 +121,40 @@ $domainId = GlobalId::encode(NodeType::DOMAIN, (int)$account['domain_id']);
 $mailRoot = (string)(new \iMSCP\Config\FileConfig(
     \iMSCP\Registry::get('config')['CONF_DIR'] . '/postfix/postfix.data'
 ))['MTA_VIRTUAL_MAIL_DIR'];
+$panelConfig = (array)\iMSCP\Registry::get('config');
+$webRoot = isset($panelConfig['USER_WEB_DIR']) ? (string)$panelConfig['USER_WEB_DIR'] : '/var/www/virtual';
 
 printf("Customer %s (%s)\n\n", $account['admin_name'], $domain);
 
+// ---- an administrator, for the customer lifecycle below -------------------
+//
+// customerCreate/customerDelete are reseller-or-administrator-only (spec
+// section 8.1's role refusal), so the primary customer's own identity above
+// cannot run them. An administrator that also names the reseller explicitly
+// works regardless of which reseller (if any) owns the box's other
+// customers, which running as the reseller itself would not.
+$adminRow = $db->row("SELECT admin_id, admin_name, email FROM admin WHERE admin_type = 'admin' ORDER BY admin_id LIMIT 1");
+
+if ($adminRow === null) {
+    die2('no administrator account on this box');
+}
+
+if ($account['created_by'] === null) {
+    die2('customer ' . $account['admin_name'] . ' has no reseller (admin.created_by is null); '
+        . 'the customer-lifecycle step needs one to create a throwaway customer under');
+}
+
+$adminIdentity = new Identity(
+    (int)$adminRow['admin_id'], (string)$adminRow['admin_name'], 'admin', null, $adminRow['email'], array(), null
+);
+$resellerGlobalId = GlobalId::encode(NodeType::RESELLER, (int)$account['created_by']);
+$ipGlobalId = GlobalId::encode(NodeType::IP_ADDRESS, (int)$account['domain_ip_id']);
+$throwawayUsername = PREFIX;
+$throwawayDomain = PREFIX . '.test';
+
 // ---- the API, as a request would build it ---------------------------------
 
-function run(string $document, array $variables = array()): array
+function run(string $document, array $variables = array(), ?Identity $as = null): array
 {
     global $db, $identity;
 
@@ -132,7 +168,7 @@ function run(string $document, array $variables = array()): array
         new PanelCore(false), new VfsDirectoryProbe(), MariaDbSqlServer::fromPanel($db)
     )->schemaFactory()->create();
 
-    $result = GraphQL::executeQuery($schema, $document, null, array('identity' => $identity), $variables);
+    $result = GraphQL::executeQuery($schema, $document, null, array('identity' => $as ?? $identity), $variables);
     $result->setErrorFormatter(static function (Error $error) {
         return $error->getPrevious() instanceof Throwable
             ? ErrorFactory::format($error->getPrevious(), true)
@@ -203,10 +239,114 @@ function counts(): array
     );
 }
 
+/**
+ * Wait until node(id) is null for every id in $ids, using identity $as,
+ * running the backend between polls.
+ *
+ * @param array<int, string> $ids
+ * @return array<int, string> the ids still present when the deadline passed
+ */
+function waitForGone(Identity $as, array $ids): array
+{
+    $deadline = time() + SETTLE_SECONDS;
+    $remaining = $ids;
+
+    do {
+        backend();
+        $remaining = array_values(array_filter($remaining, static function (string $id) use ($as): bool {
+            $result = run('query($id: ID!) { node(id: $id) { __typename } }', array('id' => $id), $as);
+
+            return ($result['data']['node'] ?? null) !== null;
+        }));
+
+        if ($remaining === array()) {
+            return array();
+        }
+
+        sleep(2);
+    } while (time() < $deadline);
+
+    return $remaining;
+}
+
+/**
+ * Wait until $id's provisioning.state is $want, using identity $as, running
+ * the backend between polls.
+ *
+ * @return array|null the last-seen provisioning, or null on success
+ */
+function waitForState(Identity $as, string $id, string $want): ?array
+{
+    $deadline = time() + SETTLE_SECONDS;
+    $provisioning = null;
+
+    do {
+        backend();
+        $result = run(
+            'query($id: ID!) { node(id: $id) { ... on Provisioned { provisioning { state message } } } }',
+            array('id' => $id), $as
+        );
+        $provisioning = $result['data']['node']['provisioning'] ?? null;
+
+        if (($provisioning['state'] ?? null) === $want) {
+            return null;
+        }
+
+        sleep(2);
+    } while (time() < $deadline);
+
+    return $provisioning;
+}
+
 /** Delete anything a previous, interrupted run left behind. */
 function sweep(): void
 {
-    global $db, $account;
+    global $db, $account, $adminIdentity;
+
+    // A whole customer left behind by an interrupted customer-lifecycle run
+    // (see below), not one of the per-object leftovers further down: deleting
+    // the Customer node removes its admin row and its domain row together, so
+    // one mutation covers both new shapes rather than two separate sweeps,
+    // and it needs the administrator's identity, not the primary test
+    // customer's - customerDelete is reseller-or-administrator-only.
+    $strayCustomers = $db->rows(
+        "SELECT admin_id AS k, admin_status AS s FROM admin WHERE admin_type = 'user' AND admin_name LIKE 'sgwe2e%'"
+    );
+
+    foreach ($strayCustomers as $row) {
+        $id = GlobalId::encode(NodeType::CUSTOMER, (int)$row['k']);
+
+        // A stray already marked `todelete` is a run that asked for the
+        // delete and died before the backend ran. It must not be skipped:
+        // nothing else here runs the backend over it, so the next run would
+        // find it in the same state, and the lifecycle below would then call
+        // customerCreate with the username this row still holds, be refused
+        // as a duplicate, and die - for ever. Only the mutation is skipped
+        // (it is already asked for, and customerDelete refuses an unsettled
+        // account anyway); the wait, which runs the backend between polls,
+        // is what this loop is actually for.
+        if ($row['s'] === 'todelete') {
+            printf("  already todelete, driving the backend over %s\n", $row['k']);
+        } else {
+            $result = run('mutation($id: ID!) { customerDelete(id: $id) { id } }', array('id' => $id), $adminIdentity);
+
+            if (isset($result['errors'][0])) {
+                die2(sprintf(
+                    'SWEEP FAILED customerDelete %s: %s (%s)',
+                    $row['k'], $result['errors'][0]['message'],
+                    $result['errors'][0]['extensions']['code'] ?? 'no code'
+                ));
+            }
+
+            printf("  swept customerDelete %s\n", $row['k']);
+        }
+
+        $stuck = waitForGone($adminIdentity, array($id));
+
+        if ($stuck !== array()) {
+            die2('SWEEP FAILED: a swept customer did not settle within ' . SETTLE_SECONDS . 's');
+        }
+    }
 
     $domainId = (int)$account['domain_id'];
     $leftovers = array(
@@ -250,6 +390,74 @@ function sweep(): void
 
 echo "Sweep:\n";
 sweep();
+
+echo "\nCustomer lifecycle:\n";
+
+$customerResult = run(
+    'mutation($input: CustomerCreateInput!) {
+        customerCreate(input: $input) {
+            id
+            provisioning { state }
+            domain { id provisioning { state } }
+        }
+    }',
+    array('input' => array(
+        'username'    => $throwawayUsername,
+        'password'    => 'E2e0Password',
+        'domainName'  => $throwawayDomain,
+        'ipAddressId' => $ipGlobalId,
+        'resellerId'  => $resellerGlobalId,
+        'contact'     => array('email' => $throwawayUsername . '@example.test'),
+        'allowances'  => array(
+            'subdomains' => 1, 'domainAliases' => 0, 'mailAccounts' => 1, 'ftpUsers' => 1,
+            'sqlDatabases' => 0, 'sqlUsers' => 0, 'traffic' => 1024 * 1048576, 'disk' => 512 * 1048576,
+            'mailQuota' => 104857600, 'php' => true, 'cgi' => false, 'customDns' => false,
+            'externalMail' => false, 'backup' => array(), 'phpEditor' => false
+        ),
+        'sendWelcomeEmail' => false
+    )),
+    $adminIdentity
+);
+check(
+    'customerCreate returns PENDING',
+    ($customerResult['data']['customerCreate']['provisioning']['state'] ?? null) === 'PENDING',
+    json_encode($customerResult['errors'] ?? null)
+);
+$throwawayCustomerId = $customerResult['data']['customerCreate']['id'] ?? null;
+$throwawayDomainId = $customerResult['data']['customerCreate']['domain']['id'] ?? null;
+
+if ($throwawayCustomerId === null || $throwawayDomainId === null) {
+    die2('customerCreate did not return an id to follow: ' . json_encode($customerResult));
+}
+
+$stuck = waitForState($adminIdentity, $throwawayCustomerId, 'OK');
+check('the new customer reached OK within ' . SETTLE_SECONDS . 's', $stuck === null, json_encode($stuck));
+$stuck = waitForState($adminIdentity, $throwawayDomainId, 'OK');
+check('the new customer\'s domain reached OK within ' . SETTLE_SECONDS . 's', $stuck === null, json_encode($stuck));
+
+$throwawayAdminRow = $db->row('SELECT admin_status FROM admin WHERE admin_name = ?', array($throwawayUsername));
+check('the account exists in admin, settled', ($throwawayAdminRow['admin_status'] ?? null) === 'ok');
+$throwawayDomainRow = $db->row('SELECT domain_status FROM domain WHERE domain_name = ?', array($throwawayDomain));
+check('the domain exists in domain, settled', ($throwawayDomainRow['domain_status'] ?? null) === 'ok');
+check('the web directory exists', is_dir($webRoot . '/' . $throwawayDomain . '/htdocs'));
+
+$deleteResult = run(
+    'mutation($id: ID!) { customerDelete(id: $id) { id } }', array('id' => $throwawayCustomerId), $adminIdentity
+);
+check('customerDelete accepted', !isset($deleteResult['errors']), json_encode($deleteResult['errors'] ?? null));
+
+$stuck = waitForGone($adminIdentity, array($throwawayCustomerId));
+check('the deleted customer settled within ' . SETTLE_SECONDS . 's', $stuck === array(), json_encode($stuck));
+
+check(
+    'the account is gone from admin',
+    $db->row('SELECT 1 FROM admin WHERE admin_name = ?', array($throwawayUsername)) === null
+);
+check(
+    'the domain is gone from domain',
+    $db->row('SELECT 1 FROM domain WHERE domain_name = ?', array($throwawayDomain)) === null
+);
+check('the web directory is gone', !is_dir($webRoot . '/' . $throwawayDomain));
 
 $before = counts();
 $created = array();
