@@ -382,11 +382,19 @@ final class ResellerService
 
         $reseller = $kit->accounts()->reseller($target->getKey());
 
-        // admin_validateUserDeletion()'s own rule: a reseller with customers
-        // is refused outright, or its customers are orphaned. current_dmn_cnt
-        // is the reseller's own maintained counter of the domains (customers)
-        // it owns (M9), so this needs no second COUNT(*) query.
-        if ($reseller->usedOf('customers') > 0) {
+        // admin_validateUserDeletion()'s own rule (user_delete.php:144):
+        // every admin row this reseller created, whatever its own status.
+        // current_dmn_cnt (M9) is the wrong instrument for this question -
+        // update_reseller_c_props() (Shared.php:414-421) carries
+        // "AND domain_status <> 'todelete'" in the query that maintains it,
+        // so a reseller's only customer mid-deletion already reads as zero
+        // there while its `admin` row - and its dangling `created_by` - is
+        // still live. The page's own COUNT has no such filter.
+        $customerCount = (int)$kit->db()->value(
+            'SELECT COUNT(*) FROM admin WHERE created_by = ?', array($target->getKey())
+        );
+
+        if ($customerCount > 0) {
             throw Guard::conflict('This reseller still has customers and cannot be deleted.');
         }
 

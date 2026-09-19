@@ -196,17 +196,21 @@ final class MutationCatalogue
         };
 
         // resellerUpdate and resellerSetApiAccess both target the fixture's
-        // own reseller; resellerDelete does too, but first empties its
-        // customer counter (a plain UPDATE, not a real delete - task 10's
-        // own check reads current_dmn_cnt, not a live COUNT), or even the
-        // administrator's own call would be CONFLICT before it ever reached
-        // the authorisation question this row asks. No DDL is issued deleting
-        // a reseller (task 10 report), so - unlike customerDelete's own note
-        // on the sibling - there is no implicit-commit hazard in targeting
-        // the fixture's main reseller here.
+        // own reseller; resellerDelete does too, but first moves its
+        // customers off it, or even the administrator's own call would be
+        // CONFLICT before it ever reached the authorisation question this
+        // row asks. C1: the check is a live COUNT(*) on admin.created_by,
+        // not current_dmn_cnt, so a plain UPDATE of the counter (which this
+        // used to be) no longer frees the reseller - its customers (and the
+        // sibling) must actually stop naming it in created_by. No DDL is
+        // issued deleting a reseller (task 10 report), so - unlike
+        // customerDelete's own note on the sibling - there is no
+        // implicit-commit hazard in targeting the fixture's main reseller
+        // here.
         $resellerWithNoCustomers = static function (Fixture $f, Db $db): array {
             $db->execute(
-                'UPDATE reseller_props SET current_dmn_cnt = 0 WHERE reseller_id = ?', array($f->resellerId())
+                'UPDATE admin SET created_by = ? WHERE created_by = ?',
+                array($f->adminId(), $f->resellerId())
             );
 
             return array();

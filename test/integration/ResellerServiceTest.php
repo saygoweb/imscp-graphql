@@ -50,6 +50,101 @@ class ResellerServiceTest extends ServiceTestCase
         );
     }
 
+    /**
+     * C1: a reseller with no `admin` row naming it in created_by - neither
+     * of the fixture's own two resellers qualifies any more, since
+     * otherReseller has otherCustomer.
+     */
+    private function createChildlessReseller(): int
+    {
+        static $n = 0;
+        $n++;
+        $name = 'sgwt_childless_reseller' . $n;
+        $resellerId = $this->insert('admin', array(
+            'admin_name'     => $name,
+            'admin_pass'     => 'x',
+            'admin_type'     => 'reseller',
+            'admin_sys_uid'  => 0,
+            'admin_sys_gid'  => 0,
+            'domain_created' => time(),
+            'customer_id'    => 'REF-' . $name,
+            'created_by'     => $this->fixture->adminId(),
+            'fname'          => 'Test',
+            'lname'          => 'Reseller',
+            'gender'         => 'U',
+            'firm'           => 'Test Ltd',
+            'zip'            => '1234',
+            'city'           => 'Testville',
+            'state'          => 'Testshire',
+            'country'        => 'NZ',
+            'email'          => $name . '@example.test',
+            'phone'          => '+64 3 000 0000',
+            'fax'            => null,
+            'street1'        => '1 Test Street',
+            'street2'        => null,
+            'admin_status'   => 'ok'
+        ));
+
+        $this->insert('reseller_props', array(
+            'reseller_id'          => $resellerId,
+            'current_dmn_cnt'      => 0,
+            'max_dmn_cnt'          => 20,
+            'current_sub_cnt'      => 0,
+            'max_sub_cnt'          => 100,
+            'current_als_cnt'      => 0,
+            'max_als_cnt'          => 50,
+            'current_mail_cnt'     => 0,
+            'max_mail_cnt'         => 0,
+            'current_ftp_cnt'      => 0,
+            'max_ftp_cnt'          => 40,
+            'current_sql_db_cnt'   => 0,
+            'max_sql_db_cnt'       => 30,
+            'current_sql_user_cnt' => 0,
+            'max_sql_user_cnt'     => 30,
+            'current_disk_amnt'    => 0,
+            'max_disk_amnt'        => 51200,
+            'current_traff_amnt'   => 0,
+            'max_traff_amnt'       => 102400,
+            'support_system'       => 'yes',
+            'reseller_ips'         => $this->fixture->ipId() . ';'
+        ));
+
+        return $resellerId;
+    }
+
+    /** An `admin` row only - enough for a created_by COUNT(*), nothing more. */
+    private function createCustomerUnder(int $resellerId, string $adminStatus = 'ok'): int
+    {
+        static $n = 0;
+        $n++;
+        $name = 'sgwt_midcustomer' . $n;
+
+        return $this->insert('admin', array(
+            'admin_name'     => $name,
+            'admin_pass'     => 'x',
+            'admin_type'     => 'user',
+            'admin_sys_uid'  => 0,
+            'admin_sys_gid'  => 0,
+            'domain_created' => time(),
+            'customer_id'    => 'REF-' . $name,
+            'created_by'     => $resellerId,
+            'fname'          => 'Test',
+            'lname'          => 'Customer',
+            'gender'         => 'U',
+            'firm'           => 'Test Ltd',
+            'zip'            => '1234',
+            'city'           => 'Testville',
+            'state'          => 'Testshire',
+            'country'        => 'NZ',
+            'email'          => $name . '@example.test',
+            'phone'          => '+64 3 000 0000',
+            'fax'            => null,
+            'street1'        => '1 Test Street',
+            'street2'        => null,
+            'admin_status'   => $adminStatus
+        ));
+    }
+
     // ---- create() -----------------------------------------------------
 
     public function testAResellerIsCreatedWithItsPropsRowAndItsIps(): void
@@ -406,10 +501,10 @@ class ResellerServiceTest extends ServiceTestCase
 
     public function testAResellerWithCustomersCannotBeDeleted(): void
     {
-        $this->db->execute(
-            'UPDATE reseller_props SET current_dmn_cnt = 2 WHERE reseller_id = ?', array($this->fixture->resellerId())
-        );
-
+        // admin/user_delete.php:144: every admin row this reseller created,
+        // whatever its own status - the fixture's own reseller already has
+        // two (customer, sibling). Not current_dmn_cnt: M9's own counter is
+        // no longer read here at all (C1).
         $this->refused(ErrorCode::CONFLICT, function (): void {
             $this->service()->delete(
                 $this->caller('admin'), GlobalId::encode(NodeType::RESELLER, $this->fixture->resellerId())
@@ -419,13 +514,29 @@ class ResellerServiceTest extends ServiceTestCase
         self::assertSame(array(), $this->core->callsNamed('deleteReseller'));
     }
 
-    public function testDeletingAResellerRemovesItsPropsAndItsTokens(): void
+    /**
+     * C1: current_dmn_cnt (M9) is maintained by update_reseller_c_props()
+     * with "AND domain_status <> 'todelete'" (Shared.php:414-421), so a
+     * reseller's only customer mid-deletion already reads as zero there
+     * while its `admin` row - and its dangling `created_by` - is still
+     * live. admin_validateUserDeletion()'s own COUNT (user_delete.php:144)
+     * carries no such filter, and neither does this.
+     */
+    public function testAResellerWhoseOnlyCustomerIsMidDeletionCannotBeDeleted(): void
     {
-        // The fixture's own resellerProps() seeds current_dmn_cnt at 0
-        // regardless of the customers it also seeds (Fixture::seed()'s own
-        // shape), so otherResellerId() is already deletable without further
-        // preparation.
-        $resellerId = $this->fixture->otherResellerId();
+        $resellerId = $this->createChildlessReseller();
+        $this->createCustomerUnder($resellerId, 'todelete');
+
+        $this->refused(ErrorCode::CONFLICT, function () use ($resellerId): void {
+            $this->service()->delete($this->caller('admin'), GlobalId::encode(NodeType::RESELLER, $resellerId));
+        });
+
+        self::assertSame(array(), $this->core->callsNamed('deleteReseller'));
+    }
+
+    public function testDeletingAGenuinelyChildlessResellerRemovesItsPropsAndItsTokens(): void
+    {
+        $resellerId = $this->createChildlessReseller();
         $tokenId = $this->insert('api_token', array(
             'admin_id'     => $resellerId,
             'name'         => 'sgwt token',
