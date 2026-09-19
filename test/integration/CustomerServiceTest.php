@@ -72,6 +72,26 @@ class CustomerServiceTest extends ServiceTestCase
         self::assertSame('no', $domain['allowbackup']);
     }
 
+    /**
+     * C4: traffic, disk and mailQuota are BigInt - "serialised as a decimal
+     * string" (schema.graphql:24) - and the schema has no parseValue for it,
+     * so a conforming client's string arrives exactly as sent.
+     */
+    public function testCreateAcceptsBigIntAllowancesAsTheStringsTheyAreDocumentedAs(): void
+    {
+        $ref = $this->service()->create($this->caller('reseller'), $this->input(array(
+            'allowances' => array(
+                'traffic' => (string)(1024 * 1048576), 'disk' => (string)(512 * 1048576),
+                'mailQuota' => (string)104857600
+            ) + $this->input()['allowances']
+        )));
+
+        $domain = $this->db->row('SELECT * FROM domain WHERE domain_admin_id = ?', array($ref->getKey()));
+        self::assertSame(1024, (int)$domain['domain_traffic_limit']);
+        self::assertSame(512, (int)$domain['domain_disk_limit']);
+        self::assertSame(104857600, (int)$domain['mail_quota']);
+    }
+
     public function testThePasswordIsHashedTheWayAnAccountIsHashedNotTheWayAMailboxIs(): void
     {
         // M4: apr1MD5, not sha512. The prefix is the whole assertion.
@@ -524,6 +544,22 @@ class CustomerServiceTest extends ServiceTestCase
         self::assertSame(42, (int)$domain['domain_mailacc_limit']);
         self::assertContains(array('sendRequest'), $this->core->calls);
         self::assertContains(array('updateResellerCounters', $this->fixture->resellerId()), $this->core->calls);
+    }
+
+    /**
+     * C4: traffic, disk and mailQuota are BigInt - "serialised as a decimal
+     * string" (schema.graphql:24) - and the schema has no parseValue for it,
+     * so a conforming client's string arrives exactly as sent.
+     */
+    public function testUpdateAcceptsABigIntAllowanceAsTheStringItIsDocumentedAs(): void
+    {
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('allowances' => array('mailQuota' => (string)104857600))
+        );
+
+        $domain = $this->db->row('SELECT * FROM domain WHERE domain_admin_id = ?', array($this->fixture->customerId()));
+        self::assertSame(104857600, (int)$domain['mail_quota']);
     }
 
     // ---- B3: disk and traffic are measured on the edit path too ---------

@@ -302,6 +302,23 @@ class ResellerServiceTest extends ServiceTestCase
         self::assertSame('input.allowances.traffic', $e->getExtensions()['field']);
     }
 
+    /**
+     * C4: traffic and disk are BigInt - "serialised as a decimal string"
+     * (schema.graphql:24) - and the schema has no parseValue for it, so a
+     * conforming client's string arrives exactly as sent.
+     */
+    public function testCreateAcceptsABigIntAllowanceAsTheStringItIsDocumentedAs(): void
+    {
+        $ref = $this->service()->create($this->caller('admin'), $this->input(array(
+            'allowances' => array('traffic' => (string)(2048 * 1048576), 'disk' => (string)(1024 * 1048576))
+                + $this->input()['allowances']
+        )));
+
+        $props = $this->db->row('SELECT max_traff_amnt, max_disk_amnt FROM reseller_props WHERE reseller_id = ?', array($ref->getKey()));
+        self::assertSame(2048, (int)$props['max_traff_amnt']);
+        self::assertSame(1024, (int)$props['max_disk_amnt']);
+    }
+
     public function testTheWelcomeMessageIsSentAfterTheCommit(): void
     {
         // C11 item 12's own reasoning.
@@ -465,6 +482,24 @@ class ResellerServiceTest extends ServiceTestCase
             'SELECT max_mail_cnt FROM reseller_props WHERE reseller_id = ?', array($this->fixture->resellerId())
         );
         self::assertSame(-1, (int)$after['max_mail_cnt']);
+    }
+
+    /**
+     * C4: traffic and disk are BigInt - "serialised as a decimal string"
+     * (schema.graphql:24) - and the schema has no parseValue for it, so a
+     * conforming client's string arrives exactly as sent.
+     */
+    public function testUpdateAcceptsABigIntAllowanceAsTheStringItIsDocumentedAs(): void
+    {
+        $this->service()->update(
+            $this->caller('admin'), GlobalId::encode(NodeType::RESELLER, $this->fixture->resellerId()),
+            array('allowances' => array('traffic' => (string)(2048 * 1048576)))
+        );
+
+        $after = $this->db->row(
+            'SELECT max_traff_amnt FROM reseller_props WHERE reseller_id = ?', array($this->fixture->resellerId())
+        );
+        self::assertSame(2048, (int)$after['max_traff_amnt']);
     }
 
     public function testAllowancesAreMergedNotReplaced(): void

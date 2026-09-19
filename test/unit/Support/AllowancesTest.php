@@ -162,6 +162,38 @@ class AllowancesTest extends TestCase
         self::assertSame(0, $allowances->storage('mailQuota'));
     }
 
+    /**
+     * C4: schema.graphql:24 documents BigInt as "serialised as a decimal
+     * string", and the schema has no parseValue for it, so a conforming
+     * client's string arrives in PHP exactly as sent.
+     */
+    public function testDiskTrafficAndMailQuotaAcceptTheStringFormOfBigInt(): void
+    {
+        $allowances = Allowances::fromInput($this->complete(array(
+            'traffic' => (string)(10240 * 1048576), 'disk' => (string)(5120 * 1048576),
+            'mailQuota' => (string)104857600
+        )));
+
+        self::assertSame(10240, $allowances->storage('traffic'));
+        self::assertSame(5120, $allowances->storage('disk'));
+        self::assertSame(104857600, $allowances->storage('mailQuota'));
+    }
+
+    /** The -1 (withheld) sentinel also arrives as a string, with its leading '-'. */
+    public function testAWithheldSixCountableAllowanceAcceptsTheStringForm(): void
+    {
+        $allowances = Allowances::fromInput($this->complete(array('subdomains' => '-1')));
+
+        self::assertSame(-1, $allowances->limit('subdomains'));
+    }
+
+    public function testANonNumericStringBigIntIsRefused(): void
+    {
+        $this->expectRefusal('input.allowances.mailQuota', function (): void {
+            Allowances::fromInput($this->complete(array('mailQuota' => 'lots')));
+        });
+    }
+
     public function testAPlanAndAnInputProduceTheSameProps(): void
     {
         $props = '_yes_;_no_;5;3;20;10;4;4;10240;5120;_dmn_;_yes_;yes;no;no;no;no;0;0;0;0;0;_no_;_yes_;104857600';

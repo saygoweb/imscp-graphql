@@ -205,11 +205,19 @@ final class Allowances
         return $input[$name];
     }
 
+    /**
+     * C4: disk and traffic (read here through storageBytes()) are BigInt
+     * (schema.graphql:24 - "serialised as a decimal string"), and the schema
+     * carries no parseValue for it, so a conforming client's string arrives
+     * exactly as sent; Numbers::coerceBigInt() accepts that shape alongside
+     * the plain int the six countable allowances (Int-typed, and so already
+     * coerced by the GraphQL layer) always arrive as.
+     */
     private static function limitValue(array $input, string $name): int
     {
-        $value = self::required($input, $name);
+        $value = Numbers::coerceBigInt(self::required($input, $name));
 
-        if (!is_int($value) || $value < -1) {
+        if ($value === null || $value < -1) {
             throw Guard::badInput(
                 'input.allowances.' . $name,
                 'A limit is -1 to withhold the feature, 0 for unlimited, or a positive number.'
@@ -250,15 +258,12 @@ final class Allowances
         return $bytes <= 0 ? $bytes : intdiv($bytes, 1048576);
     }
 
+    /** C4: shares Numbers::coerceBigInt() with limitValue() - see its own note. */
     private static function mailQuota(array $input): int
     {
-        $value = self::required($input, 'mailQuota');
+        $value = Numbers::coerceBigInt(self::required($input, 'mailQuota'));
 
-        if (is_string($value) && preg_match('/^[0-9]+$/', $value)) {
-            $value = (int)$value;
-        }
-
-        if (!is_int($value) || $value < 0) {
+        if ($value === null || $value < 0) {
             throw Guard::badInput('input.allowances.mailQuota', 'A mail quota is a whole number of bytes, or 0 for none.');
         }
 

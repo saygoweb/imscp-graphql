@@ -25,6 +25,7 @@ use iMSCP\Plugin\SGW_GraphQL\Auth\Identity;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Scope;
 use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Support\NodeType;
+use iMSCP\Plugin\SGW_GraphQL\Support\Numbers;
 use iMSCP\Plugin\SGW_GraphQL\Support\ObjectRef;
 use Throwable;
 
@@ -560,9 +561,12 @@ final class ResellerService
                 continue;
             }
 
-            $value = $input[$name];
+            // C4: traffic and disk are BigInt (schema.graphql:24 - "serialised
+            // as a decimal string"), and the schema carries no parseValue for
+            // it, so a conforming client's string arrives exactly as sent.
+            $value = Numbers::coerceBigInt($input[$name]);
 
-            if (!is_int($value)) {
+            if ($value === null) {
                 throw Guard::badInput('input.allowances.' . $name, 'A limit is a whole number.');
             }
 
