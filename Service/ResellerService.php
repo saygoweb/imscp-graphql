@@ -271,6 +271,20 @@ final class ResellerService
 
         $contact = isset($input['contact']) ? $this->contactForUpdate($input, $reseller, $core) : null;
         $ipIds = isset($input['ipAddressIds']) ? $this->ipIdsFor((array)$input['ipAddressIds']) : null;
+
+        // CORE-DEBT(C3): reseller_edit.php:403-411 - the page keeps every IP
+        // a reseller's own customers are using, whatever the form said, and
+        // marks those checkboxes readonly; the form can drop one, but the
+        // save cannot. Without this, ipAddressIds writes exactly what the
+        // caller named, which can take away an IP a customer's domain is
+        // still on - after which ResellerAccount::hasIp() is false for that
+        // customer's own address and CustomerService's ipFor() refuses any
+        // further work on it.
+        if ($ipIds !== null) {
+            $ipIds = array_values(array_unique(array_merge($ipIds, $this->usedIpIds((int)$target->getKey()))));
+            sort($ipIds);
+        }
+
         $allowances = isset($input['allowances']) ? $this->allowancesFor((array)$input['allowances'], false) : array();
 
         // 7. "A max_* lowered below the reseller's own current_* is refused"
@@ -497,6 +511,30 @@ final class ResellerService
         sort($ids);
 
         return $ids;
+    }
+
+    /**
+     * CORE-DEBT(C3): transcribed from reseller_edit.php's own getFormData()
+     * (admin/reseller_edit.php:90-94) - every IP a domain created by this
+     * reseller currently sits on, whatever that domain's own status.
+     *
+     * @return int[]
+     */
+    private function usedIpIds(int $resellerId): array
+    {
+        $rows = $this->kit->db()->rows(
+            '
+                SELECT DISTINCT domain_ip_id
+                FROM domain
+                JOIN admin ON (admin_id = domain_admin_id)
+                WHERE created_by = ?
+            ',
+            array($resellerId)
+        );
+
+        return array_map(static function (array $row): int {
+            return (int)$row['domain_ip_id'];
+        }, $rows);
     }
 
     /**

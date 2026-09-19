@@ -450,7 +450,13 @@ class ResellerServiceTest extends ServiceTestCase
         self::assertSame((int)$before['max_als_cnt'], (int)$after['max_als_cnt']);
     }
 
-    public function testChangingTheIpListReplacesIt(): void
+    /**
+     * C2: reseller_edit.php:403-411 - array_unique(array_merge($resellerIps,
+     * $data['used_ips'])) before sort. The fixture's own customer domain
+     * sits on the fixture's own IP, so naming only a second IP must not
+     * drop it: the customer's own IP is merged back in, not replaced away.
+     */
+    public function testChangingTheIpListKeepsAnyIpACustomerIsOn(): void
     {
         $secondIpId = $this->insert('server_ips', array(
             'ip_number' => '203.0.113.21', 'ip_netmask' => 24, 'ip_card' => 'eth0',
@@ -465,7 +471,9 @@ class ResellerServiceTest extends ServiceTestCase
         $props = $this->db->row(
             'SELECT reseller_ips FROM reseller_props WHERE reseller_id = ?', array($this->fixture->resellerId())
         );
-        self::assertSame($secondIpId . ';', $props['reseller_ips']);
+        $expected = array($this->fixture->ipId(), $secondIpId);
+        sort($expected);
+        self::assertSame(implode(';', $expected) . ';', $props['reseller_ips']);
     }
 
     public function testOnlyAnAdministratorMayUpdateAReseller(): void
