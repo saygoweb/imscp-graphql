@@ -143,6 +143,42 @@ php7.4 /var/www/imscp/gui/bin/composer.phar install --no-dev
 
 `vendor/` is not committed. It is added at packaging time.
 
+## Exporting the schema
+
+`schema/schema.graphql` is the source of truth, and what `GET
+/api/graphql/schema` serves. What a client generator should build against is
+the *printed* schema — the same types as the server builds them, without the
+ordering and `#` comments that are ours rather than the API's. That file is
+`schema/schema.printed.graphql` — beside the SDL, and so inside the release
+archive, since `upload-exclude.txt` drops `test/` and a client generator
+should not have to clone this repository to find the schema. A Composer
+script rewrites it:
+
+```shell
+php7.4 /var/www/imscp/gui/bin/composer.phar schema        # rewrite it
+php7.4 /var/www/imscp/gui/bin/composer.phar schema:check  # fail if stale
+php7.4 /var/www/imscp/gui/bin/composer.phar schema:print  # to stdout
+```
+
+Inside the box or the container, because the parser needs PHP 7.4 and
+`ext-mbstring`, which the host has neither of:
+
+```shell
+../imscp/docker/imscp exec sh -c 'cd /var/www/imscp-plugins/imscp-graphql \
+    && php7.4 /var/www/imscp/gui/bin/composer.phar schema'
+```
+
+Run it whenever `schema/schema.graphql` changes, and commit the result with
+it: `test/schema/SchemaTest` compares the same bytes, so a stale snapshot is
+a test failure and a schema change is always a visible diff in review
+(`docs/SPECIFICATION.md` §17). `schema:check` is the same assertion without
+PHPUnit, for a hook or a CI step.
+
+There is deliberately one printed file, serving both the snapshot test and
+whoever is generating a client from it. A second copy under another name is
+exactly the drift the export exists to prevent — a consumer wanting its own
+copy should take this one, or fetch the SDL from the live endpoint.
+
 ## Running the tests
 
 ```shell

@@ -45,5 +45,15 @@
             "iMSCP\\Plugin\\SGW_GraphQL\\Test\\Authz\\": "test/authz",
             "iMSCP\\Plugin\\SGW_GraphQL\\Test\\": "test/"
         }
+    },
+    "scripts": {
+        "schema": "@php tools/export-schema.php",
+        "schema:check": "@php tools/export-schema.php --check",
+        "schema:print": "@php tools/export-schema.php --stdout"
+    },
+    "scripts-descriptions": {
+        "schema": "Regenerate schema/schema.printed.graphql, the SDL consumers build against",
+        "schema:check": "Fail if that file is stale, without writing it",
+        "schema:print": "Print the schema to stdout instead of writing it"
     }
 }
