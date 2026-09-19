@@ -130,8 +130,11 @@ class SchemaTest extends TestCase
         // the printed schema rather than the file, so that a change made by
         // reordering or by a comment does not produce a diff and a change to
         // an actual type always does.
+        // It lives beside the SDL, in schema/, because it is also what a
+        // client generator builds against and so has to ship in the release
+        // archive. tools/export-schema.php writes it; this test only reads.
         $printed = SchemaPrinter::doPrint($this->factory()->create());
-        $snapshot = dirname(__DIR__) . '/schema/schema.printed.graphql';
+        $snapshot = dirname(__DIR__, 2) . '/schema/schema.printed.graphql';
 
         self::assertFileExists($snapshot);
         self::assertSame(

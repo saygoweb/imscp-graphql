@@ -52,7 +52,7 @@
         "schema:print": "@php tools/export-schema.php --stdout"
     },
     "scripts-descriptions": {
-        "schema": "Regenerate test/schema/schema.printed.graphql, the SDL consumers build against",
+        "schema": "Regenerate schema/schema.printed.graphql, the SDL consumers build against",
         "schema:check": "Fail if that file is stale, without writing it",
         "schema:print": "Print the schema to stdout instead of writing it"
     }

@@ -149,7 +149,10 @@ php7.4 /var/www/imscp/gui/bin/composer.phar install --no-dev
 /api/graphql/schema` serves. What a client generator should build against is
 the *printed* schema — the same types as the server builds them, without the
 ordering and `#` comments that are ours rather than the API's. That file is
-`test/schema/schema.printed.graphql`, and a Composer script rewrites it:
+`schema/schema.printed.graphql` — beside the SDL, and so inside the release
+archive, since `upload-exclude.txt` drops `test/` and a client generator
+should not have to clone this repository to find the schema. A Composer
+script rewrites it:
 
 ```shell
 php7.4 /var/www/imscp/gui/bin/composer.phar schema        # rewrite it

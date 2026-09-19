@@ -21,7 +21,7 @@
 /**
  * Exports the schema a client builds against: schema/schema.graphql as the
  * server actually builds it, printed canonically to
- * test/schema/schema.printed.graphql.
+ * schema/schema.printed.graphql.
  *
  * Two audiences, one file. A consumer of this plugin - the admin frontend's
  * codegen, or any other client generator - wants the effective schema rather
@@ -30,6 +30,10 @@
  * change is always a visible diff in review (docs/SPECIFICATION.md section
  * 17). One file for both is the point: a second copy is the drift this
  * script exists to prevent.
+ *
+ * It sits beside the SDL in schema/ rather than under test/, so that it ships
+ * in the release archive - upload-exclude.txt drops test/, and a client
+ * generator should not have to clone the repository to find the schema.
  *
  * The file is written here rather than by a shell redirection, because the
  * redirect creates it as whoever ran the command - which on a bind-mounted
@@ -58,7 +62,7 @@ use iMSCP\Plugin\SGW_GraphQL\Schema\ResolverMap;
 use iMSCP\Plugin\SGW_GraphQL\Schema\SchemaFactory;
 
 $root = dirname(__DIR__);
-$target = $root . '/test/schema/schema.printed.graphql';
+$target = $root . '/schema/schema.printed.graphql';
 $mode = isset($argv[1]) ? $argv[1] : '';
 
 if (!in_array($mode, array('', '--check', '--stdout'), true)) {
@@ -84,11 +88,11 @@ $current = is_file($target) ? file_get_contents($target) : null;
 
 if ($mode === '--check') {
     if ($current === $printed) {
-        echo "test/schema/schema.printed.graphql is up to date.\n";
+        echo "schema/schema.printed.graphql is up to date.\n";
         exit(0);
     }
 
-    fwrite(STDERR, "test/schema/schema.printed.graphql is stale.\n"
+    fwrite(STDERR, "schema/schema.printed.graphql is stale.\n"
         . "Regenerate it with: php7.4 /var/www/imscp/gui/bin/composer.phar schema\n");
     exit(1);
 }
@@ -98,5 +102,5 @@ if (file_put_contents($target, $printed) === false) {
     exit(1);
 }
 
-echo 'Wrote test/schema/schema.printed.graphql (' . strlen($printed) . ' bytes), '
+echo 'Wrote schema/schema.printed.graphql (' . strlen($printed) . ' bytes), '
     . ($current === $printed ? "unchanged.\n" : "changed - review the diff.\n");
