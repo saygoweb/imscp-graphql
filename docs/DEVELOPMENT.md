@@ -49,10 +49,6 @@ as `/var/www/imscp/gui/plugins/SGW_GraphQL`. Adding a plugin costs a symlink,
 not a container rebuild. Install and enable it in the panel as usual, under
 *System tools → Plugin management*.
 
-Editing a file on the host changes what the panel serves on the next request.
-There is nothing to deploy: `tools/deploy.sh` notices the link and only restarts
-`imscp_panel`, so that opcache stops serving the previous bytecode.
-
 Check it is healthy:
 
 ```shell
@@ -63,7 +59,79 @@ The panel is at `http://localhost:8880` (`docker/imscp info` prints the
 credentials). Note **`http`**: the container installs with SSL off, because a
 self-signed certificate on localhost only adds a click-through. The plugin
 refuses plaintext by default, so reaching the endpoint on this server needs
-`require_tls => false` in the plugin's configuration.
+`require_tls => false` in the plugin's configuration — see *The panel's copy of
+the configuration*, below, for where that value actually lives.
+
+### Editing the mounted checkout: two things the panel caches
+
+The mount means there is no file to copy, which is not the same as there being
+nothing to do. The panel holds two copies of this plugin that a file edit does
+not touch, and both have been mistaken for a broken change.
+
+**Restart `imscp_panel` after editing PHP.** The pool's opcache keeps serving
+the bytecode it already has. Measured: after committing a change to
+`Api::apiVersion()` that returns `2.0.0`, the endpoint answered `1.2.0` until
+the pool was restarted — the file on disk and the API's answer disagreed, with
+nothing to suggest which was stale.
+
+```shell
+docker/imscp exec systemctl restart imscp_panel
+```
+
+`tools/deploy.sh` does this for you, which is why the Vagrant path never meets
+the problem. A bind-mounted checkout edited in place never goes through
+`deploy.sh`, so on docker it is yours to remember. When a change appears to
+have had no effect, restart before debugging it.
+
+**Re-install the plugin after editing `config.php`.** The panel snapshots a
+plugin's configuration into `plugin.plugin_config` when the plugin is installed
+or updated, and reads it from there afterwards. Editing `config.php` alone
+changes nothing at runtime — measured: the live plugin was still serving
+`max_query_complexity: 1000` and had none of the keys added in the release that
+raised it. Sync and update, as the panel's own *Plugin management* page would:
+
+```shell
+docker/imscp exec sh -c 'sudo -u vu2000 php7.4 -r "
+    require \"/var/www/imscp/gui/library/imscp-lib.php\";
+    \$pm = iMSCP\Registry::get(\"pluginManager\");
+    \$pm->pluginSyncData();
+    \$pm->pluginUpdate(\"SGW_GraphQL\");
+    echo \$pm->pluginGetStatus(\"SGW_GraphQL\"), \"\n\";
+"'
+```
+
+### The panel's copy of the configuration
+
+That update re-reads `config.php`, which has a consequence worth knowing before
+you run it: **it overwrites any value you had changed in the panel**, including
+`require_tls`. On this container that means the update puts `require_tls` back
+to its shipped default of `true`, and the endpoint answers
+
+```
+403  This API is available over HTTPS only. Any token presented on this
+     request has been revoked.
+```
+
+until it is set back. The stored copy is JSON in one column, so:
+
+```shell
+docker/imscp exec sh -c 'mysql -e "
+    UPDATE imscp.plugin
+    SET plugin_config = JSON_SET(plugin_config, \"\$.require_tls\", false)
+    WHERE plugin_name = \"SGW_GraphQL\""'
+```
+
+To read what the plugin is *actually* running rather than what `config.php`
+says:
+
+```shell
+docker/imscp exec sh -c 'mysql -N -B -e "
+    SELECT plugin_config FROM imscp.plugin WHERE plugin_name = \"SGW_GraphQL\""'
+```
+
+The administrator's own page shows the same thing rendered — *System tools →
+GraphQL API*, under **Effective configuration** — which is the better place to
+look when the panel is reachable.
 
 ## Bringing the server up — Vagrant
 
