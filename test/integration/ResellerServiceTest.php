@@ -432,6 +432,41 @@ class ResellerServiceTest extends ServiceTestCase
         self::assertSame('subdomains', $e->getExtensions()['quota']);
     }
 
+    /**
+     * C3: checkResellerLimit() (reseller_edit.php:757-775) - a service
+     * already sold to this reseller's customers (its own current_* counter)
+     * cannot be withheld.
+     */
+    public function testWithholdingAServiceAlreadySoldIsRefused(): void
+    {
+        $this->db->execute(
+            'UPDATE reseller_props SET current_mail_cnt = 3 WHERE reseller_id = ?', array($this->fixture->resellerId())
+        );
+
+        $e = $this->refused(ErrorCode::LIMIT_EXCEEDED, function (): void {
+            $this->service()->update(
+                $this->caller('admin'), GlobalId::encode(NodeType::RESELLER, $this->fixture->resellerId()),
+                array('allowances' => array('mailAccounts' => -1))
+            );
+        });
+
+        self::assertSame('mailAccounts', $e->getExtensions()['quota']);
+    }
+
+    /** C3: 0 (unlimited) is left alone, the page's own sense - only -1 is new here. */
+    public function testWithholdingAServiceNotYetSoldIsAllowed(): void
+    {
+        $this->service()->update(
+            $this->caller('admin'), GlobalId::encode(NodeType::RESELLER, $this->fixture->resellerId()),
+            array('allowances' => array('mailAccounts' => -1))
+        );
+
+        $after = $this->db->row(
+            'SELECT max_mail_cnt FROM reseller_props WHERE reseller_id = ?', array($this->fixture->resellerId())
+        );
+        self::assertSame(-1, (int)$after['max_mail_cnt']);
+    }
+
     public function testAllowancesAreMergedNotReplaced(): void
     {
         $before = $this->db->row(

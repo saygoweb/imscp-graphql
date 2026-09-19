@@ -604,13 +604,38 @@ final class ResellerService
     /**
      * "A max_* lowered below the reseller's own current_* is refused" -
      * LimitRules::reason()'s fourth test, with the reseller standing where a
-     * customer stands in that test: 0 (unlimited) and -1 (withheld, where
-     * legal) both pass through untested, the same as the customer's.
+     * customer stands in that test: 0 (unlimited) passes through untested,
+     * the same as the customer's; -1 (withheld, where legal) is its own
+     * test - C3 below - rather than being skipped outright.
      */
     private function checkNotBelowUsed(ResellerAccount $reseller, array $allowances): void
     {
         foreach ($allowances as $name => $newLimit) {
-            if ($newLimit === -1 || $newLimit === 0) {
+            if ($newLimit === -1) {
+                // checkResellerLimit() (reseller_edit.php:755-775): a
+                // service already sold to this reseller's customers - its
+                // own current_* counter, the total its customers' own
+                // limits already claim - cannot be withheld. The page also
+                // weighs live customer consumption and whether a customer
+                // already holds an unlimited allocation; neither query is
+                // made here (CORE-DEBT(C3)) - both narrower divergences can
+                // only under-refuse a *lowering*, not this withholding.
+                $used = $reseller->usedOf($name);
+
+                if ($used > 0) {
+                    throw Guard::limitExceeded(
+                        sprintf(
+                            'The %s limit cannot be withheld: the reseller\'s customers are already using it.',
+                            self::LABELS[$name]
+                        ),
+                        array('quota' => $name, 'limit' => $newLimit, 'used' => $used)
+                    );
+                }
+
+                continue;
+            }
+
+            if ($newLimit === 0) {
                 continue;
             }
 
