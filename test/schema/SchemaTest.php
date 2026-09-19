@@ -137,8 +137,8 @@ class SchemaTest extends TestCase
         self::assertSame(
             file_get_contents($snapshot),
             $printed,
-            'The schema changed. Review the diff, then run: '
-                . 'php -r "..." > test/schema/schema.printed.graphql'
+            'The schema changed. Regenerate the snapshot, then review the diff: '
+                . 'php7.4 /var/www/imscp/gui/bin/composer.phar schema'
         );
     }
 }

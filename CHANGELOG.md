@@ -56,6 +56,10 @@ fields and a `Mutation` type within the same major version.
 - `test/api/provision.php`: provisions real objects through the API, runs
   i-MSCP's backend over them, checks the vhost, the maildir and the SQL login,
   then deletes everything and checks it is gone.
+- Composer scripts `schema`, `schema:check` and `schema:print`, which export
+  `test/schema/schema.printed.graphql` — the printed SDL a client generator
+  builds against, and the same bytes the snapshot test compares. Regenerating
+  it is now one command rather than a shell redirection nobody remembers.
 
 ### Changed
 
