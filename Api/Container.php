@@ -23,6 +23,10 @@ namespace iMSCP\Plugin\SGW_GraphQL\Api;
 use GraphQL\Type\Definition\ResolveInfo;
 use iMSCP\Plugin\SGW_GraphQL\Auth\AccessService;
 use iMSCP\Plugin\SGW_GraphQL\Auth\TokenService;
+use iMSCP\Plugin\SGW_GraphQL\Extension\ExtensionContext;
+use iMSCP\Plugin\SGW_GraphQL\Extension\ExtensionLoader;
+use iMSCP\Plugin\SGW_GraphQL\Extension\ExtensionRegistry;
+use iMSCP\Plugin\SGW_GraphQL\Extension\LoadedExtension;
 use iMSCP\Plugin\SGW_GraphQL\Http\AuthenticateMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\CorsMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\GraphQLHandler;
@@ -147,6 +151,33 @@ final class Container
     /** @var SchemaFactory|null */
     private $schemaFactory;
 
+    /**
+     * @var ExtensionRegistry|null What other plugins registered. Filled on
+     *                             first use, by dispatching
+     *                             ExtensionRegistry::EVENT when
+     *                             $collectsExtensions, and left empty when
+     *                             not; a test passes a filled one instead.
+     */
+    private $registry;
+
+    /** @var bool Ask the panel's other plugins for their extensions. */
+    private $collectsExtensions = false;
+
+    /** @var LoadedExtension[]|null The extensions this request's schema carries. */
+    private $extensions;
+
+    /** @var array<string, array<string, callable>>|null This plugin's own resolvers. */
+    private $coreMaps;
+
+    /** @var BatchLoader|null The read side's, shared with the extensions. */
+    private $loader;
+
+    /** @var VirtualHostResolver|null */
+    private $virtualHostResolver;
+
+    /** @var CustomerResolver|null */
+    private $customerResolver;
+
     private function __construct(
         string $pluginDir, array $config, callable $query, callable $accountLoader,
         callable $apiAccessChecker, Db $db, array $panelConfig,
@@ -219,6 +250,7 @@ final class Container
         $container->sqlServerFactory = static function (Db $db) {
             return MariaDbSqlServer::fromPanel($db);
         };
+        $container->collectsExtensions = true;
 
         return $container;
     }
@@ -276,12 +308,16 @@ final class Container
      *                                       which cannot be staged with DDL
      *                                       because DDL commits the fixture's
      *                                       transaction out from under it.
+     * @param ExtensionRegistry|null $extensions Defaults to none. No event is
+     *                                       dispatched to fill it: a test
+     *                                       states the extensions it means.
      */
     public static function forTesting(
         string $pluginDir, array $config, callable $query, callable $accountLoader,
         callable $apiAccessChecker, ?Db $db = null, array $panelConfig = array(),
         ?Core $core = null, ?DirectoryProbe $probe = null, ?SqlServer $sqlServer = null,
-        ?RateLimiter $rateLimiter = null, ?Audit $audit = null
+        ?RateLimiter $rateLimiter = null, ?Audit $audit = null,
+        ?ExtensionRegistry $extensions = null
     ): self {
         $container = new self(
             $pluginDir, $config, $query, $accountLoader, $apiAccessChecker,
@@ -298,6 +334,7 @@ final class Container
         );
         $container->rateLimiter = $rateLimiter;
         $container->audit = $audit;
+        $container->registry = $extensions;
 
         return $container;
     }
@@ -399,6 +436,36 @@ final class Container
     }
 
     /**
+     * Every resolver the schema uses: this plugin's own, then each kept
+     * extension's under 'Extension:<name>'.
+     *
+     * @return array<string, array<string, callable>> owner => map
+     */
+    public function resolverMaps(): array
+    {
+        if ($this->maps === null) {
+            $this->loadExtensions();
+        }
+
+        return $this->maps;
+    }
+
+    /**
+     * The extensions this request's schema carries, after ExtensionLoader has
+     * left out any that do not fit.
+     *
+     * @return LoadedExtension[]
+     */
+    public function extensions(): array
+    {
+        if ($this->extensions === null) {
+            $this->loadExtensions();
+        }
+
+        return $this->extensions;
+    }
+
+    /**
      * Every resolver in phase 2, built once, in the one order that works.
      *
      * The graph has a cycle - Domain.customer needs CustomerResolver,
@@ -411,10 +478,10 @@ final class Container
      *
      * @return array<string, array<string, callable>> class short name => map
      */
-    public function resolverMaps(): array
+    private function coreResolverMaps(): array
     {
-        if ($this->maps !== null) {
-            return $this->maps;
+        if ($this->coreMaps !== null) {
+            return $this->coreMaps;
         }
 
         $db = $this->db;
@@ -486,7 +553,13 @@ final class Container
         // through the same loader and read resolvers as the queries above.
         $kit = $this->toolkit();
 
-        $this->maps = array(
+        // Kept for extensionContext(): an extension reads through the same
+        // loader and returns the same references as this plugin's resolvers.
+        $this->loader = $loader;
+        $this->virtualHostResolver = $virtualHosts;
+        $this->customerResolver = $customers;
+
+        $this->coreMaps = array(
             'ViewerResolver'      => (new ViewerResolver($this->apiVersion()))->map(),
             'TypeResolver'        => (new TypeResolver())->map(),
             'VirtualHostResolver' => $virtualHosts->map(),
@@ -525,7 +598,104 @@ final class Container
             ))->map()
         );
 
-        return $this->maps;
+        return $this->coreMaps;
+    }
+
+    /**
+     * Asks the other plugins for their extensions, keeps the ones that fit,
+     * and builds the schema and resolver maps from this plugin's own plus
+     * those.
+     *
+     * With no extension registered the schema is left unbuilt until someone
+     * asks for it, as it always was. With any, it is built here: building is
+     * the only check that an extension's SDL fits, and ExtensionLoader needs
+     * the answer before it can say which extensions this request has.
+     */
+    private function loadExtensions(): void
+    {
+        $core = $this->coreResolverMaps();
+        $extensions = array_values($this->extensionRegistry()->all());
+        $build = function (array $loaded) use ($core) {
+            $factory = $this->buildSchemaFactory($core, $loaded);
+
+            if ($loaded !== array()) {
+                $factory->create();
+            }
+
+            return $factory;
+        };
+
+        if ($extensions === array()) {
+            $factory = $build(array());
+            $loaded = array();
+        } else {
+            $claimed = array();
+
+            foreach ($core as $map) {
+                $claimed += $map;
+            }
+
+            $panel = $this->core;
+            list($factory, $loaded) = (new ExtensionLoader(static function (string $message) use ($panel) {
+                // A warning, not an error: at E_USER_ERROR write_log() mails
+                // the administrator, and a broken extension is reported on
+                // every request until it is fixed.
+                $panel->writeLog($message, E_USER_WARNING);
+            }))->load($extensions, $this->extensionContext(), $claimed, $build);
+        }
+
+        $maps = $core;
+
+        foreach ($loaded as $extension) {
+            $maps['Extension:' . $extension->getName()] = $extension->getResolvers();
+        }
+
+        $this->schemaFactory = $factory;
+        $this->extensions = $loaded;
+        $this->maps = $maps;
+    }
+
+    private function extensionRegistry(): ExtensionRegistry
+    {
+        if ($this->registry !== null) {
+            return $this->registry;
+        }
+
+        $this->registry = new ExtensionRegistry();
+
+        if ($this->collectsExtensions) {
+            try {
+                $this->core->dispatch(ExtensionRegistry::EVENT, array('registry' => $this->registry));
+            } catch (\Throwable $e) {
+                // One plugin's listener threw. Whatever registered before it
+                // is kept, and ExtensionLoader still checks all of it; the API
+                // does not go down with that plugin.
+                $this->core->writeLog(
+                    'SGW_GraphQL: a plugin failed while registering GraphQL extensions: '
+                        . $e->getMessage(),
+                    E_USER_WARNING
+                );
+            }
+        }
+
+        return $this->registry;
+    }
+
+    private function extensionContext(): ExtensionContext
+    {
+        $virtualHosts = $this->virtualHostResolver;
+        $customers = $this->customerResolver;
+
+        return new ExtensionContext(
+            $this->toolkit(),
+            $this->loader,
+            static function (string $tag, int $key) use ($virtualHosts) {
+                return $virtualHosts->reference($tag, $key);
+            },
+            static function (int $adminId) use ($customers) {
+                return $customers->reference($adminId);
+            }
+        );
     }
 
     /**
@@ -537,13 +707,31 @@ final class Container
      */
     public function schemaFactory(): SchemaFactory
     {
-        if ($this->schemaFactory !== null) {
-            return $this->schemaFactory;
+        if ($this->schemaFactory === null) {
+            $this->loadExtensions();
+        }
+
+        return $this->schemaFactory;
+    }
+
+    /**
+     * @param array<string, array<string, callable>> $maps owner => map
+     * @param LoadedExtension[] $extensions
+     */
+    private function buildSchemaFactory(array $maps, array $extensions): SchemaFactory
+    {
+        $documents = array();
+        $complexity = $this->complexity();
+
+        foreach ($extensions as $extension) {
+            $maps['Extension:' . $extension->getName()] = $extension->getResolvers();
+            $documents[] = $extension->getDocument();
+            $complexity = array_merge($complexity, $extension->getComplexity());
         }
 
         $merged = array();
 
-        foreach ($this->resolverMaps() as $owner => $map) {
+        foreach ($maps as $owner => $map) {
             foreach ($map as $key => $resolver) {
                 if (isset($merged[$key])) {
                     // array_merge() would have taken the last one and nobody
@@ -558,16 +746,17 @@ final class Container
             }
         }
 
-        $this->schemaFactory = new SchemaFactory(
+        $factory = new SchemaFactory(
             $this->pluginDir . '/schema/schema.graphql',
             defined('CACHE_PATH') ? CACHE_PATH : null,
             new ResolverMap($merged),
             array(TypeResolver::class, 'resolveType')
         );
 
-        $this->schemaFactory->withComplexity($this->complexity());
+        $factory->withExtensions($documents);
+        $factory->withComplexity($complexity);
 
-        return $this->schemaFactory;
+        return $factory;
     }
 
     /**
@@ -980,15 +1169,32 @@ final class Container
      */
     public function schemaRouteHandler(): callable
     {
-        $schemaPath = $this->schemaPath();
+        $sdl = $this->schemaSdl();
 
         // Not `static`: see routeHandler()'s docblock. This closure does not
         // use $this either, so the rebinding Slim performs is harmless.
-        return function ($request, $response) use ($schemaPath) {
-            $response->getBody()->write(file_get_contents($schemaPath));
+        return function ($request, $response) use ($sdl) {
+            $response->getBody()->write($sdl);
 
             return $response->withHeader('Content-Type', 'text/plain; charset=utf-8');
         };
+    }
+
+    /**
+     * The SDL a client generates against: this plugin's, then each kept
+     * extension's under a comment naming it. A client that wants only what
+     * this plugin promises reads schema/schema.printed.graphql instead.
+     */
+    public function schemaSdl(): string
+    {
+        $sdl = (string)file_get_contents($this->schemaPath());
+
+        foreach ($this->extensions() as $extension) {
+            $sdl = rtrim($sdl, "\n") . "\n\n# Extension: " . $extension->getName() . "\n\n"
+                . trim($extension->getSdl()) . "\n";
+        }
+
+        return $sdl;
     }
 
     public function schemaPath(): string

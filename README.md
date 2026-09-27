@@ -17,6 +17,9 @@ See [the changelog](CHANGELOG.md) for what each release added.
   duplication this design starts with.
 * [In-core variant](docs/SPECIFICATION-IN-CORE.md) — the alternative that was
   considered and not adopted, retained for its reasoning.
+* [Extensions](docs/EXTENSIONS.md) — how another i-MSCP plugin adds its own
+  fields and mutations to this API by registering an extension. This plugin
+  knows nothing about any other plugin; the other plugin opts in.
 * [Development](docs/DEVELOPMENT.md) — the box, deployment, tests.
 
 ## What it does
@@ -26,6 +29,11 @@ See [the changelog](CHANGELOG.md) for what each release added.
 | Customer | Subdomains, alias subdomains, domain aliases, mail accounts and catch-alls, autoresponders, FTP users, SQL databases and users, custom DNS records; and edit their own domain's forwarding |
 | Reseller | Customers, hosting plans, alias approvals — plus everything a customer may do, on their own customers |
 | Administrator | Resellers — plus everything a reseller may do |
+
+Other plugins can add to this: a plugin that records something per domain,
+such as its PHP version or its cache settings, can register an
+[extension](docs/EXTENSIONS.md) that adds fields and mutations to the API and
+is held to the same ownership and scope rules.
 
 Administrator-level *system* operations — server settings, service
 configuration, IP and plugin management — are deliberately out of scope.

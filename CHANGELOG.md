@@ -4,6 +4,25 @@ All notable changes to this plugin are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Extensions from other plugins.** Another i-MSCP plugin can add fields and
+  mutations to the API without this plugin knowing about it. The other plugin
+  listens for `onGraphQLRegisterExtensions` and registers an `Extension` with
+  its own SDL and resolvers. Its resolvers receive an `ExtensionContext`,
+  which provides this plugin's database handle, batch loader, scope gate and
+  ownership check (`targetVirtualHost()`). That check gives an extension's
+  mutation the same NOT_FOUND-then-FORBIDDEN answers as the core's.
+  `ExtensionLoader` checks each extension on every request: what it may
+  declare, which fields it may resolve, and whether the schema builds with it.
+  An extension that does not fit is left out, and the reason is logged; the
+  API stays up. See [docs/EXTENSIONS.md](docs/EXTENSIONS.md).
+- `GET /api/graphql/schema` now serves the effective SDL: the core schema,
+  followed by each active extension under an `# Extension: <name>` comment.
+  `schema/schema.printed.graphql` is unchanged and remains the core contract.
+
 ## [1.0.0] — 2026-09-19
 
 The whole customer, reseller and administrator surface: the read model,

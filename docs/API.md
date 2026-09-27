@@ -525,7 +525,11 @@ GraphQL field that returns one.
 GET /api/graphql/schema
 ```
 
-Returns the current SDL as `text/plain`, for codegen and tooling. This route
+Returns the current SDL as `text/plain`, for codegen and tooling. When
+another installed plugin has registered an
+[extension](EXTENSIONS.md), its SDL follows this plugin's, under an
+`# Extension: <name>` comment, so this route always describes what the
+endpoint actually serves. This route
 is intentionally outside the authentication, TLS and CORS checks the main
 endpoint enforces — it is public documentation, not data, and introspection
 on the main endpoint is enabled by default anyway. Two things follow from
