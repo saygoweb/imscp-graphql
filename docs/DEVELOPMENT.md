@@ -293,7 +293,9 @@ against the old is worth a skim for anything that looks like a runtime
 ## Exporting the schema
 
 `schema/schema.graphql` is the source of truth, and what `GET
-/api/graphql/schema` serves. What a client generator should build against is
+/api/graphql/schema` serves — followed by any other plugin's
+[extension](EXTENSIONS.md) SDL, which the printed schema below never
+includes. What a client generator should build against is
 the *printed* schema — the same types as the server builds them, without the
 ordering and `#` comments that are ours rather than the API's. That file is
 `schema/schema.printed.graphql` — beside the SDL, and so inside the release

@@ -22,6 +22,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Schema;
 
 use GraphQL\Language\AST\DocumentNode;
 use GraphQL\Language\AST\InterfaceTypeDefinitionNode;
+use GraphQL\Language\AST\NodeList;
 use GraphQL\Language\Parser;
 use GraphQL\Type\Definition\ObjectType;
 use GraphQL\Type\Definition\ResolveInfo;
@@ -73,6 +74,14 @@ final class SchemaFactory
     private $complexity = array();
 
     /**
+     * @var DocumentNode[] Other plugins' SDL, already parsed and checked by
+     *                     Extension\ExtensionLoader. Never cached: the cache
+     *                     is keyed on this plugin's SDL alone, and a fragment
+     *                     is small enough to parse per request.
+     */
+    private $extensions = array();
+
+    /**
      * @param callable|null $resolveType fn($value, $context, ResolveInfo): string
      *                                   Attached to every interface in the SDL.
      *                                   Optional so that plan 1's three-argument
@@ -113,6 +122,23 @@ final class SchemaFactory
         $this->complexity = $fields;
     }
 
+    /**
+     * Other plugins' SDL, built into the one schema beside this plugin's own.
+     * Must be called before create(), for the reason withComplexity() gives.
+     *
+     * @param DocumentNode[] $documents
+     */
+    public function withExtensions(array $documents): void
+    {
+        if ($this->schema !== null) {
+            throw new RuntimeException(
+                'SchemaFactory::withExtensions() must be called before create().'
+            );
+        }
+
+        $this->extensions = $documents;
+    }
+
     public function create(): Schema
     {
         if ($this->schema !== null) {
@@ -123,7 +149,7 @@ final class SchemaFactory
         $resolveType = $this->resolveType;
 
         $this->schema = BuildSchema::build(
-            $this->document(),
+            $this->withExtensionDefinitions($this->document()),
             static function (array $typeConfig, $typeDefinitionNode) use (
                 $resolvers, $resolveType
             ) {
@@ -189,6 +215,27 @@ final class SchemaFactory
 
             $type->getField($fieldName)->complexityFn = $fn;
         }
+    }
+
+    /**
+     * One document: this plugin's definitions, then each extension's.
+     * BuildSchema applies an `extend type` wherever in the document it sits.
+     * A new DocumentNode rather than an appended one, so that the parsed
+     * (and possibly cached) core document is never altered.
+     */
+    private function withExtensionDefinitions(DocumentNode $document): DocumentNode
+    {
+        if ($this->extensions === array()) {
+            return $document;
+        }
+
+        $definitions = iterator_to_array($document->definitions, false);
+
+        foreach ($this->extensions as $extension) {
+            $definitions = array_merge($definitions, iterator_to_array($extension->definitions, false));
+        }
+
+        return new DocumentNode(array('definitions' => new NodeList($definitions)));
     }
 
     private function document(): DocumentNode
