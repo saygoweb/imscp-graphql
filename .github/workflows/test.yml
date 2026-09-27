@@ -1,0 +1,25 @@
+name: Test
+
+# Runs the tests on an installed i-MSCP server, booted from the CI image that
+# saygoweb/imscp publishes; see that repository's
+# .github/workflows/plugin-test.yml. Locally, the same run is
+#
+#   ../imscp/docker/ci/plugin-test.sh --setup 'php7.4 /var/www/imscp/gui/bin/composer.phar install --no-interaction --no-progress' .. imscp-graphql -- 'sh tools/test.sh'
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  test:
+    uses: saygoweb/imscp/.github/workflows/plugin-test.yml@main
+    with:
+      setup: php7.4 /var/www/imscp/gui/bin/composer.phar install --no-interaction --no-progress
+      test: sh tools/test.sh
