@@ -572,3 +572,36 @@ vendored UI layer, not something this plugin's own code triggers; reloading
 the page recovers it, and the request itself still reached the API and
 completed regardless of whether the result rendered. See
 [`docs/DEVELOPMENT.md`](DEVELOPMENT.md) for the full account.
+
+## GraphiQL and Voyager, full-window
+
+Two more developer tools sit beside the endpoint, as whole pages of their own
+rather than inside the panel's layout:
+
+| Page                    | Tool                                                        | Switch     |
+|-------------------------|-------------------------------------------------------------|------------|
+| `GET /api/graphql/graphiql` | GraphiQL — the same vendored build as the explorer      | `graphiql` |
+| `GET /api/graphql/voyager`  | [GraphQL Voyager](https://github.com/graphql-kit/graphql-voyager) — the schema drawn as a navigable graph of types | `voyager`  |
+
+Both follow a configured `endpoint` (`<endpoint>/graphiql`,
+`<endpoint>/voyager`). Each key takes `true` or `false`, and its default
+depends on how the plugin was deployed: **on in a development checkout, off in
+a release archive**. `config.php` sets it to whether a `.git` sits beside it,
+which is true of a clone, of a linked worktree and of the docker stack's bind
+mount, and never of the archive `tools/package.sh` builds. Set either key
+explicitly to override that. Like the explorer, each also needs
+`introspection`, and a tool that is off answers `404`, so a production panel
+does not advertise it.
+
+Neither page is a separate API surface. Every query it sends is an ordinary
+`POST` to the endpoint, through the same TLS, authentication, rate-limit and
+audit stack. A browser signed in to the panel runs as that account (the page
+carries the session's CSRF token). Without a session the API answers the
+introspection query `UNAUTHENTICATED`, so Voyager asks you to sign in first,
+and GraphiQL works once a `Authorization: Bearer …` header is added in its
+*Headers* pane.
+
+`GET /api/graphql` itself is still refused (`405`): nothing is ever *executed*
+over GET.
+
+![GraphQL Voyager drawing this plugin's schema](images/voyager.png)

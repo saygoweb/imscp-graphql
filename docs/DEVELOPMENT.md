@@ -231,6 +231,15 @@ this "no build step" use case:
 | `react.production.min.js`        | `react`          | 18.3.1  | `https://unpkg.com/react@18.3.1/umd/react.production.min.js`        |
 | `react-dom.production.min.js`    | `react-dom`      | 18.3.1  | `https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js`|
 | `graphiql.min.js`, `.min.css`    | `graphiql`       | 3.9.0   | `https://unpkg.com/graphiql@3.9.0/graphiql.min.{js,css}`             |
+| `voyager/voyager.standalone.js`, `voyager/voyager.css` | `graphql-voyager` | 2.1.0 | `dist/` of the npm package (`npm pack graphql-voyager@2.1.0`) |
+
+Voyager's files live in `themes/default/assets/voyager/`, beside
+GraphiQL's, and are served at `/api/graphql/voyager-assets/`
+(`voyagerAssetRoutes()`). The standalone bundle carries its own React, and
+its Graphviz layout worker is inlined as a blob URL, so those two files are
+all it needs and it fetches nothing from outside. The `LICENSE-*.txt` beside
+them are the package's MIT licence and the bundle's own notice of what it
+embeds. As with GraphiQL, the `sourceMappingURL` comments were stripped.
 
 `graphiql.min.js` is graphiql-js's own CDN bundle: it embeds `graphql-js`
 and `@graphiql/react` (its only runtime dependencies besides React), so

@@ -4,6 +4,20 @@ All notable changes to this plugin are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **GraphiQL and GraphQL Voyager as full-window pages**, at
+  `GET /api/graphql/graphiql` and `GET /api/graphql/voyager`. Voyager draws
+  the schema as a navigable graph of types. Each has its own switch
+  (`graphiql`, `voyager`) and needs `introspection` too; a switched-off tool
+  is a `404`. Both default **on in a development checkout and off in a release
+  archive**: `config.php` checks whether `.git` is beside it. Queries go to
+  the endpoint as an ordinary session-authenticated `POST`, so a browser
+  signed in to the panel runs as that account. Voyager 2.1.0 is vendored
+  under `themes/default/assets/voyager/` (decision D28: no CDN).
+
 ## [1.1.0] — 2026-09-27
 
 ### Added

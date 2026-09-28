@@ -26,6 +26,7 @@ use iMSCP\Plugin\AbstractPlugin;
 use iMSCP\Plugin\PluginException;
 use iMSCP\Plugin\PluginManager;
 use iMSCP\Plugin\SGW_GraphQL\Api\Container;
+use iMSCP\Plugin\SGW_GraphQL\Http\DevToolPage;
 use iMSCP\Registry;
 use PDO;
 
@@ -283,7 +284,58 @@ class SGW_GraphQL extends AbstractPlugin
             '/reseller/api_explorer.php' => $pluginDir . '/frontend/reseller/api_explorer.php',
             '/admin/api_explorer.php'    => $pluginDir . '/frontend/admin/api_explorer.php',
             '/admin/api_audit.php'       => $pluginDir . '/frontend/admin/api_audit.php'
-        ), self::explorerAssetRoutes($pluginDir));
+        ),
+            $this->devToolRoutes(),
+            self::explorerAssetRoutes($pluginDir),
+            self::voyagerAssetRoutes($pluginDir)
+        );
+    }
+
+    /**
+     * Routes for the standalone developer tools: GraphiQL at
+     * `{endpoint}/graphiql` and GraphQL Voyager at `{endpoint}/voyager`.
+     *
+     * Always registered, so that a switched-off tool is a 404 from
+     * DevToolPage rather than a request that falls through to the panel's
+     * own router. `graphiql` and `voyager` in config.php switch them; see
+     * there for why their defaults differ between a checkout and a release.
+     *
+     * @return array
+     */
+    protected function devToolRoutes()
+    {
+        $plugin = $this;
+        $endpoint = (string)$this->getConfigParam('endpoint', '/api/graphql');
+        $routes = array();
+
+        foreach (array(DevToolPage::GRAPHIQL, DevToolPage::VOYAGER) as $tool) {
+            $routes[] = array(
+                'name'    => 'sgw_graphql_' . $tool,
+                'pattern' => $endpoint . '/' . $tool,
+                'methods' => array('GET'),
+                // Not `static`: see the note on the endpoint route's handler.
+                // The vendor load is deferred into the closure for the same
+                // reason as there.
+                'handler' => function ($request, $response) use ($plugin, $endpoint, $tool) {
+                    self::loadVendor();
+
+                    $page = new DevToolPage(
+                        $tool,
+                        // Off unless config.php says otherwise: a
+                        // configuration that predates these keys must not
+                        // switch a developer tool on.
+                        (bool)$plugin->getConfigParam($tool, false),
+                        (bool)$plugin->getConfigParam('introspection', true),
+                        $endpoint,
+                        (bool)$plugin->getConfigParam('allow_session_auth', true)
+                    );
+
+                    return $page($request, $response);
+                }
+            );
+        }
+
+        return $routes;
     }
 
     /**
@@ -307,24 +359,52 @@ class SGW_GraphQL extends AbstractPlugin
      */
     protected static function explorerAssetRoutes($pluginDir)
     {
-        $dir = $pluginDir . '/themes/default/assets/graphiql';
-
-        // filename => Content-Type
-        $files = array(
-            'react.production.min.js'     => 'application/javascript; charset=utf-8',
-            'react-dom.production.min.js' => 'application/javascript; charset=utf-8',
-            'graphiql.min.js'             => 'application/javascript; charset=utf-8',
-            'graphiql.min.css'            => 'text/css; charset=utf-8'
+        return self::assetRoutes(
+            $pluginDir . '/themes/default/assets/graphiql', 'explorer-assets', array(
+                'react.production.min.js'     => 'application/javascript; charset=utf-8',
+                'react-dom.production.min.js' => 'application/javascript; charset=utf-8',
+                'graphiql.min.js'             => 'application/javascript; charset=utf-8',
+                'graphiql.min.css'            => 'text/css; charset=utf-8'
+            )
         );
+    }
 
+    /**
+     * Routes that serve GraphQL Voyager's vendored assets, for
+     * `{endpoint}/voyager` - exactly as explorerAssetRoutes() does GraphiQL's.
+     * The standalone bundle carries its own React, so it needs nothing else.
+     *
+     * @param string $pluginDir
+     * @return array
+     */
+    protected static function voyagerAssetRoutes($pluginDir)
+    {
+        return self::assetRoutes(
+            $pluginDir . '/themes/default/assets/voyager', 'voyager-assets', array(
+                'voyager.standalone.js' => 'application/javascript; charset=utf-8',
+                'voyager.css'           => 'text/css; charset=utf-8'
+            )
+        );
+    }
+
+    /**
+     * One GET route per file, at `/api/graphql/{prefix}/{file}`.
+     *
+     * @param string $dir
+     * @param string $prefix
+     * @param array $files filename => Content-Type
+     * @return array
+     */
+    protected static function assetRoutes($dir, $prefix, array $files)
+    {
         $routes = array();
 
         foreach ($files as $file => $contentType) {
             $path = $dir . '/' . $file;
 
             $routes[] = array(
-                'name'    => 'sgw_graphql_explorer_asset_' . $file,
-                'pattern' => '/api/graphql/explorer-assets/' . $file,
+                'name'    => 'sgw_graphql_' . str_replace('-', '_', $prefix) . '_' . $file,
+                'pattern' => '/api/graphql/' . $prefix . '/' . $file,
                 'methods' => array('GET'),
                 // Not `static`: see routeHandler()'s docblock on the bindTo()
                 // hazard. This closure does not use $this either, so the
@@ -344,7 +424,7 @@ class SGW_GraphQL extends AbstractPlugin
                         write_log(sprintf(
                             'SGW_GraphQL: explorer asset %s could not be read at %s. '
                                 . 'The plugin is installed incompletely; reinstall it '
-                                . 'or disable the explorer in its configuration.',
+                                . 'or disable the tool that uses it in its configuration.',
                             $file, $path
                         ), E_USER_ERROR);
 

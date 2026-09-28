@@ -275,4 +275,46 @@ class CommonTest extends TestCase
         self::assertSame('true', formatConfigValue(true));
         self::assertSame('false', formatConfigValue(false));
     }
+
+    /**
+     * 'graphiql' and 'voyager' default on in a Git checkout (development)
+     * and off in a release archive, which tools/package.sh builds without
+     * .git. config.php decides by looking beside itself, so each case runs a
+     * copy of it in a directory of its own.
+     */
+    private function configIn(bool $withGit): array
+    {
+        $dir = sys_get_temp_dir() . '/sgw-graphql-config-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        copy(dirname(__DIR__, 3) . '/config.php', $dir . '/config.php');
+
+        if ($withGit) {
+            // A linked worktree's .git is a file, not a directory.
+            file_put_contents($dir . '/.git', "gitdir: /elsewhere\n");
+        }
+
+        try {
+            return require $dir . '/config.php';
+        } finally {
+            @unlink($dir . '/.git');
+            unlink($dir . '/config.php');
+            rmdir($dir);
+        }
+    }
+
+    public function testTheDeveloperToolsDefaultOffInAReleaseArchive(): void
+    {
+        $config = $this->configIn(false);
+
+        self::assertFalse($config['graphiql']);
+        self::assertFalse($config['voyager']);
+    }
+
+    public function testTheDeveloperToolsDefaultOnInADevelopmentCheckout(): void
+    {
+        $config = $this->configIn(true);
+
+        self::assertTrue($config['graphiql']);
+        self::assertTrue($config['voyager']);
+    }
 }
