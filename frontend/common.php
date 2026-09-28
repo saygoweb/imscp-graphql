@@ -125,7 +125,8 @@ function configKeys(): array
     return array(
         'endpoint', 'schema_endpoint', 'allowed_by_default', 'require_tls',
         'trusted_proxies', 'allowed_origins', 'allow_session_auth',
-        'allow_password_grant', 'explorer', 'token_default_ttl_days',
+        'allow_password_grant', 'explorer', 'graphiql', 'voyager',
+        'token_default_ttl_days',
         'token_max_ttl_days', 'token_max_per_account', 'introspection',
         'max_query_depth', 'max_query_complexity', 'max_page_size',
         'rate_limit_queries', 'rate_limit_mutations', 'rate_limit_token_issue',

@@ -308,4 +308,88 @@ class SGW_GraphQLTest extends TestCase
             )->addedUris()
         );
     }
+
+    private function devToolHandler(array $config, string $pattern): callable
+    {
+        $plugin = new \SGW_GraphQL_Test_FakeContainerPlugin($config);
+        $method = new \ReflectionMethod(SGW_GraphQL::class, 'devToolRoutes');
+        $method->setAccessible(true);
+
+        foreach ($method->invoke($plugin) as $route) {
+            if ($route['pattern'] === $pattern) {
+                self::assertSame(array('GET'), $route['methods']);
+                return $route['handler'];
+            }
+        }
+
+        self::fail('no route at ' . $pattern);
+    }
+
+    private function getThrough(callable $handler): Response
+    {
+        return $handler(
+            Request::createFromEnvironment(Environment::mock(['REQUEST_METHOD' => 'GET'])),
+            new Response()
+        );
+    }
+
+    public function testTheDeveloperToolsAreOffWhenTheConfigurationPredatesTheirKeys(): void
+    {
+        // An installation whose stored configuration has no 'graphiql' or
+        // 'voyager' must not have a developer tool switched on under it.
+        $stock = array('introspection' => true);
+
+        foreach (array('/api/graphql/graphiql', '/api/graphql/voyager') as $pattern) {
+            self::assertSame(
+                404, $this->getThrough($this->devToolHandler($stock, $pattern))->getStatusCode(),
+                $pattern
+            );
+        }
+    }
+
+    public function testEachDeveloperToolIsSwitchedByItsOwnKey(): void
+    {
+        $config = array('introspection' => true, 'voyager' => true, 'graphiql' => false);
+
+        $voyager = $this->getThrough($this->devToolHandler($config, '/api/graphql/voyager'));
+        self::assertSame(200, $voyager->getStatusCode());
+        self::assertStringContainsString('GraphQLVoyager', (string)$voyager->getBody());
+
+        self::assertSame(404, $this->getThrough(
+            $this->devToolHandler($config, '/api/graphql/graphiql')
+        )->getStatusCode());
+    }
+
+    public function testTheDeveloperToolsFollowAConfiguredEndpoint(): void
+    {
+        $config = array('endpoint' => '/graphql', 'graphiql' => true, 'introspection' => true);
+
+        $response = $this->getThrough($this->devToolHandler($config, '/graphql/graphiql'));
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertStringContainsString('url: "/graphql"', (string)$response->getBody());
+    }
+
+    public function testVoyagersVendoredAssetsAreServed(): void
+    {
+        $GLOBALS['sgw_graphql_test_log'] = array();
+        $method = new \ReflectionMethod(SGW_GraphQL::class, 'voyagerAssetRoutes');
+        $method->setAccessible(true);
+
+        $served = array();
+
+        foreach ($method->invoke(null, dirname(__DIR__, 2)) as $route) {
+            $response = $this->getThrough($route['handler']);
+
+            self::assertSame(200, $response->getStatusCode(), $route['pattern']);
+            self::assertNotSame('', (string)$response->getBody());
+            $served[$route['pattern']] = $response->getHeaderLine('Content-Type');
+        }
+
+        self::assertSame(array(
+            '/api/graphql/voyager-assets/voyager.standalone.js' => 'application/javascript; charset=utf-8',
+            '/api/graphql/voyager-assets/voyager.css'           => 'text/css; charset=utf-8'
+        ), $served);
+        self::assertSame(array(), $GLOBALS['sgw_graphql_test_log']);
+    }
 }

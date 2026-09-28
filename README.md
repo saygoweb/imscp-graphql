@@ -100,6 +100,12 @@ anything this plugin does. Reloading recovers it, and the request it sent
 still reached the API and completed either way. `docs/DEVELOPMENT.md` has the
 full account.
 
+Two more tools sit beside the endpoint as full-window pages:
+`/api/graphql/graphiql` and `/api/graphql/voyager`, which draws the schema as
+a graph. The `graphiql` and `voyager` keys default to on in a development
+checkout and off in a release archive. See
+[the API guide](docs/API.md#graphiql-and-voyager-full-window).
+
 ## Installing it
 
 `tools/package.sh`, run from inside the box, builds `SGW_GraphQL.tgz` from a

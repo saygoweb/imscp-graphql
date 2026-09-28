@@ -18,6 +18,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+// A Git checkout - the docker stack's bind mount, tools/deploy.sh's copy - is
+// a development panel; a release archive, which tools/package.sh builds
+// without .git (upload-exclude.txt), is a production one. The developer tools
+// below default on in the first and off in the second. `.git` is a directory
+// in a clone and a file in a linked worktree, hence file_exists().
+$developmentCheckout = file_exists(__DIR__ . '/.git');
+
 return array(
     'endpoint'                => '/api/graphql',
     'schema_endpoint'         => '/api/graphql/schema',
@@ -58,6 +65,16 @@ return array(
     // the pages to appear. With either off the page says which one, and the
     // menu does not offer it at all.
     'explorer'                => false,
+
+    // Standalone GraphiQL at <endpoint>/graphiql and GraphQL Voyager (the
+    // schema drawn as a graph) at <endpoint>/voyager - whole pages outside
+    // the panel's layout. true or false; the default is true in a development
+    // checkout and false in a release archive (see $developmentCheckout
+    // above). A panel session runs as its own account there, a visitor with
+    // none runs anonymously. Like the explorer, each needs 'introspection' as
+    // well, and a tool that is off answers 404.
+    'graphiql'                => $developmentCheckout,
+    'voyager'                 => $developmentCheckout,
 
     // Tokens
     'token_default_ttl_days'  => 365,
