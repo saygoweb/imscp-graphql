@@ -6,6 +6,23 @@ All notable changes to this plugin are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`DnsRecord.ttl`**, in seconds. It is null on an older record that states
+  no TTL, which has the zone's default.
+
+### Fixed
+
+- `DnsRecord.name` was the raw `domain_dns` column: on a record the panel or
+  this API wrote, the fully qualified name, a tab and the TTL
+  (`"www.example.test.\t3600"`). It is now the name alone, in the form
+  `DnsRecordCreateInput.name` takes, so a client can write back what it read:
+  relative to the zone (`www`), `@` for the zone itself, and fully qualified
+  with a trailing dot only for a name outside the zone. Older records, which
+  hold a bare relative name, read the same way. The payloads of
+  `dnsRecordCreate`, `dnsRecordUpdate` and `dnsRecordDelete` change with it.
+  Issues #2 and #7.
+
 ## [1.2.0] — 2026-10-19
 
 ### Added

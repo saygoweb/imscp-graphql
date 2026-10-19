@@ -85,11 +85,54 @@ class DnsResolverTest extends IntegrationTestCase
 
         self::assertCount(1, $records);
         self::assertSame('mail', $records[0]['name']);
+        self::assertNull($records[0]['ttl']);
         self::assertSame('IN', $records[0]['class']);
         self::assertSame('A', $records[0]['type']);
         self::assertSame('203.0.113.7', $records[0]['value']);
         self::assertSame('custom_dns_feature', $records[0]['ownedBy']);
         self::assertSame('OK', $records[0]['provisioning']['state']);
+    }
+
+    private function addRecord(int $aliasId, string $domainDns): int
+    {
+        $this->db->execute(
+            "INSERT INTO domain_dns (domain_id, alias_id, domain_dns, domain_class, domain_type, domain_text, owned_by, domain_dns_status)
+             VALUES (?, ?, ?, 'IN', 'A', '203.0.113.8', 'custom_dns_feature', 'ok')",
+            array($this->fixture->domainId(), $aliasId, $domainDns)
+        );
+
+        return (int)$this->db->lastInsertId();
+    }
+
+    /**
+     * @dataProvider storedOwners
+     */
+    public function testTheNameIsSplitFromTheTtlAndMadeRelativeToTheZone(
+        bool $onAlias, string $stored, string $name, ?int $ttl
+    ): void {
+        // domain_dns is "<fqdn>.\t<ttl>" on rows the page or this API wrote,
+        // and a bare relative name on older ones (issues #2 and #7).
+        $zone = $onAlias ? $this->fixture->aliasName() : $this->fixture->domainName();
+        $id = $this->addRecord($onAlias ? $this->fixture->aliasId() : 0, sprintf($stored, $zone));
+
+        $record = $this->value($this->resolver->reference($id));
+
+        self::assertSame($name, $record['name']);
+        self::assertSame($ttl, $record['ttl']);
+    }
+
+    public function storedOwners(): array
+    {
+        return array(
+            'with a TTL'                => array(false, "www.%s.\t3600", 'www', 3600),
+            'without a TTL'             => array(false, 'legacy', 'legacy', null),
+            'the apex'                  => array(false, "%s.\t300", '@', 300),
+            'in an alias zone'          => array(true, "www.%s.\t600", 'www', 600),
+            'outside the zone'          => array(false, "www.example.net.\t3600", 'www.example.net.', 3600),
+            // The main domain's name, on a record in the alias's zone, is
+            // outside that zone.
+            'the other zone of the two' => array(true, "www.sgwtcustomer.test.\t3600", 'www.sgwtcustomer.test.', 3600)
+        );
     }
 
     public function testARecordWithAliasIdZeroHangsOffTheMainDomain(): void

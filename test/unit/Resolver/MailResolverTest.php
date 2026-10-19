@@ -258,12 +258,14 @@ class MailResolverTest extends TestCase
             'domain_type'       => 'A',
             'domain_text'       => '203.0.113.7',
             'owned_by'          => 'custom_dns_feature',
-            'domain_dns_status' => 'ok'
+            'domain_dns_status' => 'ok',
+            'zone_name'         => 'customer.test'
         ));
 
         self::assertSame(NodeType::DOMAIN, $onDomain['__hostTag']);
         self::assertSame(12, $onDomain['__hostKey']);
         self::assertSame('mail', $onDomain['name']);
+        self::assertNull($onDomain['ttl']);
         self::assertSame('IN', $onDomain['class']);
         self::assertSame('A', $onDomain['type']);
         self::assertSame('203.0.113.7', $onDomain['value']);
@@ -277,16 +279,20 @@ class MailResolverTest extends TestCase
             'domain_dns_id'     => 32,
             'domain_id'         => 12,
             'alias_id'          => 4,
-            'domain_dns'        => 'www',
+            'domain_dns'        => "www.alias.test.\t3600",
             'domain_class'      => 'IN',
             'domain_type'       => 'CNAME',
             'domain_text'       => 'example.net.',
             'owned_by'          => 'SGW_LetsEncrypt',
-            'domain_dns_status' => 'ok'
+            'domain_dns_status' => 'ok',
+            'zone_name'         => 'alias.test'
         ));
 
         self::assertSame(NodeType::DOMAIN_ALIAS, $onAlias['__hostTag']);
         self::assertSame(4, $onAlias['__hostKey']);
+        // Relative to the alias's zone, which zone_name names.
+        self::assertSame('www', $onAlias['name']);
+        self::assertSame(3600, $onAlias['ttl']);
     }
 
     public function testAnIpAddressShapesFromServerIps(): void

@@ -942,7 +942,10 @@ type DnsRecord implements Node & Provisioned {
   id: ID!
   "The domain or alias this record hangs off."
   host: VirtualHost!
+  "Relative to the host's zone, @ for the zone itself; fully qualified (with a trailing dot) only outside it."
   name: String!
+  "Seconds. Null when the record states none and the zone's default applies."
+  ttl: Int
   class: DnsClass!
   type: DnsRecordType!
   value: String!
@@ -986,6 +989,21 @@ type Reseller implements Node & Provisioned {
   hostingPlans: [HostingPlan!]!
 }
 ```
+
+`domain_dns.domain_dns` holds the owner name and the TTL in one column. A row
+the panel's `dns_edit.php` or `DnsRecordCreateInput` wrote holds the fully
+qualified name, a tab and the TTL (`www.example.test.\t3600`); an older row
+holds a bare name relative to the zone and no TTL (`www`). Both read back the
+same way, through `Support\DnsRecordData::decode()`, the inverse of the
+encoding a write applies: `name` in the form `DnsRecordCreateInput.name`
+takes, so a client can write back what it read — relative to the zone of the
+domain or alias the record hangs off, `@` for the zone itself, and fully
+qualified with its trailing dot only when it is outside that zone — and `ttl`
+as a number, or null when the row has none. Names are ASCII, as stored: an IDN
+label reads back in its `xn--` form, which the input takes too. An SRV
+record's `name` keeps its `_service._proto` labels, which a write takes in
+`data.service` and `data.protocol`, so those two labels are left off a name
+written back.
 
 `hosting_plans.props` is a positional, semicolon-delimited string of 25 fields
 (`gui/public/reseller/user_add3.php:133`). Parsing and re-emitting it is

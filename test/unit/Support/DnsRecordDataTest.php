@@ -101,6 +101,57 @@ class DnsRecordDataTest extends TestCase
         );
     }
 
+    // ---- decoding domain_dns ----------------------------------------------
+
+    /**
+     * @dataProvider storedNames
+     */
+    public function testTheStoredColumnSplitsIntoNameAndTtl(string $stored, string $name, ?int $ttl): void
+    {
+        self::assertSame(array('name' => $name, 'ttl' => $ttl), DnsRecordData::decode($stored, self::ZONE));
+    }
+
+    public function storedNames(): array
+    {
+        return array(
+            // Written by encode() or dns_edit.php: absolute, then a tab and the TTL.
+            'a name in the zone'           => array("www.zone.test.\t3600", 'www', 3600),
+            'the zone itself'              => array("zone.test.\t300", '@', 300),
+            'a deeper name'                => array("selector._domainkey.zone.test.\t3600", 'selector._domainkey', 3600),
+            'a wildcard'                   => array("*.zone.test.\t3600", '*', 3600),
+            'an SRV keeps its labels'      => array("_sip._tcp.www.zone.test.\t3600", '_sip._tcp.www', 3600),
+            'spaces, not a tab'            => array('www.zone.test. 600', 'www', 600),
+            'the zone in capitals'         => array("WWW.Zone.Test.\t3600", 'WWW', 3600),
+            // Older rows: a bare name relative to the zone, and no TTL.
+            'a relative name, no TTL'      => array('mail', 'mail', null),
+            'a relative @, no TTL'         => array('@', '@', null),
+            'a relative name with a TTL'   => array("mail\t7200", 'mail', 7200),
+            'an absolute name, no TTL'     => array('mail.zone.test.', 'mail', null),
+            // Not this zone: kept fully qualified, so it cannot be mistaken
+            // for a name in it.
+            'another zone'                 => array("www.other.test.\t3600", 'www.other.test.', 3600),
+            'a zone that merely ends so'   => array("evilzone.test.\t3600", 'evilzone.test.', 3600),
+            'a TTL past what Int can hold' => array("www.zone.test.\t2147483648", 'www', null),
+            'nothing at all'               => array('', '@', null)
+        );
+    }
+
+    /**
+     * @dataProvider names
+     */
+    public function testANameReadBackIsOneTheInputTakes(string $name, string $expected): void
+    {
+        $input = array('name' => $name, 'ttl' => 600, 'data' => array('address' => '203.0.113.9'));
+        $read = DnsRecordData::decode($this->encode('A', $input)['domain_dns'], self::ZONE);
+
+        self::assertSame(600, $read['ttl']);
+        // Written back, it encodes to the very same column.
+        self::assertSame(
+            $this->encode('A', $input)['domain_dns'],
+            $this->encode('A', array('name' => $read['name']) + $input)['domain_dns']
+        );
+    }
+
     /**
      * @dataProvider refusedNames
      */

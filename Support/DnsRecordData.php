@@ -125,6 +125,43 @@ final class DnsRecordData
     }
 
     /**
+     * The inverse of encode()'s domain_dns: the owner name in the form the
+     * name input takes, and the TTL.
+     *
+     * The column holds "<fqdn>.\t<ttl>" when this class or the page wrote it,
+     * but older rows hold a bare name relative to the zone and no TTL. A name
+     * inside the zone comes back relative to it, "@" for the zone itself; any
+     * other absolute name keeps its trailing dot. An SRV record's name keeps
+     * its _service._proto labels, which encode() takes in the data instead.
+     *
+     * dns_edit.php:462-468.
+     *
+     * @return array{name: string, ttl: ?int} ttl null when the row holds none
+     */
+    public static function decode(string $domainDns, string $zoneAscii): array
+    {
+        if (!preg_match('/^(\S+)(?:\s+(\d+))?/', trim($domainDns), $matches)) {
+            return array('name' => '@', 'ttl' => null);
+        }
+
+        $name = $matches[1];
+        $ttl = isset($matches[2]) && $matches[2] <= self::MAX_TTL ? (int)$matches[2] : null;
+
+        if (substr($name, -1) === '.') {
+            $zone = '.' . strtolower($zoneAscii) . '.';
+            $lower = strtolower('.' . $name);
+
+            if ($lower === $zone) {
+                $name = '@';
+            } elseif (substr($lower, -strlen($zone)) === $zone) {
+                $name = substr($name, 0, -strlen($zone));
+            }
+        }
+
+        return array('name' => $name, 'ttl' => $ttl);
+    }
+
+    /**
      * dns_edit.php:298-351.
      *
      * @throws InvalidArgumentException
