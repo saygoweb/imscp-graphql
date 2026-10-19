@@ -164,6 +164,21 @@ class DnsServiceTest extends ServiceTestCase
         });
     }
 
+    public function testARecordWhoseAliasIsGoneCannotBeUpdatedButCanBeDeleted(): void
+    {
+        // No zone to write its name in; deleting it needs none.
+        $this->db->execute('UPDATE domain_dns SET alias_id = 2147483000 WHERE domain_dns_id = ?', array($this->fixture->dnsRecordId()));
+
+        $this->refused(ErrorCode::NOT_FOUND, function () {
+            $this->service()->update($this->caller('customer'), $this->recordId(), array(
+                'name' => 'mail', 'ttl' => 600, 'data' => array('address' => '203.0.113.10')
+            ));
+        });
+
+        $this->service()->delete($this->caller('customer'), $this->recordId());
+        self::assertSame('todelete', $this->record($this->fixture->dnsRecordId())['domain_dns_status']);
+    }
+
     public function testAPluginsRecordIsReadOnlyHere(): void
     {
         $this->db->execute("UPDATE domain_dns SET owned_by = 'SGW_LetsEncrypt' WHERE domain_dns_id = ?", array($this->fixture->dnsRecordId()));

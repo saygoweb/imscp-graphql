@@ -85,11 +85,68 @@ class DnsResolverTest extends IntegrationTestCase
 
         self::assertCount(1, $records);
         self::assertSame('mail', $records[0]['name']);
+        self::assertNull($records[0]['ttl']);
         self::assertSame('IN', $records[0]['class']);
         self::assertSame('A', $records[0]['type']);
         self::assertSame('203.0.113.7', $records[0]['value']);
         self::assertSame('custom_dns_feature', $records[0]['ownedBy']);
         self::assertSame('OK', $records[0]['provisioning']['state']);
+    }
+
+    private function addRecord(int $aliasId, string $domainDns): int
+    {
+        $this->db->execute(
+            "INSERT INTO domain_dns (domain_id, alias_id, domain_dns, domain_class, domain_type, domain_text, owned_by, domain_dns_status)
+             VALUES (?, ?, ?, 'IN', 'A', '203.0.113.8', 'custom_dns_feature', 'ok')",
+            array($this->fixture->domainId(), $aliasId, $domainDns)
+        );
+
+        return (int)$this->db->lastInsertId();
+    }
+
+    /**
+     * @dataProvider storedOwners
+     */
+    public function testTheNameIsSplitFromTheTtlAndMadeRelativeToTheZone(
+        bool $onAlias, string $stored, string $name, ?int $ttl
+    ): void {
+        // domain_dns is "<fqdn>.\t<ttl>" on rows the page or this API wrote,
+        // and a bare relative name on older ones (issues #2 and #7).
+        $zone = $onAlias ? $this->fixture->aliasName() : $this->fixture->domainName();
+        $id = $this->addRecord(
+            $onAlias ? $this->fixture->aliasId() : 0,
+            strtr($stored, array('{zone}' => $zone, '{domain}' => $this->fixture->domainName()))
+        );
+
+        $record = $this->value($this->resolver->reference($id));
+
+        self::assertSame(strtr($name, array('{domain}' => $this->fixture->domainName())), $record['name']);
+        self::assertSame($ttl, $record['ttl']);
+    }
+
+    public function storedOwners(): array
+    {
+        return array(
+            'with a TTL'                => array(false, "www.{zone}.\t3600", 'www', 3600),
+            'without a TTL'             => array(false, 'legacy', 'legacy', null),
+            'the apex'                  => array(false, "{zone}.\t300", '@', 300),
+            'in an alias zone'          => array(true, "www.{zone}.\t600", 'www', 600),
+            'outside the zone'          => array(false, "www.example.net.\t3600", 'www.example.net.', 3600),
+            // The main domain's name, on a record in the alias's zone, is
+            // outside that zone.
+            'the other zone of the two' => array(true, "www.{domain}.\t3600", 'www.{domain}.', 3600)
+        );
+    }
+
+    public function testARecordWhoseAliasIsGoneKeepsItsNameAsStored(): void
+    {
+        // Not read relative to the main domain's zone, which it is not in.
+        $id = $this->addRecord(2147483000, "www.{$this->fixture->domainName()}.\t3600");
+
+        $record = $this->value($this->resolver->reference($id));
+
+        self::assertSame('www.' . $this->fixture->domainName() . '.', $record['name']);
+        self::assertSame(3600, $record['ttl']);
     }
 
     public function testARecordWithAliasIdZeroHangsOffTheMainDomain(): void

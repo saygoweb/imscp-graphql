@@ -303,6 +303,7 @@ input and return shapes.
 
 - `dnsRecordCreate` — one of the types a customer may manage: A, AAAA, CNAME, MX, NS, SPF, SRV or TXT.
 - `dnsRecordUpdate` — replaces the record's name, TTL and data together; its type cannot change. A record a plugin owns (`ownedBy` other than `custom_dns_feature`) is `FORBIDDEN`.
+  `DnsRecord.name` and `DnsRecord.ttl` read back in the form the input takes: `name` relative to the zone (`www`, or `@` for the zone itself), fully qualified with a trailing dot only when it is outside the zone. `ttl` is null on an older record that states none, which has the zone's default. An SRV record's `name` is without its `_service._proto` labels, which read back as `srvService` (`_sip`) and `srvProtocol` (`TCP`), the forms `data.service` and `data.protocol` take. A TTL is returned as stored, so a plugin's record may show one below 60, which a write refuses.
 - `dnsRecordDelete` — removes the record.
 
 **Customers** (reseller and administrator only)

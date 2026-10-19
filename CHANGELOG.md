@@ -18,6 +18,12 @@ All notable changes to this plugin are documented here. The format follows
   punycode first, with the panel's own `encode_idna()`, so it finds whole
   labels only: `müller` finds `müller.de`, `müll` does not. `domainName`
   still matches the whole name only.
+- **`DnsRecord.ttl`**, in seconds. It is null on an older record that states
+  no TTL, which has the zone's default.
+- **`DnsRecord.srvService` and `DnsRecord.srvProtocol`**, an SRV record's
+  service (`_sip`) and protocol (`TCP`), in the forms
+  `DnsRecordDataInput.service` and `.protocol` take. Both are null on other
+  types.
 
 ### Fixed
 
@@ -27,6 +33,17 @@ All notable changes to this plugin are documented here. The format follows
   `xn--mller-kva.de`. Both fields now convert a Unicode value to punycode
   first, as `domainNameContains` does. A customer the panel created is named
   after its punycode domain, so this applies to `username` too.
+- `DnsRecord.name` was the raw `domain_dns` column: on a record the panel or
+  this API wrote, the fully qualified name, a tab and the TTL
+  (`"www.example.test.\t3600"`). It is now the name alone, in the form
+  `DnsRecordCreateInput.name` takes, so a client can write back what it read:
+  relative to the zone (`www`), `@` for the zone itself, and fully qualified
+  with a trailing dot only for a name outside the zone. Older records, which
+  hold a bare relative name, read the same way. An SRV record's name is
+  without its `_service._proto` labels, as the panel shows it; those read
+  back as `srvService` and `srvProtocol`. The payloads of
+  `dnsRecordCreate`, `dnsRecordUpdate` and `dnsRecordDelete` change with it.
+  Issues #2 and #7.
 
 ## [1.2.0] — 2026-10-19
 

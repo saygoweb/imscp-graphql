@@ -125,6 +125,61 @@ final class DnsRecordData
     }
 
     /**
+     * The inverse of encode()'s domain_dns: the owner name in the form the
+     * name input takes, and the TTL.
+     *
+     * The column holds "<fqdn>.\t<ttl>" when this class or the page wrote it,
+     * but older rows hold a bare name relative to the zone and no TTL. A name
+     * inside the zone comes back relative to it, "@" for the zone itself; any
+     * other absolute name keeps its trailing dot, and so does every name when
+     * the zone is not known. An SRV record's name loses its _service._proto
+     * labels, which come back on their own as service and protocol, in the
+     * form encode() takes them in the data: _sip, and TCP. Both are null on
+     * any other type, and protocol is null on a transport SRV_PROTOCOLS does
+     * not offer. A row with no owner
+     * name reads as '' rather than as the zone: a blank owner is not "@".
+     *
+     * A TTL is returned as stored, even one below MIN_TTL that a write would
+     * refuse; one above MAX_TTL, which RFC 2181 section 8 does not allow and
+     * a GraphQL Int cannot hold, reads as MAX_TTL. null means the row states
+     * no TTL at all.
+     *
+     * dns_edit.php:462-468 and, for SRV, 491-501.
+     *
+     * @param ?string $zoneAscii null when the record's domain or alias is gone
+     * @return array{name: string, ttl: ?int, service: ?string, protocol: ?string}
+     */
+    public static function decode(string $domainDns, ?string $zoneAscii, string $type): array
+    {
+        // Untrimmed, as the page matches it, so "\t3600" is a TTL with no
+        // owner name rather than an owner called 3600.
+        preg_match('/^(\S*)(?:\s+(\d+))?/', $domainDns, $matches);
+
+        $name = $matches[1];
+        $ttl = isset($matches[2]) ? (int)min($matches[2], self::MAX_TTL) : null;
+
+        $service = $protocol = null;
+
+        // dns_edit.php:495: the page reads the service and protocol off the
+        // name and shows the rest as the name, which is what encode() takes.
+        if ($type === 'SRV' && preg_match('/^(_[^\s.]+)\.(_[^\s.]+)\.(.+)$/', $name, $srv)) {
+            $service = strtolower($srv[1]);
+            $protocol = array_search(strtolower(substr($srv[2], 1)), self::SRV_PROTOCOLS, true);
+            $protocol = $protocol === false ? null : $protocol;
+            $name = $srv[3];
+        }
+
+        // The zone boundary is name()'s: anchored, and the zone quoted.
+        if ($zoneAscii !== null
+            && preg_match('/^(?:(.+)\.)?' . preg_quote($zoneAscii, '/') . '\.$/i', $name, $inZone)
+        ) {
+            $name = isset($inZone[1]) && $inZone[1] !== '' ? $inZone[1] : '@';
+        }
+
+        return array('name' => $name, 'ttl' => $ttl, 'service' => $service, 'protocol' => $protocol);
+    }
+
+    /**
      * dns_edit.php:298-351.
      *
      * @throws InvalidArgumentException

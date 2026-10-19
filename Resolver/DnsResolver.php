@@ -26,6 +26,7 @@ use GraphQL\Type\Definition\ResolveInfo;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Scope;
 use iMSCP\Plugin\SGW_GraphQL\Repository\BatchLoader;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
+use iMSCP\Plugin\SGW_GraphQL\Support\DnsRecordData;
 use iMSCP\Plugin\SGW_GraphQL\Support\NodeType;
 
 /**
@@ -76,16 +77,39 @@ final class DnsResolver
     }
 
     /**
-     * @param array<string, mixed> $row A row of domain_dns
+     * The columns of domain_dns, and zone_name: the ASCII name of the domain
+     * or alias whose zone the record is in, which name is read relative to and
+     * DnsService writes it relative to. Null, not the main domain, when
+     * alias_id names an alias that is gone: borrowing the domain's zone would
+     * misread every name in the alias's.
+     */
+    const ROW_SELECT = '
+        SELECT dd.*, CASE WHEN dd.alias_id = 0 THEN d.domain_name ELSE al.alias_name END AS zone_name
+        FROM domain_dns AS dd
+        JOIN domain AS d ON d.domain_id = dd.domain_id
+        LEFT JOIN domain_aliasses AS al ON al.alias_id = dd.alias_id
+    ';
+
+    /**
+     * @param array<string, mixed> $row A row of ROW_SELECT
      * @return array<string, mixed>
      */
     public static function shape(array $row): array
     {
         $aliasId = (int)$row['alias_id'];
+        // domain_dns is the owner name and, on newer rows, the TTL too.
+        $owner = DnsRecordData::decode(
+            (string)$row['domain_dns'],
+            $row['zone_name'] === null ? null : (string)$row['zone_name'],
+            (string)$row['domain_type']
+        );
 
         return TypeResolver::node(
             NodeType::DNS_RECORD, (int)$row['domain_dns_id'], array(
-                'name'         => (string)$row['domain_dns'],
+                'name'         => $owner['name'],
+                'ttl'          => $owner['ttl'],
+                'srvService'   => $owner['service'],
+                'srvProtocol'  => $owner['protocol'],
                 'class'        => (string)$row['domain_class'],
                 'type'         => (string)$row['domain_type'],
                 'value'        => (string)$row['domain_text'],
@@ -131,7 +155,7 @@ final class DnsResolver
             $dnsId,
             static function (array $keys) use ($db) {
                 $rows = $db->rows(
-                    'SELECT * FROM domain_dns WHERE domain_dns_id IN ('
+                    self::ROW_SELECT . ' WHERE dd.domain_dns_id IN ('
                         . $db->placeholders(count($keys)) . ')',
                     $keys
                 );
@@ -222,9 +246,9 @@ final class DnsResolver
             (int)$source['__domainId'],
             static function (array $keys) use ($db) {
                 $rows = $db->rows(
-                    'SELECT * FROM domain_dns WHERE domain_id IN ('
+                    self::ROW_SELECT . ' WHERE dd.domain_id IN ('
                         . $db->placeholders(count($keys))
-                        . ') ORDER BY domain_dns_id',
+                        . ') ORDER BY dd.domain_dns_id',
                     $keys
                 );
                 $byDomain = array();

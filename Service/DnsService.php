@@ -23,6 +23,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Service;
 use iMSCP\Event\Events;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Identity;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Scope;
+use iMSCP\Plugin\SGW_GraphQL\Resolver\DnsResolver;
 use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Security\Target;
 use iMSCP\Plugin\SGW_GraphQL\Support\CustomerFeatures;
@@ -132,6 +133,12 @@ final class DnsService
         // dns_edit.php does not ask; spec section 8.3 does.
         Guard::requireState((string)$row['domain_dns_status'], array(Provisioning::STATE_OK));
 
+        // An alias that is gone with its record still here: there is no zone
+        // to write the name in. Deleting the record needs none, so only here.
+        if ($row['zone_name'] === null) {
+            throw Guard::notFound();
+        }
+
         // The type is the row's: the page disables the field on edit (line 956).
         $encoded = DnsRecordData::encode(
             (string)$row['domain_type'], $input, (string)$row['zone_name'],
@@ -220,19 +227,16 @@ final class DnsService
 
     /**
      * The record, its zone's ASCII name, and FORBIDDEN when a plugin owns it.
+     * zone_name is null when the alias whose zone it is in is gone.
      *
      * @return array<string, mixed>
      */
     private function recordRow(Target $target): array
     {
+        // The read side's SQL, so a name is written relative to the zone it
+        // is read relative to.
         $row = $this->kit->db()->row(
-            '
-                SELECT dd.*, IFNULL(al.alias_name, d.domain_name) AS zone_name
-                FROM domain_dns AS dd
-                JOIN domain AS d ON d.domain_id = dd.domain_id
-                LEFT JOIN domain_aliasses AS al ON al.alias_id = dd.alias_id
-                WHERE dd.domain_dns_id = ?
-            ',
+            DnsResolver::ROW_SELECT . ' WHERE dd.domain_dns_id = ?',
             array((int)$target->getKey())
         );
 
