@@ -351,6 +351,172 @@ class QueryResolverTest extends IntegrationTestCase
         self::assertSame(2, $connection['totalCount']);
     }
 
+    /**
+     * Query.customers with a CustomerFilter, keyed by admin_id.
+     *
+     * @param array<string, mixed> $filter
+     * @return int[]
+     */
+    private function customerIdsMatching(string $who, array $filter): array
+    {
+        $connection = $this->value($this->resolver->resolveCustomers(
+            null, array('filter' => $filter), $this->context($who), $this->info()
+        ));
+        $ids = array();
+
+        foreach ($connection['nodes'] as $node) {
+            $ids[] = GlobalId::decode($node['id'])->getId();
+        }
+
+        self::assertSame($connection['totalCount'], count($ids));
+
+        return $ids;
+    }
+
+    public function testDomainNameContainsFindsAPartOfTheDomainNameInAnyCase(): void
+    {
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 'TSIBLING.t'))
+        );
+    }
+
+    public function testDomainNameContainsFindsNobodyWhenNothingMatches(): void
+    {
+        self::assertSame(
+            array(),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 'sgwtnobody'))
+        );
+    }
+
+    public function testDomainNameContainsTakesPercentAndUnderscoreLiterally(): void
+    {
+        // Unescaped, each of these would match a fixture domain.
+        foreach (array('sgwt_ibling', 'sgwt%.test') as $fragment) {
+            self::assertSame(
+                array(),
+                $this->customerIdsMatching('admin', array('domainNameContains' => $fragment)),
+                $fragment
+            );
+        }
+
+        $this->db->execute(
+            'UPDATE domain SET domain_name = ? WHERE domain_id = ?',
+            array('sgwt_100%.test', $this->fixture->siblingDomainId())
+        );
+
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 't_100%.'))
+        );
+    }
+
+    public function testDomainNameContainsConvertsAUnicodeFragmentToTheStoredPunycode(): void
+    {
+        // i-MSCP stores sgwtmüller.test as its punycode.
+        $this->db->execute(
+            'UPDATE domain SET domain_name = ? WHERE domain_id = ?',
+            array('xn--sgwtmller-u9a.test', $this->fixture->siblingDomainId())
+        );
+
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 'SGWTMÜLLER'))
+        );
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 'xn--sgwtm'))
+        );
+        // Documented: a punycode label is opaque, so part of a Unicode label
+        // does not match.
+        self::assertSame(
+            array(),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 'sgwtmüll'))
+        );
+    }
+
+    public function testDomainNameContainsEncodesAsThePanelDoesAndKeepsItsDots(): void
+    {
+        // encode_idna() is non-transitional: straße is not strasse.
+        $this->db->execute(
+            'UPDATE domain SET domain_name = ? WHERE domain_id = ?',
+            array('xn--sgwtstrae-n1a.test', $this->fixture->siblingDomainId())
+        );
+
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 'sgwtstraße'))
+        );
+        // Each label is encoded on its own, so the trailing dot stays.
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 'sgwtstraße.'))
+        );
+        self::assertSame(
+            array(),
+            $this->customerIdsMatching('admin', array('domainNameContains' => '.sgwtstraße'))
+        );
+    }
+
+    public function testTheExactDomainNameAcceptsUnicode(): void
+    {
+        $this->db->execute(
+            'UPDATE domain SET domain_name = ? WHERE domain_id = ?',
+            array('xn--sgwtmller-u9a.test', $this->fixture->siblingDomainId())
+        );
+
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainName' => 'sgwtmüller.test'))
+        );
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainName' => 'xn--sgwtmller-u9a.test'))
+        );
+        self::assertSame(
+            array(),
+            $this->customerIdsMatching('admin', array('domainName' => 'sgwtmüller'))
+        );
+    }
+
+    public function testACustomersUsernameMatchesAUnicodeFragmentOfItsPunycode(): void
+    {
+        // A customer the panel created is named after its punycode domain.
+        $this->db->execute(
+            'UPDATE admin SET admin_name = ? WHERE admin_id = ?',
+            array('xn--sgwtmller-u9a.test', $this->fixture->siblingId())
+        );
+
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('username' => 'sgwtmüller'))
+        );
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('username' => 'mller-u9a'))
+        );
+    }
+
+    public function testDomainNameContainsKeepsAResellerToItsOwnCustomers(): void
+    {
+        $ids = $this->customerIdsMatching('reseller', array('domainNameContains' => 'sgwt'));
+        sort($ids);
+        $expected = array($this->fixture->customerId(), $this->fixture->siblingId());
+        sort($expected);
+
+        self::assertSame($expected, $ids);
+        self::assertSame(
+            array(),
+            $this->customerIdsMatching('reseller', array('domainNameContains' => 'stranger'))
+        );
+        // The administrator does see the stranger, so the empty list above is
+        // the reseller rule and not a fragment that matches nothing.
+        self::assertSame(
+            array($this->fixture->otherCustomerId()),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 'sgwtstranger'))
+        );
+    }
+
     public function testACustomerListingResellersSeesNone(): void
     {
         $connection = $this->value($this->resolver->resolveResellers(

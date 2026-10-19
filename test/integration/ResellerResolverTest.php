@@ -51,6 +51,7 @@ class ResellerResolverTest extends IntegrationTestCase
             true,
             static function () { return array(0, 4102444800); },
             'decode_idna',
+            'encode_idna',
             static function (int $adminId) {
                 return new Deferred(static function () use ($adminId) {
                     return array('__tag' => NodeType::CUSTOMER, '__key' => $adminId);
@@ -253,6 +254,30 @@ class ResellerResolverTest extends IntegrationTestCase
         self::assertSame(
             $this->fixture->siblingId(), $connection['nodes'][0]['__key']
         );
+    }
+
+    public function testFilteringCustomersByPartOfTheDomainNameNarrowsTheList(): void
+    {
+        $connection = $this->value($this->resolver->resolveCustomers(
+            $this->reseller(), array('filter' => array('domainNameContains' => 'Sibling.')),
+            $this->context('reseller'), $this->info()
+        ));
+
+        self::assertSame(1, $connection['totalCount']);
+        self::assertSame(
+            $this->fixture->siblingId(), $connection['nodes'][0]['__key']
+        );
+    }
+
+    public function testFilteringCustomersByPartOfTheDomainNameFindsNoOtherResellersCustomer(): void
+    {
+        $connection = $this->value($this->resolver->resolveCustomers(
+            $this->reseller(), array('filter' => array('domainNameContains' => 'stranger')),
+            $this->context('reseller'), $this->info()
+        ));
+
+        self::assertSame(0, $connection['totalCount']);
+        self::assertSame(array(), $connection['nodes']);
     }
 
     public function testTheHostingPlanDecodesItsProps(): void

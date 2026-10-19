@@ -1072,8 +1072,12 @@ type Query {
 }
 
 input CustomerFilter {
+  "A substring of the username. A Unicode fragment is converted to punycode first, as for domainNameContains."
   username: String
+  "Exact: the whole main domain name, as Unicode or punycode."
   domainName: DomainName
+  "Case-insensitive substring of the main domain name; % _ \\ are literal. Matches the stored (punycode) form; each non-ASCII label is converted first, as the panel converts it, so it finds whole labels only."
+  domainNameContains: String
   state: ProvisioningState
   "Administrators only; ignored for a reseller, who only ever sees their own."
   resellerId: ID
