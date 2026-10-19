@@ -33,6 +33,8 @@ use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\RateLimiter;
 use iMSCP\Plugin\SGW_GraphQL\Support\ApiException;
 use iMSCP\Plugin\SGW_GraphQL\Support\ErrorCode;
+use iMSCP\Plugin\SGW_GraphQL\Support\GlobalId;
+use iMSCP\Plugin\SGW_GraphQL\Support\NodeType;
 use iMSCP\Plugin\SGW_GraphQL\Test\Double\InMemoryApcuStore;
 use iMSCP\Plugin\SGW_GraphQL\Test\Double\RecordingCore;
 use iMSCP\Registry;
@@ -251,6 +253,33 @@ class ExecutorTest extends IntegrationTestCase
         self::assertGreaterThan(0, $issued['tokenId']);
         self::assertSame(Scope::grantableTo('reseller'), $this->executor()->grantableScopes($this->fixture->resellerId()));
         self::assertSame(Scope::all(), $this->executor()->grantableScopes($this->fixture->adminId()));
+    }
+
+    /**
+     * One Executor, two documents, a change in between: the second document
+     * must read the change. A Container's batch loader caches a request's
+     * reads, and when one Executor reused one Container a caller polling an
+     * object for its provisioning to settle never saw it settle (found by
+     * SGW_Mcp's integration suite).
+     */
+    public function testEachExecuteReadsTheDatabaseAfresh(): void
+    {
+        $issued = $this->issue(array(Scope::ACCOUNT_READ));
+        $executor = $this->executor();
+        $id = GlobalId::encode(
+            NodeType::CUSTOMER, $this->fixture->customerId()
+        );
+        $document = 'query C($id: ID!) { customer(id: $id) { reference } }';
+
+        $executor->execute($issued['token'], $document, array('id' => $id), self::CLIENT_IP);
+        $this->db->execute(
+            'UPDATE admin SET customer_id = ? WHERE admin_id = ?',
+            array('changed-between-calls', $this->fixture->customerId())
+        );
+        $second = $executor->execute($issued['token'], $document, array('id' => $id), self::CLIENT_IP);
+
+        self::assertArrayNotHasKey('errors', $second, json_encode($second));
+        self::assertSame('changed-between-calls', $second['data']['customer']['reference']);
     }
 
     // ---- revocation, liveness, and the refresh check ---------------------
@@ -538,7 +567,10 @@ class ExecutorTest extends IntegrationTestCase
      */
     private function executor(array $config = array()): Executor
     {
-        return Executor::forContainer($this->container($config));
+        // A Container per execute(), as fromPanel() builds them.
+        return Executor::forContainers(function () use ($config) {
+            return $this->container($config);
+        });
     }
 
     /**

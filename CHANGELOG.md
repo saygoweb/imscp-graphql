@@ -40,6 +40,22 @@ All notable changes to this plugin are documented here. The format follows
 
 ### Fixed
 
+- `Query.customer(id:)` refused a customer its own account with FORBIDDEN. It
+  required CUSTOMERS_READ, a scope no customer can hold. It now applies the
+  same rule as `node(id:)`: ACCOUNT_READ for one's own account, CUSTOMERS_READ
+  for anyone else's. Found by SGW_Mcp's integration suite.
+- A reseller token could read none of its own account's private fields. That
+  covered `quotas`, `storage`, `ipAddresses`, `apiAccess`, `hostingPlans`,
+  `HostingPlan.reseller`, and `node` or `reseller(id:)` for itself. Each one
+  required RESELLERS_READ, a scope no reseller can hold, while
+  `viewer.reseller` let the same token in with ACCOUNT_READ. A reseller
+  reading its own account now needs ACCOUNT_READ, and its own hosting plans
+  need CUSTOMERS_READ (their mutations need CUSTOMERS_WRITE). An administrator
+  reading a reseller still needs RESELLERS_READ. Found by SGW_Mcp's
+  integration suite.
+- `Executor::execute()` builds a fresh Container, and so a fresh batch loader,
+  for every call. One `Executor` reused one Container, so a caller polling an
+  object for its provisioning to settle read the first answer forever.
 - `test/lint/all.sh` linted nothing when run from a git worktree under
   `.claude/worktrees/` ("0 files, 0 failures"). Its exclusions now apply below
   the checkout root, not to the whole path.

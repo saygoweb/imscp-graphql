@@ -66,15 +66,21 @@ use Slim\Http\Stream;
  */
 final class Executor
 {
-    /** @var Container */
+    /**
+     * @var callable fn(): Container. Called once per execute(): a Container
+     *      holds the request's batch loader and resolvers, whose caches are
+     *      a request's worth of reads, so a second document run through the
+     *      same one would read the first one's answers - a caller polling an
+     *      object for its provisioning to settle would never see it settle.
+     */
+    private $containers;
+
+    /** @var Container|null For everything but execute(); built on first use. */
     private $container;
 
-    /** @var callable|null Built on first use, then reused. */
-    private $pipeline;
-
-    private function __construct(Container $container)
+    private function __construct(callable $containers)
     {
-        $this->container = $container;
+        $this->containers = $containers;
     }
 
     /**
@@ -96,17 +102,33 @@ final class Executor
         $plugin = $plugins->pluginGet('SGW_GraphQL');
         SGW_GraphQL::loadVendor();
 
-        return new self(Container::fromPlugin($plugin));
+        return new self(static function () use ($plugin) {
+            return Container::fromPlugin($plugin);
+        });
     }
 
     /**
-     * An Executor over a Container a test has built.
+     * An Executor over one Container a test has built, reused for every call.
      *
      * @internal Tests only. A plugin calls fromPanel().
      */
     public static function forContainer(Container $container): self
     {
-        return new self($container);
+        return new self(static function () use ($container) {
+            return $container;
+        });
+    }
+
+    /**
+     * An Executor that builds its Containers the way a test says, one per
+     * execute() as fromPanel()'s does.
+     *
+     * @param callable $containers fn(): Container
+     * @internal Tests only. A plugin calls fromPanel().
+     */
+    public static function forContainers(callable $containers): self
+    {
+        return new self($containers);
     }
 
     /**
@@ -170,7 +192,7 @@ final class Executor
             )));
         }
 
-        $response = $this->pipeline()(
+        $response = $this->newContainer()->inProcessHandler()(
             $this->request($bearerToken, $body, $clientIp), new Response(), array()
         );
         $status = $response->getStatusCode();
@@ -206,7 +228,7 @@ final class Executor
      */
     public function schemaSdl(): string
     {
-        return $this->container->schemaSdl();
+        return $this->container()->schemaSdl();
     }
 
     /**
@@ -253,24 +275,24 @@ final class Executor
             throw new ApiException(ErrorCode::NOT_FOUND, 'No such account.');
         }
 
-        if (!$this->container->hasApiAccess($adminId)) {
+        if (!$this->container()->hasApiAccess($adminId)) {
             throw new ApiException(
                 ErrorCode::FORBIDDEN, 'API access has been withdrawn from this account.'
             );
         }
 
         $scopes = Scope::requireGrantable((string)$row['admin_type'], $scopes, 'scopes');
-        $tokens = $this->container->tokens();
+        $tokens = $this->container()->tokens();
         $tokens->requireRoomForAnother(
-            $adminId, (int)$this->container->configValue('token_max_per_account', 10)
+            $adminId, (int)$this->container()->configValue('token_max_per_account', 10)
         );
 
-        $maxSeconds = max(1, (int)$this->container->configValue('token_max_ttl_days', 730)) * 86400;
+        $maxSeconds = max(1, (int)$this->container()->configValue('token_max_ttl_days', 730)) * 86400;
         $issued = $tokens->issueForSeconds(
             $adminId, $name, $scopes, min($ttlSeconds, $maxSeconds), null
         );
 
-        $this->container->core()->writeLog(
+        $this->container()->core()->writeLog(
             sprintf(
                 'An API token (%s) has been issued for %s', trim($name), $row['admin_name']
             ),
@@ -292,7 +314,7 @@ final class Executor
      */
     public function revokeToken(int $adminId, int $tokenId): bool
     {
-        $tokens = $this->container->tokens();
+        $tokens = $this->container()->tokens();
         $name = null;
 
         foreach ($tokens->listFor($adminId) as $token) {
@@ -305,8 +327,8 @@ final class Executor
             return false;
         }
 
-        $row = $this->container->accountRow($adminId);
-        $this->container->core()->writeLog(
+        $row = $this->container()->accountRow($adminId);
+        $this->container()->core()->writeLog(
             sprintf(
                 'An API token (%s) has been revoked for %s',
                 $name, $row === null ? '#' . $adminId : $row['admin_name']
@@ -324,7 +346,7 @@ final class Executor
      */
     public function tokenIsLive(int $adminId, int $tokenId): bool
     {
-        return $this->container->tokens()->isLive($adminId, $tokenId);
+        return $this->container()->tokens()->isLive($adminId, $tokenId);
     }
 
     /**
@@ -335,7 +357,7 @@ final class Executor
      */
     public function tokenIsRevoked(int $adminId, int $tokenId): bool
     {
-        return $this->container->tokens()->isRevoked($adminId, $tokenId);
+        return $this->container()->tokens()->isRevoked($adminId, $tokenId);
     }
 
     /**
@@ -367,7 +389,7 @@ final class Executor
             'adminId'   => (int)$row['admin_id'],
             'username'  => (string)$row['admin_name'],
             'role'      => $role,
-            'apiAccess' => $this->container->hasApiAccess($adminId)
+            'apiAccess' => $this->container()->hasApiAccess($adminId)
         );
     }
 
@@ -381,21 +403,27 @@ final class Executor
      */
     public function authenticate(string $username, string $password): ?int
     {
-        $account = $this->container->core()->authenticate($username, $password);
+        $account = $this->container()->core()->authenticate($username, $password);
 
         return $account === null ? null : (int)$account['admin_id'];
     }
 
-    /**
-     * @return callable
-     */
-    private function pipeline(): callable
+    private function newContainer(): Container
     {
-        if ($this->pipeline === null) {
-            $this->pipeline = $this->container->inProcessHandler();
+        return call_user_func($this->containers);
+    }
+
+    /**
+     * The Container for everything but execute(). None of it reads through
+     * the batch loader, so one is enough for the Executor's lifetime.
+     */
+    private function container(): Container
+    {
+        if ($this->container === null) {
+            $this->container = $this->newContainer();
         }
 
-        return $this->pipeline;
+        return $this->container;
     }
 
     /**
@@ -431,7 +459,7 @@ final class Executor
      */
     private function activeAccount(int $adminId): ?array
     {
-        $row = $this->container->accountRow($adminId);
+        $row = $this->container()->accountRow($adminId);
 
         if ($row === null || ($row['admin_status'] ?? '') !== 'ok') {
             return null;

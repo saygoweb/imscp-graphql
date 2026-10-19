@@ -363,6 +363,10 @@ token's scopes do not cover, and a rate-limit refusal all come back in
 `errors`. A rate-limit refusal is `RATE_LIMITED` with
 `extensions.retryAfterSeconds` and no `data`.
 
+Each `execute()` reads the database afresh: it builds the request's batch
+loader anew, so polling an object until its provisioning settles works on one
+`Executor`.
+
 **One account per PHP request.** The panel's own helpers read the acting
 account from session globals, which `IdentityShim` fills in and will not
 switch mid-request. Serve one account's call per HTTP request.
