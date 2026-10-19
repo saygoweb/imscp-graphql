@@ -22,12 +22,15 @@ FAILED=0
 # marker twice, and reports a file count nobody can reconcile. Both are also
 # in .gitignore, which is what stops them being committed; this is what stops
 # them being measured.
+#
+# Pruned by name *below* $ROOT, not matched against the whole path: a
+# worktree's own path is <checkout>/.claude/worktrees/<name>, so a pattern
+# such as '*/.claude/*' matches every file in it, and the scans run from a
+# worktree used to pass having looked at nothing ("0 files, 0 failures").
 php_files() {
-    find "$ROOT" -name '*.php' \
-        -not -path '*/vendor/*' \
-        -not -path '*/.git/*' \
-        -not -path '*/.claude/*' \
-        -not -path '*/worktrees/*'
+    find "$ROOT" -mindepth 1 \
+        \( -name vendor -o -name .git -o -name .claude -o -name worktrees \) -prune \
+        -o -name '*.php' -print
 }
 
 # grep's own form of the same list, for the scans that read content rather

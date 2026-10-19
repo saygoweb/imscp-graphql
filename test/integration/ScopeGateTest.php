@@ -443,6 +443,112 @@ class ScopeGateTest extends IntegrationTestCase
     }
 
     /**
+     * Query.customer used to require CUSTOMERS_READ flat, a scope no customer
+     * can hold, so a customer was refused its own account by customer() while
+     * node() handed it over (found by SGW_Mcp's integration suite). It now
+     * asks scopeFor(), as node() does.
+     */
+    public function testACustomerReachesTheirOwnAccountThroughCustomerToo(): void
+    {
+        $id = GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId());
+
+        $response = $this->execute(
+            'query C($id: ID!) { customer(id: $id) { id } }',
+            array(Scope::ACCOUNT_READ), array('id' => $id), 'customer'
+        );
+
+        self::assertArrayNotHasKey(
+            'errors', $response, json_encode($response['errors'] ?? array())
+        );
+        self::assertSame($id, $response['data']['customer']['id']);
+    }
+
+    /**
+     * The other half: own-account is the only exception. Another account is
+     * still CUSTOMERS_READ, so a customer holding every scope its role can
+     * hold is refused a sibling's account before reachability is asked.
+     */
+    public function testACustomerIsStillRefusedAnotherAccountThroughCustomer(): void
+    {
+        $response = $this->execute(
+            'query C($id: ID!) { customer(id: $id) { id } }',
+            Scope::grantableTo('user'),
+            array('id' => GlobalId::encode(NodeType::CUSTOMER, $this->fixture->siblingId())),
+            'customer'
+        );
+
+        self::assertSame(
+            ErrorCode::FORBIDDEN, $response['errors'][0]['extensions']['code'] ?? null
+        );
+    }
+
+    /**
+     * A reseller token reads its own account's private fields and its own
+     * hosting plans with the scopes a reseller can hold. They used to need
+     * RESELLERS_READ, which Scope::grantableTo() never gives a reseller, so
+     * every one of them was FORBIDDEN (found by SGW_Mcp's integration suite).
+     */
+    public function testAResellerReadsItsOwnAccountAndPlansWithGrantableScopes(): void
+    {
+        $self = GlobalId::encode(NodeType::RESELLER, $this->fixture->resellerId());
+        $plan = GlobalId::encode(NodeType::HOSTING_PLAN, $this->fixture->hostingPlanId());
+
+        $response = $this->execute(
+            'query R($self: ID!, $plan: ID!) {'
+                . ' viewer { reseller { quotas { __typename } storage { diskLimit }'
+                . ' ipAddresses { id } apiAccess hostingPlans { id reseller { id } } } }'
+                . ' reseller(id: $self) { id }'
+                . ' node(id: $plan) { id } }',
+            Scope::grantableTo('reseller'),
+            array('self' => $self, 'plan' => $plan),
+            'reseller'
+        );
+
+        self::assertArrayNotHasKey(
+            'errors', $response, json_encode($response['errors'] ?? array())
+        );
+        self::assertContains(
+            $plan, array_column($response['data']['viewer']['reseller']['hostingPlans'], 'id')
+        );
+        self::assertSame($self, $response['data']['reseller']['id']);
+        self::assertSame($plan, $response['data']['node']['id']);
+    }
+
+    /**
+     * Each own-account field asks for the narrow scope it was given, not for
+     * anything: ACCOUNT_READ alone does not reach the plans, which are
+     * CUSTOMERS_READ as their mutations are CUSTOMERS_WRITE.
+     */
+    public function testAResellersOwnPlansNeedCustomersRead(): void
+    {
+        $response = $this->execute(
+            '{ viewer { reseller { hostingPlans { id } } } }',
+            array(Scope::ACCOUNT_READ), array(), 'reseller'
+        );
+
+        self::assertSame(
+            ErrorCode::FORBIDDEN, $response['errors'][0]['extensions']['code'] ?? null
+        );
+    }
+
+    /**
+     * And an administrator reading a reseller still needs RESELLERS_READ.
+     */
+    public function testAnAdministratorStillNeedsResellersReadForAReseller(): void
+    {
+        $response = $this->execute(
+            'query R($id: ID!) { reseller(id: $id) { id } }',
+            array(Scope::ACCOUNT_READ, Scope::CUSTOMERS_READ),
+            array('id' => GlobalId::encode(NodeType::RESELLER, $this->fixture->resellerId())),
+            'admin'
+        );
+
+        self::assertSame(
+            ErrorCode::FORBIDDEN, $response['errors'][0]['extensions']['code'] ?? null
+        );
+    }
+
+    /**
      * One unsettled object of every tag Query.pending can return.
      */
     private function makeEverythingPending(): void

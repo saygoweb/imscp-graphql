@@ -266,6 +266,42 @@ final class ResellerResolver
     }
 
     /**
+     * requireReseller(), then the scope for reading this reseller: $ownScope
+     * when the caller is that reseller, RESELLERS_READ for anyone else (an
+     * administrator).
+     *
+     * RESELLERS_READ is a scope no reseller can hold (Scope::grantableTo()),
+     * so asking it of a reseller reading its own account refused every
+     * reseller token every one of these fields, while viewer.reseller let the
+     * same token in with ACCOUNT_READ (found by SGW_Mcp's integration suite).
+     * The rule is the one QueryResolver::scopeFor() applies to a Customer: the
+     * account scope for one's own account, the administrative scope for
+     * someone else's.
+     *
+     * @param mixed $context
+     * @throws ApiException FORBIDDEN
+     */
+    private static function requireOwnScope($context, int $resellerId, string $ownScope): Identity
+    {
+        $identity = self::requireReseller($context, $resellerId);
+        TypeResolver::requireScope($context, self::ownOr($resellerId, $identity, $ownScope));
+
+        return $identity;
+    }
+
+    /**
+     * $ownScope when $identity is reseller $resellerId, RESELLERS_READ
+     * otherwise.
+     */
+    private static function ownOr(int $resellerId, Identity $identity, string $ownScope): string
+    {
+        return $identity->getRole() === Identity::ROLE_RESELLER
+            && $identity->getAdminId() === $resellerId
+            ? $ownScope
+            : Scope::RESELLERS_READ;
+    }
+
+    /**
      * CustomerFilter as a SQL fragment over `a` (admin) and `d` (domain).
      *
      * Public and static because Query.customers (Task 16) builds the same
@@ -366,16 +402,14 @@ final class ResellerResolver
 
     public function resolveQuotas($source, array $args, $context, ResolveInfo $info): array
     {
-        self::requireReseller($context, (int)$source['__key']);
-        TypeResolver::requireScope($context, Scope::RESELLERS_READ);
+        self::requireOwnScope($context, (int)$source['__key'], Scope::ACCOUNT_READ);
 
         return self::quotas($source['__row']);
     }
 
     public function resolveStorage($source, array $args, $context, ResolveInfo $info): SyncPromise
     {
-        self::requireReseller($context, (int)$source['__key']);
-        TypeResolver::requireScope($context, Scope::RESELLERS_READ);
+        self::requireOwnScope($context, (int)$source['__key'], Scope::ACCOUNT_READ);
 
         $row = $source['__row'];
         $resellerId = (int)$source['__key'];
@@ -410,16 +444,14 @@ final class ResellerResolver
 
     public function resolveIpAddresses($source, array $args, $context, ResolveInfo $info): SyncPromise
     {
-        self::requireReseller($context, (int)$source['__key']);
-        TypeResolver::requireScope($context, Scope::RESELLERS_READ);
+        self::requireOwnScope($context, (int)$source['__key'], Scope::ACCOUNT_READ);
 
         return call_user_func($this->ipsRef, $source['__ipIds']);
     }
 
     public function resolveApiAccess($source, array $args, $context, ResolveInfo $info): SyncPromise
     {
-        self::requireReseller($context, (int)$source['__key']);
-        TypeResolver::requireScope($context, Scope::RESELLERS_READ);
+        self::requireOwnScope($context, (int)$source['__key'], Scope::ACCOUNT_READ);
 
         $db = $this->db;
         $byDefault = $this->apiAccessByDefault;
@@ -537,8 +569,7 @@ final class ResellerResolver
 
     public function resolveHostingPlans($source, array $args, $context, ResolveInfo $info): SyncPromise
     {
-        self::requireReseller($context, (int)$source['__key']);
-        TypeResolver::requireScope($context, Scope::RESELLERS_READ);
+        self::requireOwnScope($context, (int)$source['__key'], Scope::CUSTOMERS_READ);
 
         $db = $this->db;
 
@@ -577,7 +608,9 @@ final class ResellerResolver
 
     public function resolvePlanReseller($source, array $args, $context, ResolveInfo $info): SyncPromise
     {
-        TypeResolver::requireScope($context, Scope::RESELLERS_READ);
+        TypeResolver::requireScope(
+            $context, self::ownOr((int)$source['__resellerId'], TypeResolver::identity($context), Scope::ACCOUNT_READ)
+        );
 
         return $this->reference((int)$source['__resellerId']);
     }

@@ -77,6 +77,57 @@ class TokenService
         ?int $ttlDays,
         ?string $ipAllowlist
     ): array {
+        return $this->mint(
+            $adminId, $name, $scopes,
+            $ttlDays === null ? null : $ttlDays * 86400,
+            $ipAllowlist
+        );
+    }
+
+    /**
+     * issue(), with the lifetime in seconds rather than days.
+     *
+     * The panel's token page and `tokenIssue` think in days; an OAuth access
+     * token minted through Api\Executor::issueToken() lives for an hour. One
+     * method that validates and writes a token, two ways of saying how long
+     * it lasts - so the second does not grow a second copy of everything
+     * issue() checks. There is no never-expires form here: a caller that
+     * thinks in seconds has a lifetime in mind.
+     *
+     * @param string[] $scopes
+     * @return array{token: string, tokenId: int, expiresAt: int}
+     * @throws ApiException BAD_USER_INPUT for a lifetime under one second,
+     *                      and everything issue() refuses.
+     */
+    public function issueForSeconds(
+        int $adminId,
+        string $name,
+        array $scopes,
+        int $ttlSeconds,
+        ?string $ipAllowlist
+    ): array {
+        if ($ttlSeconds < 1) {
+            throw new ApiException(
+                ErrorCode::BAD_USER_INPUT, 'A token lasts at least one second.',
+                array('field' => 'ttlSeconds')
+            );
+        }
+
+        return $this->mint($adminId, $name, $scopes, $ttlSeconds, $ipAllowlist);
+    }
+
+    /**
+     * @param string[] $scopes
+     * @return array{token: string, tokenId: int, expiresAt: int|null}
+     * @throws ApiException
+     */
+    private function mint(
+        int $adminId,
+        string $name,
+        array $scopes,
+        ?int $ttlSeconds,
+        ?string $ipAllowlist
+    ): array {
         $name = trim($name);
 
         if ($name === '') {
@@ -143,7 +194,7 @@ class TokenService
         $prefix = self::randomPrefix();
         $secret = self::randomSecret();
         $now = time();
-        $expiresAt = $ttlDays === null ? null : $now + ($ttlDays * 86400);
+        $expiresAt = $ttlSeconds === null ? null : $now + $ttlSeconds;
 
         call_user_func(
             $this->query,
@@ -262,6 +313,103 @@ class TokenService
         );
 
         return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Whether this account's token could still be presented: it exists, it
+     * belongs to $adminId, it has not been revoked and it has not expired.
+     *
+     * verify() asks the same three questions of a presented secret, plus the
+     * address; this asks them of a token id, for a holder that kept the id
+     * and not the secret - Api\Executor::tokenIsLive(). Revocation keeps the
+     * row and stamps revoked_at, so "the row exists" alone would count a
+     * revoked token as live. An OAuth refresh asks isRevoked() instead.
+     */
+    public function isLive(int $adminId, int $tokenId): bool
+    {
+        $stmt = call_user_func(
+            $this->query,
+            '
+                SELECT token_id FROM api_token
+                WHERE token_id = ? AND admin_id = ? AND revoked_at IS NULL
+                    AND (expires_at IS NULL OR expires_at > ?)
+            ',
+            array($tokenId, $adminId, time())
+        );
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Whether this account's token is gone: there is no such row, it belongs
+     * to another account, or it has been revoked.
+     *
+     * Expiry is deliberately not asked. This is the check an OAuth refresh
+     * makes on the access token it is about to replace, and an access token
+     * that lives for an hour has almost always expired by then - so isLive()
+     * would end every connection at its first refresh. What a refresh must
+     * not survive is the user revoking the token on the panel's token page,
+     * and that is revoked_at.
+     */
+    public function isRevoked(int $adminId, int $tokenId): bool
+    {
+        $stmt = call_user_func(
+            $this->query,
+            '
+                SELECT token_id FROM api_token
+                WHERE token_id = ? AND admin_id = ? AND revoked_at IS NULL
+            ',
+            array($tokenId, $adminId)
+        );
+
+        return $stmt->rowCount() === 0;
+    }
+
+    /**
+     * Spec section 5.3's `token_max_per_account`, counted over the tokens that
+     * are still usable.
+     *
+     * A revoked or expired token is not a token the account can present, so
+     * counting it would mean an account that had rotated its tokens ten times
+     * could never mint an eleventh.
+     *
+     * Here rather than in `tokenIssue`'s resolver because both places that
+     * mint a token for a caller - that resolver and
+     * Api\Executor::issueToken() - are held to it.
+     *
+     * @param int $limit Less than one is no limit.
+     * @throws ApiException LIMIT_EXCEEDED
+     */
+    public function requireRoomForAnother(int $adminId, int $limit): void
+    {
+        if ($limit < 1) {
+            return;
+        }
+
+        $live = 0;
+        $now = time();
+
+        foreach ($this->listFor($adminId) as $token) {
+            if ($token->getRevokedAt() !== null) {
+                continue;
+            }
+
+            if ($token->getExpiresAt() !== null && $token->getExpiresAt() <= $now) {
+                continue;
+            }
+
+            $live++;
+        }
+
+        if ($live < $limit) {
+            return;
+        }
+
+        throw new ApiException(
+            ErrorCode::LIMIT_EXCEEDED,
+            'This account already holds as many API tokens as it may.',
+            array('quota' => 'tokens', 'limit' => $limit, 'used' => $live)
+        );
     }
 
     public function revokeAllFor(int $adminId): void

@@ -11,6 +11,10 @@ resolvers and authorisation rules. This plugin checks that the extension fits,
 builds it into the schema, and hands its resolvers the same database handle,
 batch loader and ownership rule that this plugin's own resolvers use.
 
+A plugin can also *call* the API rather than extend it: `Api\Executor` runs a
+document inside the same PHP process, held to the same rules as
+`POST /api/graphql`. See [In-process execution](#in-process-execution).
+
 ## The shape of it
 
 ```
@@ -298,3 +302,88 @@ extension can be left out.
 To try an extension against a running panel, enable both plugins and query
 the schema route. If the extension's fields are not there, the reason is in
 the panel's log.
+
+## In-process execution
+
+Since 1.2.0, a plugin that serves this API over a protocol of its own — the
+MCP server, SGW_Mcp, is the one it was written for — calls
+`iMSCP\Plugin\SGW_GraphQL\Api\Executor` instead of making an HTTP request
+to the panel it is already running in.
+
+```php
+use iMSCP\Plugin\SGW_GraphQL\Api\Executor;
+use iMSCP\Plugin\SGW_GraphQL\Api\ExecutorAuthException;
+
+$executor = Executor::fromPanel();   // throws if SGW_GraphQL is not enabled
+
+try {
+    $result = $executor->execute(
+        $bearerToken,                // the token alone, without "Bearer "
+        'query { viewer { username } }',
+        array(),                     // variables
+        $clientIp                    // the END client's address, see below
+    );
+} catch (ExecutorAuthException $e) {
+    // $e->getReason(): UNAUTHENTICATED (sign in again) or
+    // API_ACCESS_WITHDRAWN (signing in again will not help)
+}
+```
+
+### What `execute()` is
+
+`execute()` is the endpoint without the transport. It builds the request that
+`POST /api/graphql` would have received and runs it through the same
+`RateLimitMiddleware`, `AuthenticateMiddleware` and `GraphQLHandler`, built
+from the same configuration (`Container::inProcessHandler()`). There is one
+code path, not a second copy that could drift. So all of these apply exactly
+as they do over HTTP:
+
+* the token, its scopes and its address allow-list;
+* the per-account API switch;
+* both rate-limit buckets, charged to the same keys, so HTTP and in-process
+  calls with one token spend one allowance;
+* `trusted_clients`;
+* the depth and complexity limits;
+* the audit row, which records `via` = `mcp` (an `api_audit` column added by
+  `sql/003`; rows written over HTTP say `http`).
+
+What it leaves out is TLS and CORS. Those concern an HTTP connection, and for
+an in-process call that connection belongs to the calling plugin, which has
+already answered for it. A panel session is never the credential: `execute()`
+always requires a bearer token.
+
+**`$clientIp` must be the end client's address**, resolved by the caller
+through its own trusted-proxy rules. It is what the token's allow-list,
+`trusted_clients` and the audit row all judge. Passing the caller's own
+loopback address would make all three judge the wrong address.
+
+The return value is the envelope `POST /api/graphql` answers with. Only the
+two refusals above are thrown. A document that does not parse, a field the
+token's scopes do not cover, and a rate-limit refusal all come back in
+`errors`. A rate-limit refusal is `RATE_LIMITED` with
+`extensions.retryAfterSeconds` and no `data`.
+
+Each `execute()` reads the database afresh: it builds the request's batch
+loader anew, so polling an object until its provisioning settles works on one
+`Executor`.
+
+**One account per PHP request.** The panel's own helpers read the acting
+account from session globals, which `IdentityShim` fills in and will not
+switch mid-request. Serve one account's call per HTTP request.
+
+### What an OAuth server needs
+
+| Method | |
+| --- | --- |
+| `schemaSdl(): string` | The effective SDL, as `GET /api/graphql/schema` serves it. |
+| `grantableScopes(int $adminId): string[]` | The scopes the account's role can hold; empty for no such active account. |
+| `issueToken(int $adminId, string $name, string[] $scopes, int $ttlSeconds)` | Mints a token without a password, returning `token`, `tokenId` and `expiresAt`. It is held to what `tokenIssue` is held to: an active account with API access, scopes the role can hold (an out-of-role scope is refused with `FORBIDDEN`, not dropped), at least one scope, `token_max_per_account`, and the name rules. The lifetime is capped at `token_max_ttl_days`. Each issue is written to the panel's log. Throws `ApiException`. |
+| `revokeToken(int $adminId, int $tokenId): bool` | True when this call revoked the token. |
+| `tokenIsLive(int $adminId, int $tokenId): bool` | The token is this account's, unrevoked and unexpired. |
+| `tokenIsRevoked(int $adminId, int $tokenId): bool` | The token is missing, another account's, or revoked. It **ignores expiry**: this is the check for a refresh, whose expiring access token has normally lapsed by then. |
+| `account(int $adminId): ?array` | Returns `adminId`, `username` (as stored, ASCII), `role` (`ADMIN`, `RESELLER` or `CUSTOMER`) and `apiAccess`. Null for no such active account. |
+| `authenticate(string $username, string $password): ?int` | The panel's own login check, with its events and brute-force protection. Returns the admin id, or null. |
+
+`Executor::forContainer(Container::forTesting(...))` builds one for a test.
+`test/unit/Api/ExecutorTest.php` and `test/integration/ExecutorTest.php` show
+both.

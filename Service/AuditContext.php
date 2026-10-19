@@ -46,6 +46,21 @@ final class AuditContext
     /** `api_audit`.`ip` is varchar(45), which is an IPv6 address in full. */
     const MAX_IP = 45;
 
+    /** `api_audit`.`via` (sql/003): POST /api/graphql. */
+    const VIA_HTTP = 'http';
+
+    /** `api_audit`.`via`: Api\Executor, called by SGW_Mcp in-process. */
+    const VIA_MCP = 'mcp';
+
+    /**
+     * The PSR-7 request attribute Api\Executor carries VIA_MCP in.
+     *
+     * Namespaced, not `via`: Slim turns a route's placeholders into request
+     * attributes, and a route that one day declared `{via}` must not be able
+     * to relabel its own rows.
+     */
+    const VIA_ATTRIBUTE = 'sgw_graphql.via';
+
     /** @var int 0 when the request presented no credential at all. */
     private $adminId = 0;
 
@@ -58,8 +73,20 @@ final class AuditContext
     /** @var float microtime(true) when the handler took the request. */
     private $startedAt;
 
-    public function __construct(string $ip, float $startedAt)
+    /** @var string One of the VIA_ constants. */
+    private $via;
+
+    /**
+     * @param string $via Which entry point the request came in by. Anything
+     *                    but a VIA_ constant is read as VIA_HTTP: the value
+     *                    reaches here from a request attribute, and a row must
+     *                    never say a request came in by a door that does not
+     *                    exist.
+     */
+    public function __construct(string $ip, float $startedAt, string $via = self::VIA_HTTP)
     {
+        $this->via = $via === self::VIA_MCP ? self::VIA_MCP : self::VIA_HTTP;
+
         // Truncated rather than hashed, unlike RateLimiter's keys: nothing
         // keys off this column, so a value too long for it is a display
         // problem and not a two-callers-share-one-counter problem. Nothing
@@ -120,6 +147,11 @@ final class AuditContext
     public function getIp(): string
     {
         return $this->ip;
+    }
+
+    public function getVia(): string
+    {
+        return $this->via;
     }
 
     /**

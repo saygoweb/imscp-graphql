@@ -391,10 +391,9 @@ class QueryResolverTest extends IntegrationTestCase
 
     public function testAResellerMayNotListEveryIpAddressTheServerHas(): void
     {
-        // RESELLERS_READ is the scope IpAddress carries (see
-        // QueryResolver::SCOPES), and a reseller holds it - Reseller.ipAddresses
-        // is exactly that scope reading exactly this type - but the pool
-        // itself belongs to the administrator, not to any one reseller.
+        // A reseller reads its own addresses through Reseller.ipAddresses
+        // (ACCOUNT_READ, see QueryResolver::scopeFor()), but the pool itself
+        // belongs to the administrator, not to any one reseller.
         try {
             $this->resolver->resolveIpAddresses(
                 null, array(), $this->context('reseller'), $this->info()

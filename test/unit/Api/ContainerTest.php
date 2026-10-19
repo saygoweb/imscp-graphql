@@ -153,6 +153,34 @@ class ContainerTest extends TestCase
         self::assertCount(4, $middleware);
     }
 
+    /**
+     * Api\Executor runs requestMiddleware(): the endpoint's own rate limit
+     * and authentication, the same objects middleware() ends in, with the
+     * transport checks left out and session authentication off.
+     */
+    public function testTheInProcessMiddlewareIsTheEndpointsMinusTheTransport(): void
+    {
+        $middleware = $this->container()->requestMiddleware(false);
+
+        self::assertCount(2, $middleware);
+        self::assertInstanceOf(RateLimitMiddleware::class, $middleware[0]);
+        self::assertInstanceOf(AuthenticateMiddleware::class, $middleware[1]);
+
+        $property = new \ReflectionProperty(AuthenticateMiddleware::class, 'allowSessionAuth');
+        $property->setAccessible(true);
+
+        self::assertFalse($property->getValue($middleware[1]));
+        self::assertTrue(
+            $property->getValue($this->container()->middleware()[3]),
+            'the endpoint keeps its configured allow_session_auth'
+        );
+    }
+
+    public function testTheInProcessHandlerIsACallable(): void
+    {
+        self::assertIsCallable($this->container()->inProcessHandler());
+    }
+
     public function testTheSchemaBuildsThroughTheContainer(): void
     {
         $this->container()->schemaFactory()->create()->assertValid();

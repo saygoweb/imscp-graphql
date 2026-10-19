@@ -320,14 +320,15 @@ final class Audit
 
         $this->db->execute(
             'INSERT INTO api_audit'
-                . ' (at, admin_id, token_id, ip, operation, fields, variables,'
+                . ' (at, admin_id, token_id, ip, via, operation, fields, variables,'
                 . ' outcome, error_code, duration_ms)'
-                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                . ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             array(
                 (int)call_user_func($this->now),
                 $context->getAdminId(),
                 $context->getTokenId(),
                 $context->getIp(),
+                $context->getVia(),
                 self::cap(self::operationName($document), self::MAX_OPERATION),
                 self::cap(self::fieldNames($document), self::MAX_FIELDS),
                 self::encode(self::redact($document, $variables, $this->schema)),

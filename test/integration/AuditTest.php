@@ -125,8 +125,10 @@ class AuditTest extends IntegrationTestCase
         $root = dirname(__DIR__, 2);
         $tables = include $root . '/sql/001_create_api_tables.php';
         $rate = include $root . '/sql/002_create_rate_table.php';
+        $via = include $root . '/sql/003_add_audit_via.php';
         $pdo->exec($tables['up']);
         $pdo->exec($rate['up']);
+        $pdo->exec($via['up']);
     }
 
     protected function setUp(): void
@@ -204,6 +206,7 @@ class AuditTest extends IntegrationTestCase
         self::assertSame($this->fixture->customerId(), (int)$row['admin_id']);
         self::assertSame($tokenId, (int)$row['token_id'], 'the credential that was presented');
         self::assertSame('203.0.113.7', (string)$row['ip']);
+        self::assertSame('http', (string)$row['via'], 'came in over POST /api/graphql');
         self::assertSame('Revoke', (string)$row['operation'], 'the operation name');
         self::assertSame('tokenRevoke', (string)$row['fields'], 'the field that was invoked');
         self::assertSame('ok', (string)$row['outcome']);

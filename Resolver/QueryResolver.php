@@ -136,6 +136,10 @@ final class QueryResolver
      *   IpAddress by identifier at all, so the only callers here are resellers
      *   and administrators, and Reseller.ipAddresses is the listing that
      *   produces the same objects for them.
+     *
+     *   Reseller, HostingPlan and IpAddress are RESELLERS_READ for an
+     *   administrator only: a reseller reading its own needs the scope
+     *   scopeFor() names instead, since no reseller can hold RESELLERS_READ.
      */
     const SCOPES = array(
         NodeType::CUSTOMER        => Scope::ACCOUNT_READ,
@@ -183,6 +187,28 @@ final class QueryResolver
 
         if ($tag === NodeType::CUSTOMER && (int)$key !== $identity->getAdminId()) {
             return Scope::CUSTOMERS_READ;
+        }
+
+        // The same rule for a reseller's own objects. SCOPES gives these three
+        // RESELLERS_READ, which no reseller can hold (Scope::grantableTo()),
+        // so a reseller token was refused its own account, plans and
+        // addresses. For a reseller caller, ownership has already narrowed a
+        // HostingPlan or an IpAddress to its own; a Reseller is its own only
+        // when it is the caller. An administrator still needs RESELLERS_READ.
+        if ($identity->getRole() === Identity::ROLE_RESELLER) {
+            if ($tag === NodeType::RESELLER && (int)$key === $identity->getAdminId()) {
+                return Scope::ACCOUNT_READ;
+            }
+
+            if ($tag === NodeType::HOSTING_PLAN) {
+                // What a reseller sells its customers; the plan mutations
+                // need CUSTOMERS_WRITE.
+                return Scope::CUSTOMERS_READ;
+            }
+
+            if ($tag === NodeType::IP_ADDRESS) {
+                return Scope::ACCOUNT_READ;
+            }
         }
 
         return self::SCOPES[$tag];
@@ -270,8 +296,21 @@ final class QueryResolver
      */
     public function resolveCustomer($source, array $args, $context, ResolveInfo $info)
     {
-        $identity = TypeResolver::requireScope($context, Scope::CUSTOMERS_READ);
         $globalId = self::decode((string)$args['id'], NodeType::CUSTOMER);
+
+        // scopeFor(), the rule node() applies to the same object: CUSTOMERS_READ
+        // for another account, ACCOUNT_READ for one's own. A flat
+        // CUSTOMERS_READ here refused every customer its own account, since
+        // that is a scope no customer can hold (Scope::grantableTo()). Asked
+        // before ownership, as the flat check was: the scope depends only on
+        // whether the identifier is the caller's own, which the caller already
+        // knows, so a FORBIDDEN here still confirms nothing about anyone else.
+        $identity = TypeResolver::requireScope(
+            $context,
+            (string)self::scopeFor(
+                NodeType::CUSTOMER, $globalId->getId(), TypeResolver::identity($context)
+            )
+        );
 
         $this->ownership->assertReachable($identity, $globalId);
 
@@ -283,8 +322,16 @@ final class QueryResolver
      */
     public function resolveReseller($source, array $args, $context, ResolveInfo $info)
     {
-        $identity = TypeResolver::requireScope($context, Scope::RESELLERS_READ);
         $globalId = self::decode((string)$args['id'], NodeType::RESELLER);
+
+        // scopeFor(), as for resolveCustomer(): ACCOUNT_READ for a reseller
+        // reading itself, RESELLERS_READ otherwise.
+        $identity = TypeResolver::requireScope(
+            $context,
+            (string)self::scopeFor(
+                NodeType::RESELLER, $globalId->getId(), TypeResolver::identity($context)
+            )
+        );
 
         // A customer may reach their own reseller's object; every private
         // field on it is refused separately by

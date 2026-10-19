@@ -83,8 +83,14 @@ final class GraphQLHandler
         // row needs is a local of this method, which is why the whole body is
         // one try rather than a call to something that could return without
         // being recorded.
+        //
+        // `via` is set by Api\Executor and by nothing else: a request that came
+        // in over HTTP carries no such attribute, and AuditContext reads any
+        // value that is not one of its own constants as HTTP.
+        $via = $request->getAttribute(AuditContext::VIA_ATTRIBUTE);
         $auditContext = new AuditContext(
-            (string)($request->getServerParams()['REMOTE_ADDR'] ?? ''), microtime(true)
+            (string)($request->getServerParams()['REMOTE_ADDR'] ?? ''), microtime(true),
+            is_string($via) ? $via : AuditContext::VIA_HTTP
         );
         $parsed = null;
         $variables = array();

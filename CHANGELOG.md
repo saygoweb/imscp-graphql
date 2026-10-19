@@ -6,6 +6,65 @@ All notable changes to this plugin are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-10-19
+
+### Added
+
+- **`Api\Executor`: the API in-process, for another plugin.** It is written
+  for SGW_Mcp, the MCP server. `execute()` runs a document as the holder of a
+  bearer token, through the endpoint's own rate limit, authentication and
+  handler, with only TLS and CORS left out. Token scopes, the address
+  allow-list, the API switch, both rate-limit buckets (shared with HTTP),
+  `trusted_clients`, the query limits and the audit row all apply as they do
+  over HTTP. Two refusals throw `ExecutorAuthException`, with `getReason()`
+  `UNAUTHENTICATED` or `API_ACCESS_WITHDRAWN`. Everything else, including
+  `RATE_LIMITED`, is returned in the envelope. For an OAuth server in front of
+  the API, `Executor` also offers:
+  - `issueToken()`, held to `tokenIssue`'s rules and refusing out-of-role or
+    empty scope lists;
+  - `revokeToken()`;
+  - `tokenIsLive()`;
+  - `tokenIsRevoked()`, which ignores expiry, for a refresh;
+  - `grantableScopes()`, `account()`, `authenticate()` (the panel's own login
+    check) and `schemaSdl()`.
+
+  See [docs/EXTENSIONS.md](docs/EXTENSIONS.md#in-process-execution).
+- **`api_audit.via`** (migration `sql/003`). It records `http` or `mcp`, and
+  the admin's audit page marks in-process rows "(MCP)". Existing rows read as
+  `http`.
+- `TokenService::issueForSeconds()`, `isLive()`, `isRevoked()` and
+  `requireRoomForAnother()`.
+- `Scope::grantableTo()` and `Scope::requireGrantable()`. The role rule moved
+  here from `tokenIssue`'s resolver so that the two places that mint a token
+  share one rule.
+
+### Fixed
+
+- `Query.customer(id:)` refused a customer its own account with FORBIDDEN. It
+  required CUSTOMERS_READ, a scope no customer can hold. It now applies the
+  same rule as `node(id:)`: ACCOUNT_READ for one's own account, CUSTOMERS_READ
+  for anyone else's. Found by SGW_Mcp's integration suite.
+- A reseller token could read none of its own account's private fields. That
+  covered `quotas`, `storage`, `ipAddresses`, `apiAccess`, `hostingPlans`,
+  `HostingPlan.reseller`, and `node` or `reseller(id:)` for itself. Each one
+  required RESELLERS_READ, a scope no reseller can hold, while
+  `viewer.reseller` let the same token in with ACCOUNT_READ. A reseller
+  reading its own account now needs ACCOUNT_READ, and its own hosting plans
+  need CUSTOMERS_READ (their mutations need CUSTOMERS_WRITE). An administrator
+  reading a reseller still needs RESELLERS_READ. Found by SGW_Mcp's
+  integration suite.
+- `Executor::execute()` builds a fresh Container, and so a fresh batch loader,
+  for every call. One `Executor` reused one Container, so a caller polling an
+  object for its provisioning to settle read the first answer forever.
+- `test/lint/all.sh` linted nothing when run from a git worktree under
+  `.claude/worktrees/` ("0 files, 0 failures"). Its exclusions now apply below
+  the checkout root, not to the whole path.
+- The integration suite, run from a worktree, tested the panel's installed
+  copy of the plugin. Booting the panel prepends that copy's autoloader. The
+  checkout under test now puts its own back in front.
+
+## [1.1.2] — 2026-09-28
+
 ### Added
 
 - **GraphiQL and GraphQL Voyager as full-window pages**, at

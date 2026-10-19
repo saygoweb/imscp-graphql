@@ -1054,27 +1054,55 @@ final class Container
      * This is not handed to Slim as route middleware — PluginRoutesInjector
      * cannot attach it in either shape it offers, see the note on
      * routeHandler() — it is the ordering that routeHandler() folds into one
-     * callable. array_reverse() there walks this list from the innermost
-     * (last) element outward, wrapping each one around what came before, so
-     * the first element here ends up as the outermost wrapper of the composed
-     * pipeline: still ordering as described, for a different reason than
-     * "passed to the route".
+     * callable. array_reverse() in compose() walks this list from the
+     * innermost (last) element outward, wrapping each one around what came
+     * before, so the first element here ends up as the outermost wrapper of
+     * the composed pipeline: still ordering as described, for a different
+     * reason than "passed to the route".
+     *
+     * The last two are requestMiddleware(), which Api\Executor runs too.
      *
      * @return callable[]
      */
     public function middleware(): array
     {
-        return array(
-            new TlsMiddleware(
-                (bool)($this->config['require_tls'] ?? true),
-                $this->tokens(),
-                // (array) so that a single address written as a bare string
-                // still configures one proxy rather than being read as a list
-                // of its characters, and an absent key is the empty list —
-                // trusting nothing, which is the safe default.
-                (array)($this->config['trusted_proxies'] ?? array())
+        return array_merge(
+            array(
+                new TlsMiddleware(
+                    (bool)($this->config['require_tls'] ?? true),
+                    $this->tokens(),
+                    // (array) so that a single address written as a bare
+                    // string still configures one proxy rather than being
+                    // read as a list of its characters, and an absent key is
+                    // the empty list — trusting nothing, which is the safe
+                    // default.
+                    (array)($this->config['trusted_proxies'] ?? array())
+                ),
+                new CorsMiddleware((array)($this->config['allowed_origins'] ?? array()))
             ),
-            new CorsMiddleware((array)($this->config['allowed_origins'] ?? array())),
+            $this->requestMiddleware((bool)($this->config['allow_session_auth'] ?? true))
+        );
+    }
+
+    /**
+     * The rate limit, then authentication: the part of the pipeline that is
+     * about the caller rather than the transport.
+     *
+     * Split from middleware() so that Api\Executor runs these two exact
+     * objects, built from this exact configuration, rather than a copy of
+     * them that could drift. What it leaves out is TLS and CORS, which are
+     * about an HTTP connection that, for an in-process call, belongs to the
+     * plugin making it - and which that plugin has already answered for.
+     *
+     * @param bool $allowSessionAuth `allow_session_auth` for the endpoint;
+     *                               false for Api\Executor, which has no
+     *                               browser behind it and always presents a
+     *                               bearer.
+     * @return callable[]
+     */
+    public function requestMiddleware(bool $allowSessionAuth): array
+    {
+        return array(
             // Before authentication, so that a bogus, expired or revoked
             // bearer is counted rather than refused for free (checkpoint D,
             // D4). It keys on the presented token's prefix, which
@@ -1086,15 +1114,15 @@ final class Container
                 // single address written as a bare string still configures
                 // one client rather than being read as a list of its
                 // characters, the same reason 'trusted_proxies' is cast the
-                // same way just above - and an absent key is the empty list,
-                // trusting nothing.
+                // same way in middleware() - and an absent key is the empty
+                // list, trusting nothing.
                 'queriesTrusted' => (int)($this->config['rate_limit_queries_trusted'] ?? 1200),
                 'trustedClients' => (array)($this->config['trusted_clients'] ?? array())
             )),
             new AuthenticateMiddleware(
                 $this->tokens(),
                 $this->accountLoader,
-                (bool)($this->config['allow_session_auth'] ?? true),
+                $allowSessionAuth,
                 $this->apiAccessChecker
             )
         );
@@ -1127,8 +1155,30 @@ final class Container
      */
     public function routeHandler(): callable
     {
-        $target = $this->handler();
+        return $this->compose($this->middleware(), $this->handler());
+    }
 
+    /**
+     * The pipeline Api\Executor runs: requestMiddleware(), without session
+     * authentication, then the same GraphQL handler routeHandler() ends in.
+     *
+     * @return callable fn(ServerRequestInterface, ResponseInterface, array): ResponseInterface
+     */
+    public function inProcessHandler(): callable
+    {
+        return $this->compose($this->requestMiddleware(false), $this->handler());
+    }
+
+    /**
+     * An instance method, not a static one, though it uses nothing of the
+     * instance: a closure created in a static method has no $this to have
+     * been bound to, and the note below is about exactly that rebinding.
+     *
+     * @param callable[] $middleware Outermost first.
+     * @return callable
+     */
+    private function compose(array $middleware, callable $target): callable
+    {
         // Not `static`: Slim\App::map() unconditionally calls
         // $callable->bindTo($this->container) on any Closure handed to it as
         // a route handler. bindTo() on a *static* closure does not rebind it
@@ -1141,16 +1191,57 @@ final class Container
             return $target($request, $response, $args);
         };
 
-        foreach (array_reverse($this->middleware()) as $middleware) {
+        foreach (array_reverse($middleware) as $layer) {
             $inner = $pipeline;
-            $pipeline = function ($request, $response, array $args) use ($middleware, $inner) {
-                return $middleware($request, $response, static function ($req, $res) use ($inner, $args) {
+            $pipeline = function ($request, $response, array $args) use ($layer, $inner) {
+                return $layer($request, $response, static function ($req, $res) use ($inner, $args) {
                     return $inner($req, $res, $args);
                 });
             };
         }
 
         return $pipeline;
+    }
+
+    /**
+     * The `admin` row AuthenticateMiddleware builds an Identity from, or null.
+     *
+     * The same loader the middleware is given, so that Api\Executor's
+     * account() and the pipeline agree about who an account is.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function accountRow(int $adminId): ?array
+    {
+        $row = call_user_func($this->accountLoader, $adminId);
+
+        return is_array($row) ? $row : null;
+    }
+
+    /**
+     * Whether the account may use the API at all: the switch a reseller
+     * turns off on its customer's page (spec section 6.2). The same checker
+     * AuthenticateMiddleware is given.
+     */
+    public function hasApiAccess(int $adminId): bool
+    {
+        return (bool)call_user_func($this->apiAccessChecker, $adminId);
+    }
+
+    public function core(): Core
+    {
+        return $this->core;
+    }
+
+    /**
+     * One value from the plugin's effective configuration.
+     *
+     * @param mixed $default
+     * @return mixed
+     */
+    public function configValue(string $key, $default = null)
+    {
+        return array_key_exists($key, $this->config) ? $this->config[$key] : $default;
     }
 
     /**
