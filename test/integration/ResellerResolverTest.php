@@ -255,6 +255,30 @@ class ResellerResolverTest extends IntegrationTestCase
         );
     }
 
+    public function testFilteringCustomersByPartOfTheDomainNameNarrowsTheList(): void
+    {
+        $connection = $this->value($this->resolver->resolveCustomers(
+            $this->reseller(), array('filter' => array('domainNameContains' => 'Sibling.')),
+            $this->context('reseller'), $this->info()
+        ));
+
+        self::assertSame(1, $connection['totalCount']);
+        self::assertSame(
+            $this->fixture->siblingId(), $connection['nodes'][0]['__key']
+        );
+    }
+
+    public function testFilteringCustomersByPartOfTheDomainNameFindsNoOtherResellersCustomer(): void
+    {
+        $connection = $this->value($this->resolver->resolveCustomers(
+            $this->reseller(), array('filter' => array('domainNameContains' => 'stranger')),
+            $this->context('reseller'), $this->info()
+        ));
+
+        self::assertSame(0, $connection['totalCount']);
+        self::assertSame(array(), $connection['nodes']);
+    }
+
     public function testTheHostingPlanDecodesItsProps(): void
     {
         $plans = $this->value($this->resolver->resolveHostingPlans(

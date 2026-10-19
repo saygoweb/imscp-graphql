@@ -166,6 +166,22 @@ round-trips. An empty `scopes` array means the token carries no scope
 restriction and can do everything your account can — narrower tokens report
 the scopes they were issued with, for example `["MAIL_READ"]`.
 
+## Finding customers
+
+`customers` (and `Reseller.customers`) take a `CustomerFilter`. `username` and
+`domainNameContains` match a case-insensitive substring, with `%`, `_` and `\`
+taken literally; `domainName` matches only the whole main domain name.
+
+```graphql
+{ customers(filter: { domainNameContains: "elijah" }) { totalCount nodes { id username domain { name } } } }
+```
+
+Domain names are stored as punycode, and `domainNameContains` matches that
+stored form. A fragment with non-ASCII characters is converted to punycode
+first, and a punycode label is one opaque string, so such a fragment finds
+whole labels only: `müller` finds `müller.de`, `müll` does not. A reseller
+only ever finds its own customers.
+
 ## Administrator reads
 
 `ipAddresses` lists every IP address the server has — administrator only. A

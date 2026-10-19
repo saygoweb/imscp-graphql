@@ -602,7 +602,20 @@ input PageInput {
 
 input CustomerFilter {
   username: String
+
+  "Exact: the whole main domain name."
   domainName: DomainName
+
+  """
+  A case-insensitive substring of the main domain name, so `elijah` finds
+  `elijah-smith.com`. `%`, `_` and `\` are literal characters, not wildcards.
+  
+  Matches the stored form, which is punycode for an internationalised name. A
+  fragment with non-ASCII characters is converted to punycode first, when it
+  converts; a punycode label is opaque, so that finds whole labels only:
+  `müller` finds `müller.de`, `müll` does not.
+  """
+  domainNameContains: String
   state: ProvisioningState
 
   "Administrators only; ignored for a reseller, who only ever sees their own."

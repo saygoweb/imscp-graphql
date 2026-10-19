@@ -331,11 +331,40 @@ final class ResellerResolver
             $bind[] = (string)$filter['domainName'];
         }
 
+        if (isset($filter['domainNameContains']) && $filter['domainNameContains'] !== '') {
+            // Substring, for "find domains like 'elijah'". Case-insensitive by
+            // the column's collation, as username is.
+            $sql .= ' AND d.domain_name LIKE ?';
+            $bind[] = '%' . str_replace(
+                array('\\', '%', '_'), array('\\\\', '\\%', '\\_'),
+                self::storedForm((string)$filter['domainNameContains'])
+            ) . '%';
+        }
+
         list($stateSql, $stateBind) = ProvisioningFilter::clause(
             'a.admin_status', $filter['state'] ?? null
         );
 
         return array($sql . $stateSql, array_merge($bind, $stateBind));
+    }
+
+    /**
+     * A domainNameContains fragment in the form domain_name stores, which is
+     * punycode. A non-ASCII fragment is converted when idn_to_ascii() can
+     * convert it; a punycode label is one opaque string, so the result only
+     * matches whole labels ("müller" finds müller.de, "müll" does not). An
+     * ASCII fragment, or one that does not convert (".dé", say), is matched
+     * as given.
+     */
+    private static function storedForm(string $fragment): string
+    {
+        if (!preg_match('/[^\x00-\x7F]/', $fragment) || !function_exists('idn_to_ascii')) {
+            return $fragment;
+        }
+
+        $ascii = idn_to_ascii($fragment, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+
+        return $ascii === false ? $fragment : $ascii;
     }
 
     public function reference(int $adminId): SyncPromise

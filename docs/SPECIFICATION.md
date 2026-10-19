@@ -1032,7 +1032,10 @@ type Query {
 
 input CustomerFilter {
   username: String
+  "Exact: the whole main domain name."
   domainName: DomainName
+  "Case-insensitive substring of the main domain name; % _ \\ are literal. Matches the stored (punycode) form; a non-ASCII fragment is converted first, so it finds whole labels only."
+  domainNameContains: String
   state: ProvisioningState
   "Administrators only; ignored for a reseller, who only ever sees their own."
   resellerId: ID
