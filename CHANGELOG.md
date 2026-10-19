@@ -6,6 +6,28 @@ All notable changes to this plugin are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`CustomerFilter.domainNameContains`**: find customers by part of their
+  main domain name, as in "find domains like 'elijah'". It is a
+  case-insensitive substring match, with `%`, `_` and `\` taken literally, as
+  `username` already was. It applies to `customers` for an administrator and
+  a reseller, and to `Reseller.customers`; a reseller still sees only its own
+  customers. Domain names are stored as punycode and the match is against
+  that stored form. Each label with non-ASCII characters is converted to
+  punycode first, with the panel's own `encode_idna()`, so it finds whole
+  labels only: `müller` finds `müller.de`, `müll` does not. `domainName`
+  still matches the whole name only.
+
+### Fixed
+
+- **`CustomerFilter.domainName` and `CustomerFilter.username` accept Unicode.**
+  `DomainName` is documented as "accepted as Unicode or as punycode", but
+  `domainName: "müller.de"` found nothing, because the name is stored as
+  `xn--mller-kva.de`. Both fields now convert a Unicode value to punycode
+  first, as `domainNameContains` does. A customer the panel created is named
+  after its punycode domain, so this applies to `username` too.
+
 ## [1.2.0] — 2026-10-19
 
 ### Added

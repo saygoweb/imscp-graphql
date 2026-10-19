@@ -548,8 +548,21 @@ input PageInput {
 }
 
 input CustomerFilter {
+  "A substring of the username. A Unicode fragment is converted to punycode first, as for domainNameContains."
   username: String
+  "Exact: the whole main domain name, as Unicode or punycode."
   domainName: DomainName
+  """
+  A case-insensitive substring of the main domain name, so `elijah` finds
+  `elijah-smith.com`. `%`, `_` and `\` are literal characters, not wildcards.
+
+  Matches the stored form, which is punycode for an internationalised name.
+  Each label with non-ASCII characters is converted to punycode first, as the
+  panel converts it, and a punycode label is opaque, so such a label matches
+  whole labels only: `müller` and `müller.` find `müller.de`, `müll` does not.
+  A label that cannot be converted matches nothing.
+  """
+  domainNameContains: String
   state: ProvisioningState
   "Administrators only; ignored for a reseller, who only ever sees their own."
   resellerId: ID

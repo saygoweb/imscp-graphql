@@ -254,6 +254,7 @@ class ResellerResolverTest extends TestCase
             true,
             static function () { return array(0, 0); },
             static function (string $v) { return $v; },
+            static function (string $v) { return $v; },
             static function (int $adminId) { return null; },
             static function (array $adminIds) { return null; },
             static function (array $ipIds) { return null; }

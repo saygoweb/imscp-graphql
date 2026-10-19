@@ -33,6 +33,8 @@ use iMSCP\Plugin\SGW_GraphQL\Support\NodeType;
 use iMSCP\Plugin\SGW_GraphQL\Support\PlanProps;
 use iMSCP\Plugin\SGW_GraphQL\Support\ProvisioningFilter;
 use iMSCP\Plugin\SGW_GraphQL\Support\Quota;
+use iMSCP\Plugin\SGW_GraphQL\Support\StoredName;
+use iMSCP\Plugin\SGW_GraphQL\Support\VhostRules;
 use InvalidArgumentException;
 
 /**
@@ -101,6 +103,9 @@ final class ResellerResolver
     /** @var callable fn(string): string */
     private $toUnicode;
 
+    /** @var callable fn(string): string - encode_idna() */
+    private $toAscii;
+
     /** @var callable fn(int $adminId): SyncPromise */
     private $customerRef;
 
@@ -112,14 +117,15 @@ final class ResellerResolver
 
     public function __construct(
         Db $db, BatchLoader $loader, bool $apiAccessByDefault,
-        callable $monthBounds, callable $toUnicode, callable $customerRef,
-        callable $customerRefs, callable $ipsRef
+        callable $monthBounds, callable $toUnicode, callable $toAscii,
+        callable $customerRef, callable $customerRefs, callable $ipsRef
     ) {
         $this->db = $db;
         $this->loader = $loader;
         $this->apiAccessByDefault = $apiAccessByDefault;
         $this->monthBounds = $monthBounds;
         $this->toUnicode = $toUnicode;
+        $this->toAscii = $toAscii;
         $this->customerRef = $customerRef;
         $this->customerRefs = $customerRefs;
         $this->ipsRef = $ipsRef;
@@ -304,23 +310,28 @@ final class ResellerResolver
     /**
      * CustomerFilter as a SQL fragment over `a` (admin) and `d` (domain).
      *
-     * Public and static because Query.customers (Task 16) builds the same
-     * list from the other direction, and two copies of a filter is two
-     * definitions of what `state: PENDING` means.
+     * Public because Query.customers (Task 16) builds the same list from the
+     * other direction, and two copies of a filter is two definitions of what
+     * `state: PENDING` means.
      *
      * @param array<string, mixed> $filter
      * @return array{0: string, 1: array}
      */
-    public static function customerFilter(Db $db, array $filter): array
+    public function customerFilter(array $filter): array
     {
+        $toAscii = $this->toAscii;
         $sql = '';
         $bind = array();
 
+        // Every name here is compared in the form the panel stores it,
+        // punycode, so a Unicode value finds what its encoding finds. A
+        // customer's admin_name is its punycode domain name when the panel
+        // created it, and ASCII either way (validates_username()), so encoding
+        // a username can only add matches.
         if (isset($filter['username']) && $filter['username'] !== '') {
             $sql .= ' AND a.admin_name LIKE ?';
-            $bind[] = '%' . str_replace(
-                array('\\', '%', '_'), array('\\\\', '\\%', '\\_'),
-                (string)$filter['username']
+            $bind[] = '%' . VhostRules::likeEscape(
+                StoredName::toAscii((string)$filter['username'], $toAscii)
             ) . '%';
         }
 
@@ -328,7 +339,16 @@ final class ResellerResolver
             // Exact, not substring: a domain name is an identifier, and a
             // client asking for one wants that one.
             $sql .= ' AND d.domain_name = ?';
-            $bind[] = (string)$filter['domainName'];
+            $bind[] = StoredName::toAscii((string)$filter['domainName'], $toAscii);
+        }
+
+        if (isset($filter['domainNameContains']) && $filter['domainNameContains'] !== '') {
+            // Substring, for "find domains like 'elijah'". Case-insensitive by
+            // the column's collation, as username is.
+            $sql .= ' AND d.domain_name LIKE ?';
+            $bind[] = '%' . VhostRules::likeEscape(
+                StoredName::toAscii((string)$filter['domainNameContains'], $toAscii)
+            ) . '%';
         }
 
         list($stateSql, $stateBind) = ProvisioningFilter::clause(
@@ -516,12 +536,12 @@ final class ResellerResolver
         $filter = isset($args['filter']) && is_array($args['filter'])
             ? $args['filter'] : array();
         $db = $this->db;
+        list($filterSql, $filterBind) = $this->customerFilter($filter);
 
         return $this->loader->keyed(
             'reseller:customer-ids:' . md5(serialize($filter)),
             $resellerId,
-            static function (array $keys) use ($db, $filter) {
-                list($filterSql, $filterBind) = self::customerFilter($db, $filter);
+            static function (array $keys) use ($db, $filterSql, $filterBind) {
                 $rows = $db->rows(
                     '
                         SELECT a.admin_id, a.created_by
