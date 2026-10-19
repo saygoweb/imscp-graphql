@@ -176,11 +176,13 @@ taken literally; `domainName` matches only the whole main domain name.
 { customers(filter: { domainNameContains: "elijah" }) { totalCount nodes { id username domain { name } } } }
 ```
 
-Domain names are stored as punycode, and `domainNameContains` matches that
-stored form. A fragment with non-ASCII characters is converted to punycode
-first, and a punycode label is one opaque string, so such a fragment finds
-whole labels only: `müller` finds `müller.de`, `müll` does not. A reseller
-only ever finds its own customers.
+Domain names are stored as punycode, and all three fields match that stored
+form. Each label with non-ASCII characters is converted to punycode first, the
+way the panel converts it, so `domainName: "müller.de"` finds
+`xn--mller-kva.de`. A punycode label is one opaque string, so for the two
+substring fields such a label finds whole labels only: `müller` and `müller.`
+find `müller.de`, `müll` does not. A label that cannot be converted matches
+nothing. A reseller only ever finds its own customers.
 
 ## Administrator reads
 

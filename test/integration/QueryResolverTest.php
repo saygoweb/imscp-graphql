@@ -435,6 +435,68 @@ class QueryResolverTest extends IntegrationTestCase
         );
     }
 
+    public function testDomainNameContainsEncodesAsThePanelDoesAndKeepsItsDots(): void
+    {
+        // encode_idna() is non-transitional: straße is not strasse.
+        $this->db->execute(
+            'UPDATE domain SET domain_name = ? WHERE domain_id = ?',
+            array('xn--sgwtstrae-n1a.test', $this->fixture->siblingDomainId())
+        );
+
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 'sgwtstraße'))
+        );
+        // Each label is encoded on its own, so the trailing dot stays.
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainNameContains' => 'sgwtstraße.'))
+        );
+        self::assertSame(
+            array(),
+            $this->customerIdsMatching('admin', array('domainNameContains' => '.sgwtstraße'))
+        );
+    }
+
+    public function testTheExactDomainNameAcceptsUnicode(): void
+    {
+        $this->db->execute(
+            'UPDATE domain SET domain_name = ? WHERE domain_id = ?',
+            array('xn--sgwtmller-u9a.test', $this->fixture->siblingDomainId())
+        );
+
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainName' => 'sgwtmüller.test'))
+        );
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('domainName' => 'xn--sgwtmller-u9a.test'))
+        );
+        self::assertSame(
+            array(),
+            $this->customerIdsMatching('admin', array('domainName' => 'sgwtmüller'))
+        );
+    }
+
+    public function testACustomersUsernameMatchesAUnicodeFragmentOfItsPunycode(): void
+    {
+        // A customer the panel created is named after its punycode domain.
+        $this->db->execute(
+            'UPDATE admin SET admin_name = ? WHERE admin_id = ?',
+            array('xn--sgwtmller-u9a.test', $this->fixture->siblingId())
+        );
+
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('username' => 'sgwtmüller'))
+        );
+        self::assertSame(
+            array($this->fixture->siblingId()),
+            $this->customerIdsMatching('admin', array('username' => 'mller-u9a'))
+        );
+    }
+
     public function testDomainNameContainsKeepsAResellerToItsOwnCustomers(): void
     {
         $ids = $this->customerIdsMatching('reseller', array('domainNameContains' => 'sgwt'));

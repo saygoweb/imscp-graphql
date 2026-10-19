@@ -33,6 +33,7 @@ use iMSCP\Plugin\SGW_GraphQL\Support\ApiException;
 use iMSCP\Plugin\SGW_GraphQL\Support\GlobalId;
 use iMSCP\Plugin\SGW_GraphQL\Support\NodeType;
 use iMSCP\Plugin\SGW_GraphQL\Support\ProvisioningFilter;
+use iMSCP\Plugin\SGW_GraphQL\Support\VhostRules;
 
 /**
  * The six root fields of spec section 7.10.
@@ -376,7 +377,7 @@ final class QueryResolver
             $bind[] = $reseller->getId();
         }
 
-        list($filterSql, $filterBind) = ResellerResolver::customerFilter($this->db, $filter);
+        list($filterSql, $filterBind) = $this->resellers->customerFilter($filter);
         $sql .= $filterSql . ' ORDER BY a.admin_name';
         $bind = array_merge($bind, $filterBind);
 
@@ -434,10 +435,7 @@ final class QueryResolver
 
         if (isset($filter['username']) && $filter['username'] !== '') {
             $sql .= ' AND a.admin_name LIKE ?';
-            $bind[] = '%' . str_replace(
-                array('\\', '%', '_'), array('\\\\', '\\%', '\\_'),
-                (string)$filter['username']
-            ) . '%';
+            $bind[] = '%' . VhostRules::likeEscape((string)$filter['username']) . '%';
         }
 
         list($stateSql, $stateBind) = ProvisioningFilter::clause(

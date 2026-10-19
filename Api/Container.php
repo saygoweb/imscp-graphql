@@ -489,6 +489,7 @@ final class Container
         $vhosts = new VirtualHosts($db);
         $counts = new Counts($db, self::countsDefaultMailAccounts($this->panelConfig));
         $toUnicode = self::toUnicode();
+        $toAscii = self::toAscii();
         $monthBounds = self::monthBounds();
         $mailboxUsage = self::mailboxUsage($this->panelConfig);
         $apiAccessByDefault = $this->apiAccessByDefault;
@@ -535,7 +536,7 @@ final class Container
         $mail = new MailResolver($db, $loader, $toUnicode, $mailboxUsage, $hostRef);
         $ftpSql = new FtpSqlResolver($db, $loader, $customerRef);
         $resellers = new ResellerResolver(
-            $db, $loader, $apiAccessByDefault, $monthBounds, $toUnicode,
+            $db, $loader, $apiAccessByDefault, $monthBounds, $toUnicode, $toAscii,
             $customerRef,
             static function (array $adminIds) use (&$customers) {
                 return $customers->references($adminIds);
@@ -876,6 +877,30 @@ final class Container
 
         return static function (string $value) {
             return $value;
+        };
+    }
+
+    /**
+     * encode_idna(), or idn_to_ascii() with the non-transitional processing
+     * encode_idna() uses (straße is xn--strae-oqa, not strasse) when there is
+     * no panel, or identity when there is neither.
+     *
+     * @return callable fn(string): string
+     */
+    private static function toAscii(): callable
+    {
+        if (function_exists('encode_idna')) {
+            return 'encode_idna';
+        }
+
+        return static function (string $value) {
+            if (!function_exists('idn_to_ascii')) {
+                return $value;
+            }
+
+            $ascii = idn_to_ascii($value, IDNA_NONTRANSITIONAL_TO_ASCII, INTL_IDNA_VARIANT_UTS46);
+
+            return $ascii === false ? $value : $ascii;
         };
     }
 

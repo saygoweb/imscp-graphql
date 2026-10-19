@@ -51,6 +51,7 @@ class ResellerResolverTest extends IntegrationTestCase
             true,
             static function () { return array(0, 4102444800); },
             'decode_idna',
+            'encode_idna',
             static function (int $adminId) {
                 return new Deferred(static function () use ($adminId) {
                     return array('__tag' => NodeType::CUSTOMER, '__key' => $adminId);
