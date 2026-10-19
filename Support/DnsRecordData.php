@@ -133,7 +133,10 @@ final class DnsRecordData
      * inside the zone comes back relative to it, "@" for the zone itself; any
      * other absolute name keeps its trailing dot, and so does every name when
      * the zone is not known. An SRV record's name loses its _service._proto
-     * labels, which encode() takes in the data instead. A row with no owner
+     * labels, which come back on their own as service and protocol, in the
+     * form encode() takes them in the data: _sip, and TCP. Both are null on
+     * any other type, and protocol is null on a transport SRV_PROTOCOLS does
+     * not offer. A row with no owner
      * name reads as '' rather than as the zone: a blank owner is not "@".
      *
      * A TTL is returned as stored, even one below MIN_TTL that a write would
@@ -144,7 +147,7 @@ final class DnsRecordData
      * dns_edit.php:462-468 and, for SRV, 491-501.
      *
      * @param ?string $zoneAscii null when the record's domain or alias is gone
-     * @return array{name: string, ttl: ?int}
+     * @return array{name: string, ttl: ?int, service: ?string, protocol: ?string}
      */
     public static function decode(string $domainDns, ?string $zoneAscii, string $type): array
     {
@@ -155,10 +158,15 @@ final class DnsRecordData
         $name = $matches[1];
         $ttl = isset($matches[2]) ? (int)min($matches[2], self::MAX_TTL) : null;
 
+        $service = $protocol = null;
+
         // dns_edit.php:495: the page reads the service and protocol off the
         // name and shows the rest as the name, which is what encode() takes.
-        if ($type === 'SRV' && preg_match('/^_[^\s.]+\._[^\s.]+\.(.+)$/', $name, $srv)) {
-            $name = $srv[1];
+        if ($type === 'SRV' && preg_match('/^(_[^\s.]+)\.(_[^\s.]+)\.(.+)$/', $name, $srv)) {
+            $service = strtolower($srv[1]);
+            $protocol = array_search(strtolower(substr($srv[2], 1)), self::SRV_PROTOCOLS, true);
+            $protocol = $protocol === false ? null : $protocol;
+            $name = $srv[3];
         }
 
         // The zone boundary is name()'s: anchored, and the zone quoted.
@@ -168,7 +176,7 @@ final class DnsRecordData
             $name = isset($inZone[1]) && $inZone[1] !== '' ? $inZone[1] : '@';
         }
 
-        return array('name' => $name, 'ttl' => $ttl);
+        return array('name' => $name, 'ttl' => $ttl, 'service' => $service, 'protocol' => $protocol);
     }
 
     /**

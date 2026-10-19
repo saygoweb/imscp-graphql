@@ -946,6 +946,9 @@ type DnsRecord implements Node & Provisioned {
   name: String!
   "Seconds, as stored. Null when the record states none and the zone's default applies."
   ttl: Int
+  "SRV: the service (_sip) and the protocol, as DnsRecordDataInput takes them. Null on other types."
+  srvService: String
+  srvProtocol: SrvProtocol
   class: DnsClass!
   type: DnsRecordType!
   value: String!
@@ -1005,8 +1008,11 @@ encoding a write applies and a transcription of the page's own reading
   a write checks: anchored, so `evilzone.test.` is not in `zone.test`.
 - An SRV record's `name` is without its `_service._proto` labels, as the page
   shows it, because a write takes those two in `data.service` and
-  `data.protocol` and composes them back. The API does not yet return the
-  service and protocol on their own.
+  `data.protocol` and composes them back. They read back on their own as
+  `srvService` (`_sip`, lower-cased) and `srvProtocol` (`TCP`, `UDP` or
+  `TLS`), the forms those two inputs take, so a record reads back as the
+  input that wrote it. `srvProtocol` is null on a transport the input does not
+  offer, and both are null on every other type.
 - A row whose `alias_id` names an alias that is gone has no zone. Its name
   reads back as stored, and `dnsRecordUpdate` refuses it with `NOT_FOUND`;
   `dnsRecordDelete` still removes it. The zone is never borrowed from the main

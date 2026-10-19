@@ -405,8 +405,8 @@ type DnsRecord implements Node & Provisioned {
   host's zone (www, _dmarc.sub, *), or @ for the zone itself. A name outside
   the zone, or on a record whose alias is gone, is fully qualified and ends in
   a dot. ASCII: an IDN label is in its xn-- form. An SRV record's name is
-  without its _service._proto labels, which a write takes in data. Empty only
-  when the record stores no owner name.
+  without its _service._proto labels, which are srvService and srvProtocol.
+  Empty only when the record stores no owner name.
   """
   name: String!
   """
@@ -415,6 +415,16 @@ type DnsRecord implements Node & Provisioned {
   stored TTL above 2147483647 reads as 2147483647.
   """
   ttl: Int
+  """
+  SRV: the service, as DnsRecordDataInput.service takes it, e.g. _sip. Null
+  on any other type.
+  """
+  srvService: String
+  """
+  SRV: the protocol, as DnsRecordDataInput.protocol takes it. Null on any
+  other type, and on a transport this API cannot write.
+  """
+  srvProtocol: SrvProtocol
   class: DnsClass!
   type: DnsRecordType!
   value: String!

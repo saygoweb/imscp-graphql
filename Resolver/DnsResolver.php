@@ -108,6 +108,8 @@ final class DnsResolver
             NodeType::DNS_RECORD, (int)$row['domain_dns_id'], array(
                 'name'         => $owner['name'],
                 'ttl'          => $owner['ttl'],
+                'srvService'   => $owner['service'],
+                'srvProtocol'  => $owner['protocol'],
                 'class'        => (string)$row['domain_class'],
                 'type'         => (string)$row['domain_type'],
                 'value'        => (string)$row['domain_text'],

@@ -108,7 +108,10 @@ class DnsRecordDataTest extends TestCase
      */
     public function testTheStoredColumnSplitsIntoNameAndTtl(string $stored, string $name, ?int $ttl): void
     {
-        self::assertSame(array('name' => $name, 'ttl' => $ttl), DnsRecordData::decode($stored, self::ZONE, 'A'));
+        self::assertSame(
+            array('name' => $name, 'ttl' => $ttl, 'service' => null, 'protocol' => null),
+            DnsRecordData::decode($stored, self::ZONE, 'A')
+        );
     }
 
     public function storedNames(): array
@@ -161,7 +164,7 @@ class DnsRecordDataTest extends TestCase
     {
         // The alias the record was in is gone (DnsResolver::ROW_SELECT).
         self::assertSame(
-            array('name' => 'www.zone.test.', 'ttl' => 3600),
+            array('name' => 'www.zone.test.', 'ttl' => 3600, 'service' => null, 'protocol' => null),
             DnsRecordData::decode("www.zone.test.\t3600", null, 'A')
         );
     }
@@ -169,18 +172,26 @@ class DnsRecordDataTest extends TestCase
     /**
      * @dataProvider storedServiceNames
      */
-    public function testAServiceRecordsNameIsWithoutItsServiceAndProtocol(string $stored, string $name): void
-    {
-        self::assertSame(array('name' => $name, 'ttl' => 3600), DnsRecordData::decode($stored, self::ZONE, 'SRV'));
+    public function testAServiceRecordsNameIsWithoutItsServiceAndProtocol(
+        string $stored, string $name, string $service, ?string $protocol
+    ): void {
+        self::assertSame(
+            array('name' => $name, 'ttl' => 3600, 'service' => $service, 'protocol' => $protocol),
+            DnsRecordData::decode($stored, self::ZONE, 'SRV')
+        );
     }
 
     public function storedServiceNames(): array
     {
         // dns_edit.php:495.
         return array(
-            'in the zone'      => array("_sip._tcp.www.zone.test.\t3600", 'www'),
-            'at the apex'      => array("_sip._tcp.zone.test.\t3600", '@'),
-            'outside the zone' => array("_sip._tcp.other.test.\t3600", 'other.test.')
+            'in the zone'         => array("_sip._tcp.www.zone.test.\t3600", 'www', '_sip', 'TCP'),
+            'at the apex'         => array("_xmpp._udp.zone.test.\t3600", '@', '_xmpp', 'UDP'),
+            'TLS'                 => array("_sips._tls.zone.test.\t3600", '@', '_sips', 'TLS'),
+            'outside the zone'    => array("_sip._tcp.other.test.\t3600", 'other.test.', '_sip', 'TCP'),
+            'in capitals'         => array("_SIP._TCP.www.zone.test.\t3600", 'www', '_sip', 'TCP'),
+            // Not one the input offers, so nothing a write could take.
+            'another transport'   => array("_sip._sctp.www.zone.test.\t3600", 'www', '_sip', null)
         );
     }
 
@@ -188,14 +199,18 @@ class DnsRecordDataTest extends TestCase
     {
         // Its service and protocol are in the data, and composed back onto
         // the name; left on the name too, they would be there twice.
-        $input = array('name' => 'www', 'ttl' => 600, 'data' => array(
-            'service' => '_sip', 'protocol' => 'TCP', 'port' => 5060, 'target' => 'sip.zone.test.'
-        ));
-        $stored = $this->encode('SRV', $input)['domain_dns'];
+        $data = array('port' => 5060, 'target' => 'sip.zone.test.');
+        $stored = $this->encode('SRV', array(
+            'name' => 'www', 'ttl' => 600, 'data' => $data + array('service' => '_sip', 'protocol' => 'TCP')
+        ))['domain_dns'];
         $read = DnsRecordData::decode($stored, self::ZONE, 'SRV');
 
-        self::assertSame(array('name' => 'www', 'ttl' => 600), $read);
-        self::assertSame($stored, $this->encode('SRV', array('name' => $read['name']) + $input)['domain_dns']);
+        self::assertSame(array('name' => 'www', 'ttl' => 600, 'service' => '_sip', 'protocol' => 'TCP'), $read);
+        // Written back from what was read alone, it is the same record.
+        self::assertSame($stored, $this->encode('SRV', array(
+            'name' => $read['name'], 'ttl' => $read['ttl'],
+            'data' => $data + array('service' => $read['service'], 'protocol' => $read['protocol'])
+        ))['domain_dns']);
     }
 
     /**
