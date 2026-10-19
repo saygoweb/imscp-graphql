@@ -108,7 +108,7 @@ class DnsRecordDataTest extends TestCase
      */
     public function testTheStoredColumnSplitsIntoNameAndTtl(string $stored, string $name, ?int $ttl): void
     {
-        self::assertSame(array('name' => $name, 'ttl' => $ttl), DnsRecordData::decode($stored, self::ZONE));
+        self::assertSame(array('name' => $name, 'ttl' => $ttl), DnsRecordData::decode($stored, self::ZONE, 'A'));
     }
 
     public function storedNames(): array
@@ -119,7 +119,6 @@ class DnsRecordDataTest extends TestCase
             'the zone itself'              => array("zone.test.\t300", '@', 300),
             'a deeper name'                => array("selector._domainkey.zone.test.\t3600", 'selector._domainkey', 3600),
             'a wildcard'                   => array("*.zone.test.\t3600", '*', 3600),
-            'an SRV keeps its labels'      => array("_sip._tcp.www.zone.test.\t3600", '_sip._tcp.www', 3600),
             'spaces, not a tab'            => array('www.zone.test. 600', 'www', 600),
             'the zone in capitals'         => array("WWW.Zone.Test.\t3600", 'WWW', 3600),
             // Older rows: a bare name relative to the zone, and no TTL.
@@ -131,8 +130,14 @@ class DnsRecordDataTest extends TestCase
             // for a name in it.
             'another zone'                 => array("www.other.test.\t3600", 'www.other.test.', 3600),
             'a zone that merely ends so'   => array("evilzone.test.\t3600", 'evilzone.test.', 3600),
-            'a TTL past what Int can hold' => array("www.zone.test.\t2147483648", 'www', null),
-            'nothing at all'               => array('', '@', null)
+            // As stored, though a write wants 60 or more.
+            'a TTL below a minute'         => array("www.zone.test.\t30", 'www', 30),
+            // RFC 2181 section 8's ceiling, which is also Int's.
+            'a TTL past what Int can hold' => array("www.zone.test.\t2147483648", 'www', 2147483647),
+            'a TTL far past it'            => array("www.zone.test.\t99999999999999999999", 'www', 2147483647),
+            // A blank owner is not the apex.
+            'nothing at all'               => array('', '', null),
+            'a TTL and no owner'           => array("\t3600", '', 3600)
         );
     }
 
@@ -142,7 +147,7 @@ class DnsRecordDataTest extends TestCase
     public function testANameReadBackIsOneTheInputTakes(string $name, string $expected): void
     {
         $input = array('name' => $name, 'ttl' => 600, 'data' => array('address' => '203.0.113.9'));
-        $read = DnsRecordData::decode($this->encode('A', $input)['domain_dns'], self::ZONE);
+        $read = DnsRecordData::decode($this->encode('A', $input)['domain_dns'], self::ZONE, 'A');
 
         self::assertSame(600, $read['ttl']);
         // Written back, it encodes to the very same column.
@@ -150,6 +155,47 @@ class DnsRecordDataTest extends TestCase
             $this->encode('A', $input)['domain_dns'],
             $this->encode('A', array('name' => $read['name']) + $input)['domain_dns']
         );
+    }
+
+    public function testWithNoZoneKnownTheNameIsAsStored(): void
+    {
+        // The alias the record was in is gone (DnsResolver::ROW_SELECT).
+        self::assertSame(
+            array('name' => 'www.zone.test.', 'ttl' => 3600),
+            DnsRecordData::decode("www.zone.test.\t3600", null, 'A')
+        );
+    }
+
+    /**
+     * @dataProvider storedServiceNames
+     */
+    public function testAServiceRecordsNameIsWithoutItsServiceAndProtocol(string $stored, string $name): void
+    {
+        self::assertSame(array('name' => $name, 'ttl' => 3600), DnsRecordData::decode($stored, self::ZONE, 'SRV'));
+    }
+
+    public function storedServiceNames(): array
+    {
+        // dns_edit.php:495.
+        return array(
+            'in the zone'      => array("_sip._tcp.www.zone.test.\t3600", 'www'),
+            'at the apex'      => array("_sip._tcp.zone.test.\t3600", '@'),
+            'outside the zone' => array("_sip._tcp.other.test.\t3600", 'other.test.')
+        );
+    }
+
+    public function testAServiceRecordReadBackWritesBackTheSame(): void
+    {
+        // Its service and protocol are in the data, and composed back onto
+        // the name; left on the name too, they would be there twice.
+        $input = array('name' => 'www', 'ttl' => 600, 'data' => array(
+            'service' => '_sip', 'protocol' => 'TCP', 'port' => 5060, 'target' => 'sip.zone.test.'
+        ));
+        $stored = $this->encode('SRV', $input)['domain_dns'];
+        $read = DnsRecordData::decode($stored, self::ZONE, 'SRV');
+
+        self::assertSame(array('name' => 'www', 'ttl' => 600), $read);
+        self::assertSame($stored, $this->encode('SRV', array('name' => $read['name']) + $input)['domain_dns']);
     }
 
     /**

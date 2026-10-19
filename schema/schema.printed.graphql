@@ -446,13 +446,18 @@ type DnsRecord implements Node & Provisioned {
   """
   The owner name, in the form DnsRecordCreateInput.name takes: relative to the
   host's zone (www, _dmarc.sub, *), or @ for the zone itself. A name outside
-  the zone is fully qualified and ends in a dot. ASCII: an IDN label is in its
-  xn-- form. An SRV record's name includes its _service._proto labels, which
-  a write takes in data instead.
+  the zone, or on a record whose alias is gone, is fully qualified and ends in
+  a dot. ASCII: an IDN label is in its xn-- form. An SRV record's name is
+  without its _service._proto labels, which a write takes in data. Empty only
+  when the record stores no owner name.
   """
   name: String!
 
-  "Seconds. Null when the record states none and the zone's default applies."
+  """
+  Seconds, as stored. Null when the record states none and the zone's default
+  applies. A plugin's record may hold a TTL below 60, which a write refuses; a
+  stored TTL above 2147483647 reads as 2147483647.
+  """
   ttl: Int
 
   class: DnsClass!

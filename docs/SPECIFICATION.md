@@ -944,7 +944,7 @@ type DnsRecord implements Node & Provisioned {
   host: VirtualHost!
   "Relative to the host's zone, @ for the zone itself; fully qualified (with a trailing dot) only outside it."
   name: String!
-  "Seconds. Null when the record states none and the zone's default applies."
+  "Seconds, as stored. Null when the record states none and the zone's default applies."
   ttl: Int
   class: DnsClass!
   type: DnsRecordType!
@@ -995,15 +995,32 @@ the panel's `dns_edit.php` or `DnsRecordCreateInput` wrote holds the fully
 qualified name, a tab and the TTL (`www.example.test.\t3600`); an older row
 holds a bare name relative to the zone and no TTL (`www`). Both read back the
 same way, through `Support\DnsRecordData::decode()`, the inverse of the
-encoding a write applies: `name` in the form `DnsRecordCreateInput.name`
-takes, so a client can write back what it read — relative to the zone of the
-domain or alias the record hangs off, `@` for the zone itself, and fully
-qualified with its trailing dot only when it is outside that zone — and `ttl`
-as a number, or null when the row has none. Names are ASCII, as stored: an IDN
-label reads back in its `xn--` form, which the input takes too. An SRV
-record's `name` keeps its `_service._proto` labels, which a write takes in
-`data.service` and `data.protocol`, so those two labels are left off a name
-written back.
+encoding a write applies and a transcription of the page's own reading
+(`dns_edit.php:462-501`):
+
+- `name` is in the form `DnsRecordCreateInput.name` takes, so a client can
+  write back what it read. It is relative to the zone of the domain or alias
+  the record hangs off, `@` for the zone itself, and fully qualified with its
+  trailing dot only when it is outside that zone. The zone boundary is the one
+  a write checks: anchored, so `evilzone.test.` is not in `zone.test`.
+- An SRV record's `name` is without its `_service._proto` labels, as the page
+  shows it, because a write takes those two in `data.service` and
+  `data.protocol` and composes them back. The API does not yet return the
+  service and protocol on their own.
+- A row whose `alias_id` names an alias that is gone has no zone. Its name
+  reads back as stored, and `dnsRecordUpdate` refuses it with `NOT_FOUND`;
+  `dnsRecordDelete` still removes it. The zone is never borrowed from the main
+  domain.
+- A row with no owner name reads as `""`. A blank owner is not the apex,
+  although a write would read `""` as `@`.
+- `ttl` is the stored number, or null when the row has none. A plugin's row
+  may hold a TTL below the 60 a write requires, and it reads back as stored;
+  one above 2147483647, which RFC 2181 §8 does not allow and a GraphQL `Int`
+  cannot hold, reads as 2147483647.
+
+Names are ASCII, as stored: an IDN label reads back in its `xn--` form, which
+the input takes too. The read and the write select the record and its zone
+with the same SQL, `DnsResolver::ROW_SELECT`.
 
 `hosting_plans.props` is a positional, semicolon-delimited string of 25 fields
 (`gui/public/reseller/user_add3.php:133`). Parsing and re-emitting it is

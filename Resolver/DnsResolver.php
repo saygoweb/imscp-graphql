@@ -78,10 +78,13 @@ final class DnsResolver
 
     /**
      * The columns of domain_dns, and zone_name: the ASCII name of the domain
-     * or alias whose zone the record is in, which name is made relative to.
+     * or alias whose zone the record is in, which name is read relative to and
+     * DnsService writes it relative to. Null, not the main domain, when
+     * alias_id names an alias that is gone: borrowing the domain's zone would
+     * misread every name in the alias's.
      */
     const ROW_SELECT = '
-        SELECT dd.*, IFNULL(al.alias_name, d.domain_name) AS zone_name
+        SELECT dd.*, CASE WHEN dd.alias_id = 0 THEN d.domain_name ELSE al.alias_name END AS zone_name
         FROM domain_dns AS dd
         JOIN domain AS d ON d.domain_id = dd.domain_id
         LEFT JOIN domain_aliasses AS al ON al.alias_id = dd.alias_id
@@ -95,7 +98,11 @@ final class DnsResolver
     {
         $aliasId = (int)$row['alias_id'];
         // domain_dns is the owner name and, on newer rows, the TTL too.
-        $owner = DnsRecordData::decode((string)$row['domain_dns'], (string)$row['zone_name']);
+        $owner = DnsRecordData::decode(
+            (string)$row['domain_dns'],
+            $row['zone_name'] === null ? null : (string)$row['zone_name'],
+            (string)$row['domain_type']
+        );
 
         return TypeResolver::node(
             NodeType::DNS_RECORD, (int)$row['domain_dns_id'], array(

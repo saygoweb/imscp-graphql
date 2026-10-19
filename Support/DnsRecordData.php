@@ -131,31 +131,41 @@ final class DnsRecordData
      * The column holds "<fqdn>.\t<ttl>" when this class or the page wrote it,
      * but older rows hold a bare name relative to the zone and no TTL. A name
      * inside the zone comes back relative to it, "@" for the zone itself; any
-     * other absolute name keeps its trailing dot. An SRV record's name keeps
-     * its _service._proto labels, which encode() takes in the data instead.
+     * other absolute name keeps its trailing dot, and so does every name when
+     * the zone is not known. An SRV record's name loses its _service._proto
+     * labels, which encode() takes in the data instead. A row with no owner
+     * name reads as '' rather than as the zone: a blank owner is not "@".
      *
-     * dns_edit.php:462-468.
+     * A TTL is returned as stored, even one below MIN_TTL that a write would
+     * refuse; one above MAX_TTL, which RFC 2181 section 8 does not allow and
+     * a GraphQL Int cannot hold, reads as MAX_TTL. null means the row states
+     * no TTL at all.
      *
-     * @return array{name: string, ttl: ?int} ttl null when the row holds none
+     * dns_edit.php:462-468 and, for SRV, 491-501.
+     *
+     * @param ?string $zoneAscii null when the record's domain or alias is gone
+     * @return array{name: string, ttl: ?int}
      */
-    public static function decode(string $domainDns, string $zoneAscii): array
+    public static function decode(string $domainDns, ?string $zoneAscii, string $type): array
     {
-        if (!preg_match('/^(\S+)(?:\s+(\d+))?/', trim($domainDns), $matches)) {
-            return array('name' => '@', 'ttl' => null);
-        }
+        // Untrimmed, as the page matches it, so "\t3600" is a TTL with no
+        // owner name rather than an owner called 3600.
+        preg_match('/^(\S*)(?:\s+(\d+))?/', $domainDns, $matches);
 
         $name = $matches[1];
-        $ttl = isset($matches[2]) && $matches[2] <= self::MAX_TTL ? (int)$matches[2] : null;
+        $ttl = isset($matches[2]) ? (int)min($matches[2], self::MAX_TTL) : null;
 
-        if (substr($name, -1) === '.') {
-            $zone = '.' . strtolower($zoneAscii) . '.';
-            $lower = strtolower('.' . $name);
+        // dns_edit.php:495: the page reads the service and protocol off the
+        // name and shows the rest as the name, which is what encode() takes.
+        if ($type === 'SRV' && preg_match('/^_[^\s.]+\._[^\s.]+\.(.+)$/', $name, $srv)) {
+            $name = $srv[1];
+        }
 
-            if ($lower === $zone) {
-                $name = '@';
-            } elseif (substr($lower, -strlen($zone)) === $zone) {
-                $name = substr($name, 0, -strlen($zone));
-            }
+        // The zone boundary is name()'s: anchored, and the zone quoted.
+        if ($zoneAscii !== null
+            && preg_match('/^(?:(.+)\.)?' . preg_quote($zoneAscii, '/') . '\.$/i', $name, $inZone)
+        ) {
+            $name = isset($inZone[1]) && $inZone[1] !== '' ? $inZone[1] : '@';
         }
 
         return array('name' => $name, 'ttl' => $ttl);
