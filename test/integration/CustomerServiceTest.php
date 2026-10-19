@@ -72,6 +72,49 @@ class CustomerServiceTest extends ServiceTestCase
         self::assertSame('no', $domain['allowbackup']);
     }
 
+    public function testAnAbsentUsernameDefaultsToTheAsciiDomain(): void
+    {
+        $input = $this->input(array('domainName' => 'café.nz'));
+        unset($input['username']);
+
+        $ref = $this->service()->create($this->caller('reseller'), $input);
+
+        $admin = $this->db->row('SELECT admin_name FROM admin WHERE admin_id = ?', array($ref->getKey()));
+        self::assertSame('xn--caf-dma.nz', $admin['admin_name']);
+    }
+
+    public function testAUsernameEqualToALongAsciiDomainIsAccepted(): void
+    {
+        $domain = 'a-very-long-domain-name-for-testing.co.nz';
+        self::assertGreaterThan(30, strlen($domain));
+
+        $ref = $this->service()->create(
+            $this->caller('reseller'),
+            $this->input(array('username' => $domain, 'domainName' => $domain))
+        );
+
+        $admin = $this->db->row('SELECT admin_name FROM admin WHERE admin_id = ?', array($ref->getKey()));
+        self::assertSame($domain, $admin['admin_name']);
+    }
+
+    public function testAnInvalidUsernameThatIsNotTheDomainIsRefused(): void
+    {
+        $e = $this->refused(ErrorCode::BAD_USER_INPUT, function (): void {
+            $this->service()->create($this->caller('reseller'), $this->input(array('username' => 'Bad Name')));
+        });
+        self::assertStringContainsString('input.username', json_encode($e->getExtensions()));
+    }
+
+    public function testADomainUsernameThatIsAlreadyTakenIsAConflict(): void
+    {
+        $this->service()->create($this->caller('reseller'), $this->input());
+
+        $this->refused(ErrorCode::CONFLICT, function (): void {
+            // The domain exists too, so use a different domain with the taken name.
+            $this->service()->create($this->caller('reseller'), $this->input(array('domainName' => 'sgwother.test')));
+        });
+    }
+
     /**
      * C4: traffic, disk and mailQuota are BigInt - "serialised as a decimal
      * string" (schema.graphql:24) - and the schema has no parseValue for it,

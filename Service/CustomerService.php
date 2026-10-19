@@ -109,7 +109,15 @@ final class CustomerService
 
         $username = trim((string)($input['username'] ?? ''), ' ');
 
-        if ($username === '' || !$core->isValidUsername($username)) {
+        // Stock names a customer by its punycode main domain and never runs
+        // validates_username on it (user_add3.php:70,156), so a domain over 30
+        // characters is a valid username there. Mirror that; anything else is held to
+        // the panel's own username rule.
+        if ($username === '') {
+            $username = $ascii;
+        }
+
+        if ($username !== $ascii && !$core->isValidUsername($username)) {
             throw Guard::badInput('input.username', 'Invalid username.');
         }
 
