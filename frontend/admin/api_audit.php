@@ -93,7 +93,7 @@ function generateAuditSection(TemplateEngine $tpl, $page)
     // reason.
     $rows = exec_query(
         'SELECT a.audit_id, a.at, a.admin_id, adm.admin_name, a.token_id,'
-            . ' t.token_prefix, a.ip, a.operation, a.fields, a.outcome,'
+            . ' t.token_prefix, a.ip, a.via, a.operation, a.fields, a.outcome,'
             . ' a.error_code, a.duration_ms'
             . ' FROM api_audit a'
             . ' LEFT JOIN admin adm ON adm.admin_id = a.admin_id'
@@ -118,9 +118,13 @@ function generateAuditSection(TemplateEngine $tpl, $page)
                     ? tr('#%d (deleted)', (int)$row['admin_id'])
                     : decode_idna($row['admin_name'])
             ),
-            'AUDIT_VIA'        => $row['token_id'] === null
+            // The credential, and - for a request Api\Executor ran on
+            // another plugin's behalf rather than one that came in over HTTP
+            // - which entry point (sql/003's `via`).
+            'AUDIT_VIA'        => ($row['token_id'] === null
                 ? tohtml(tr('Session'))
-                : tohtml(tr('Token %s', $row['token_prefix'] ?? ('#' . $row['token_id']))),
+                : tohtml(tr('Token %s', $row['token_prefix'] ?? ('#' . $row['token_id']))))
+                . ($row['via'] === 'mcp' ? ' ' . tohtml(tr('(MCP)')) : ''),
             'AUDIT_IP'         => tohtml($row['ip']),
             'AUDIT_OPERATION'  => $row['operation'] === null
                 ? tohtml(tr('(anonymous)'))

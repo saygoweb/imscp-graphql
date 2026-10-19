@@ -54,5 +54,18 @@ abstract class IntegrationTestCase extends TestCase
 
         require_once self::IMSCP_LIB;
         self::$bootstrapped = true;
+
+        // Booting the panel initialises the installed copy of this plugin -
+        // gui/plugins/SGW_GraphQL - whose loadVendor() prepends *its*
+        // Composer autoloader ahead of the one test/bootstrap.php registered.
+        // When the checkout under test is that installed copy, the two are one
+        // loader and this is a no-op. When it is not - a git worktree beside
+        // the installed checkout - the installed copy's loader would answer
+        // for every plugin class not yet loaded, and the suite would quietly
+        // test the installed code instead of this one. So this checkout's
+        // loader is put back in front.
+        $loader = require dirname(__DIR__, 2) . '/vendor/autoload.php';
+        $loader->unregister();
+        $loader->register(true);
     }
 }

@@ -300,6 +300,126 @@ class TokenServiceTest extends TestCase
         ];
     }
 
+    // ---- the seconds path, the live check and the per-account cap -------
+
+    public function testIssueForSecondsExpiresThatManySecondsFromNow(): void
+    {
+        $before = time();
+        $result = $this->service()->issueForSeconds(7, 'mcp', ['DOMAINS_READ'], 3600, null);
+        $after = time();
+
+        self::assertGreaterThanOrEqual($before + 3600, $result['expiresAt']);
+        self::assertLessThanOrEqual($after + 3600, $result['expiresAt']);
+        self::assertContains($result['expiresAt'], $this->statements[0]['bind']);
+    }
+
+    public function testIssueStillCountsInDays(): void
+    {
+        $before = time();
+        $result = $this->service()->issue(7, 'ci', ['DOMAINS_READ'], 2, null);
+
+        self::assertGreaterThanOrEqual($before + 2 * 86400, $result['expiresAt']);
+        self::assertLessThanOrEqual(time() + 2 * 86400, $result['expiresAt']);
+    }
+
+    /**
+     * @dataProvider lifetimesUnderASecond
+     */
+    public function testIssueForSecondsRefusesALifetimeUnderASecond(int $seconds): void
+    {
+        try {
+            $this->service()->issueForSeconds(7, 'mcp', ['DOMAINS_READ'], $seconds, null);
+            self::fail('Expected an ApiException for ' . $seconds . ' seconds.');
+        } catch (ApiException $e) {
+            self::assertSame(ErrorCode::BAD_USER_INPUT, $e->getErrorCode());
+            self::assertSame('ttlSeconds', $e->getExtensions()['field']);
+            self::assertSame([], $this->statements, 'nothing was written');
+        }
+    }
+
+    public function lifetimesUnderASecond(): array
+    {
+        return ['zero' => [0], 'negative' => [-60]];
+    }
+
+    public function testIssueForSecondsAppliesIssuesOwnChecks(): void
+    {
+        $this->expectException(ApiException::class);
+
+        $this->service()->issueForSeconds(7, '{NAME}', ['DOMAINS_READ'], 3600, null);
+    }
+
+    public function testIsLiveAsksForThisAccountsUnrevokedUnexpiredToken(): void
+    {
+        $this->rows = [['token_id' => 42]];
+        $service = $this->service();
+
+        self::assertTrue($service->isLive(7, 42));
+
+        $select = $this->statements[0];
+        self::assertStringContainsString('revoked_at IS NULL', $select['sql']);
+        self::assertStringContainsString('expires_at IS NULL OR expires_at > ?', $select['sql']);
+        self::assertSame([42, 7], array_slice($select['bind'], 0, 2));
+    }
+
+    public function testIsLiveIsFalseWhenNoRowMatches(): void
+    {
+        $this->rows = [];
+
+        self::assertFalse($this->service()->isLive(7, 42));
+    }
+
+    public function testIsRevokedIgnoresExpiry(): void
+    {
+        $this->rows = [['token_id' => 42]];
+        $service = $this->service();
+
+        self::assertFalse($service->isRevoked(7, 42), 'an unrevoked row, expired or not');
+
+        $select = $this->statements[0];
+        self::assertStringContainsString('revoked_at IS NULL', $select['sql']);
+        self::assertStringNotContainsString('expires_at', $select['sql']);
+        self::assertSame([42, 7], $select['bind']);
+    }
+
+    public function testIsRevokedIsTrueWhenNoUnrevokedRowOfThisAccountMatches(): void
+    {
+        $this->rows = [];
+
+        self::assertTrue($this->service()->isRevoked(7, 42));
+    }
+
+    public function testRequireRoomForAnotherCountsOnlyUsableTokens(): void
+    {
+        $this->rows = [
+            $this->row('a', ['token_id' => 1]),
+            $this->row('b', ['token_id' => 2, 'revoked_at' => time() - 10]),
+            $this->row('c', ['token_id' => 3, 'expires_at' => time() - 10]),
+        ];
+
+        // One usable token, a limit of two: room for another.
+        $this->service()->requireRoomForAnother(7, 2);
+
+        try {
+            $this->service()->requireRoomForAnother(7, 1);
+            self::fail('Expected LIMIT_EXCEEDED at the limit.');
+        } catch (ApiException $e) {
+            self::assertSame(ErrorCode::LIMIT_EXCEEDED, $e->getErrorCode());
+            self::assertSame(
+                ['quota' => 'tokens', 'limit' => 1, 'used' => 1], $e->getExtensions()
+            );
+        }
+    }
+
+    public function testALimitUnderOneIsNoLimit(): void
+    {
+        $this->rows = [$this->row('a')];
+
+        $this->service()->requireRoomForAnother(7, 0);
+
+        self::assertSame([], $this->statements, 'nothing was even counted');
+    }
+
     private function row(string $secret, array $overrides = []): array
     {
         return array_merge([

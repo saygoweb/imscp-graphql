@@ -496,7 +496,10 @@ is the operation that actually ran, and whether or not it succeeded; `all`
 widens that to every request, queries included; `none` writes nothing.
 
 Each row carries: when; which account and which token (both null for a panel
-session, which carries no token); the source address; the operation name, if
+session, which carries no token); the source address; which entry point the
+request came in by (`via`: `http` for this endpoint, `mcp` for a call another
+plugin made in-process through `Api\Executor` — see
+[EXTENSIONS.md](EXTENSIONS.md#in-process-execution)); the operation name, if
 the document gave one; the names of every top-level field the document
 invoked; its variables; whether the request ended in an error and which
 `extensions.code` it carried; and how long it took.
