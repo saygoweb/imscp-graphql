@@ -6,6 +6,14 @@ All notable changes to this plugin are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **`customerCreate.username`** is optional and defaults to the main domain in
+  ASCII (punycode) form. A username equal to that form is accepted at any
+  length, as stock i-MSCP does (it never runs `validates_username` on the
+  domain it names a customer by); any other username is still held to the
+  panel's 2-30 character rule.
+
 ### Added
 
 - **`CustomerFilter.domainNameContains`**: find customers by part of their

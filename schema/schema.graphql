@@ -1111,7 +1111,8 @@ input CustomerAllowancesInput {
 }
 
 input CustomerCreateInput {
-  username: String!
+  "Defaults to the main domain in ASCII form, as the i-MSCP panel names customers. A username equal to that form may be of any length; any other is held to the panel's 2-30 character rule."
+  username: String
   password: Secret!
   domainName: DomainName!
   "One of the reseller's own IP addresses."
