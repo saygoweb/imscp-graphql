@@ -5,7 +5,7 @@
 ./docs
 ./test
 ./tools
-./scripts
+./tools-local
 ./composer.lock
 ./.claude
 ./worktrees

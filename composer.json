@@ -36,7 +36,7 @@
         "exclude-from-classmap": [
             "/test/",
             "/tools/",
-            "/scripts/",
+            "/tools-local/",
             "/frontend/"
         ]
     },

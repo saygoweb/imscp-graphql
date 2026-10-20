@@ -8,11 +8,11 @@
 # read without echo and the plaintext token goes straight into the file a
 # client reads it from - a terminal or a chat log never sees it.
 #
-# Operator tooling, run from a workstation. Never part of the plugin: scripts/
+# Operator tooling, run from a workstation. Never part of the plugin: tools-local/
 # is excluded from the release archive (upload-exclude.txt), from
 # tools/deploy.sh's sync, and from the autoloader's classmap.
 #
-#   scripts/mint-admin-token.sh --endpoint https://panel.example.com:8443/api/graphql \
+#   tools-local/mint-admin-token.sh --endpoint https://panel.example.com:8443/api/graphql \
 #       --env-file docker/.env [--var IMSCP_ADMIN_TOKEN] [--name dev-readonly] \
 #       [--days 90] [--scopes ACCOUNT_READ,DOMAINS_READ,...]
 #

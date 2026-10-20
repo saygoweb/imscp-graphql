@@ -30,11 +30,11 @@ STAGE=/tmp/$PLUGIN.stage
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 
 # Everything the panel does not need. Kept in step with upload-exclude.txt,
-# which does the same job for the release archive. scripts/ is operator tooling
+# which does the same job for the release archive. tools-local/ is operator tooling
 # run from a workstation and never ships. tools/ is excluded here but
 # not from the push below, because the push needs this script on the far side.
 EXCLUDES="--exclude=.git --exclude=.github --exclude=.ssh-config
---exclude=docs --exclude=test --exclude=tools --exclude=scripts --exclude=*.tgz"
+--exclude=docs --exclude=test --exclude=tools --exclude=tools-local --exclude=*.tgz"
 
 if [ -d /var/www/imscp/gui/plugins ]; then
     [ "$(id -u)" -eq 0 ] || { echo "$0: must be run as root" >&2; exit 1; }
