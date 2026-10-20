@@ -21,7 +21,7 @@
 return array(
     'author'      => 'Cambell Prince',
     'email'       => 'cambell.prince@gmail.com',
-    'version'     => '1.2.7',
+    'version'     => '1.2.8',
     'require_api' => '1.5.1',
     'date'        => '2026-10-20',
     'name'        => 'SGW_GraphQL',
