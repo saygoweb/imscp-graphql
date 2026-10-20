@@ -16,6 +16,14 @@ All notable changes to this plugin are documented here. The format follows
 
 ### Added
 
+- **`Viewer.apiTokens(includeRevoked: Boolean = false)`**: the authenticated
+  account's own API tokens, newest first, so a stale or leaked one can be
+  found and revoked, as
+  `{ viewer { apiTokens { id name prefix expiresAt lastUsedAt } } }`. It
+  returns the `ApiToken` metadata only, never a secret, and never another
+  account's tokens. Expired tokens are included; revoked ones only with
+  `includeRevoked: true`. It needs no scope, like `Viewer.token` and
+  `tokenRevoke`, and it answers for a panel session too.
 - **`Viewer.token`**: the `ApiToken` the request authenticated with, so a
   client can read its own token's `expiresAt` and renew it in time, as
   `{ viewer { token { id name expiresAt } } }`. It needs no scope, since a
