@@ -32,6 +32,7 @@ use iMSCP\Plugin\SGW_GraphQL\Api\Container;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Identity;
 use iMSCP\Plugin\SGW_GraphQL\Auth\IdentityShim;
 use iMSCP\Plugin\SGW_GraphQL\Auth\Scope;
+use iMSCP\Plugin\SGW_GraphQL\Auth\TokenService;
 use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\RateLimiter;
@@ -1095,6 +1096,164 @@ class TokenMutationsTest extends IntegrationTestCase
         self::assertSame($issued['apiToken']['id'], $own['data']['viewer']['token']['id'] ?? null);
     }
 
+    // ---- Viewer.apiTokens -----------------------------------------------
+
+    public function testTheViewerListsItsOwnTokensNewestFirstWithTheirMetadata(): void
+    {
+        $first = $this->mint('customer', 'laptop', array(Scope::MAIL_READ), 30, '192.0.2.0/24');
+        $second = $this->mint('customer', 'ci', array(Scope::DOMAINS_WRITE, Scope::MAIL_READ), null, null);
+
+        $result = $this->execute(
+            '{ viewer { apiTokens {
+                id prefix name scopes ipAllowlist createdAt expiresAt lastUsedAt lastUsedIp revokedAt
+            } } }',
+            array(),
+            $this->identityFor('customer')
+        );
+
+        self::assertArrayNotHasKey('errors', $result, json_encode($result));
+
+        $tokens = $result['data']['viewer']['apiTokens'];
+
+        // Newest first; created in the same second, so token_id breaks the tie.
+        self::assertSame(
+            array($this->encodedId($second), $this->encodedId($first)),
+            array_column($tokens, 'id')
+        );
+
+        self::assertSame('ci', $tokens[0]['name']);
+        self::assertSame(array(Scope::DOMAINS_WRITE, Scope::MAIL_READ), $tokens[0]['scopes']);
+        self::assertSame(array(), $tokens[0]['ipAllowlist']);
+        self::assertNull($tokens[0]['expiresAt']);
+
+        self::assertSame('laptop', $tokens[1]['name']);
+        self::assertSame(explode('_', $first['token'], 3)[1], $tokens[1]['prefix']);
+        self::assertSame(array(Scope::MAIL_READ), $tokens[1]['scopes']);
+        self::assertSame(array('192.0.2.0/24'), $tokens[1]['ipAllowlist']);
+        self::assertNotNull($tokens[1]['createdAt']);
+        self::assertNotNull($tokens[1]['expiresAt']);
+        self::assertNull($tokens[1]['lastUsedAt']);
+        self::assertNull($tokens[1]['revokedAt']);
+
+        // Metadata only: neither secret appears anywhere in the answer.
+        $encoded = json_encode($result);
+
+        foreach (array($first, $second) as $issued) {
+            self::assertStringNotContainsString(explode('_', $issued['token'], 3)[2], $encoded);
+        }
+    }
+
+    public function testTheViewerNeverListsAnotherAccountsTokens(): void
+    {
+        $mine = array();
+
+        foreach (array('customer', 'sibling', 'otherCustomer', 'reseller', 'admin') as $who) {
+            $mine[$who] = $this->encodedId($this->mint($who, $who . '-token', array(Scope::MAIL_READ)));
+        }
+
+        foreach ($mine as $who => $encodedId) {
+            $result = $this->execute(
+                '{ viewer { apiTokens(includeRevoked: true) { id } } }', array(), $this->identityFor($who)
+            );
+
+            self::assertArrayNotHasKey('errors', $result, json_encode($result));
+            self::assertSame(
+                array($encodedId), array_column($result['data']['viewer']['apiTokens'], 'id'),
+                $who . ' listed tokens that are not only its own: ' . json_encode($result)
+            );
+        }
+    }
+
+    public function testRevokedTokensAreListedOnlyWhenAskedFor(): void
+    {
+        $kept = $this->mint('customer', 'kept', array(Scope::MAIL_READ));
+        $revoked = $this->mint('customer', 'gone', array(Scope::MAIL_READ));
+        $this->revoke($this->encodedId($revoked));
+
+        $default = $this->execute(
+            '{ viewer { apiTokens { id revokedAt } } }', array(), $this->identityFor('customer')
+        );
+        $asked = $this->execute(
+            '{ viewer { apiTokens(includeRevoked: true) { id revokedAt } } }',
+            array(), $this->identityFor('customer')
+        );
+        $declined = $this->execute(
+            '{ viewer { apiTokens(includeRevoked: false) { id } } }', array(), $this->identityFor('customer')
+        );
+
+        self::assertArrayNotHasKey('errors', $default, json_encode($default));
+        self::assertSame(
+            array($this->encodedId($kept)), array_column($default['data']['viewer']['apiTokens'], 'id')
+        );
+        self::assertSame(
+            array($this->encodedId($kept)), array_column($declined['data']['viewer']['apiTokens'], 'id')
+        );
+
+        $all = $asked['data']['viewer']['apiTokens'];
+
+        self::assertSame(
+            array($this->encodedId($revoked), $this->encodedId($kept)), array_column($all, 'id')
+        );
+        self::assertNotNull($all[0]['revokedAt']);
+        self::assertNull($all[1]['revokedAt']);
+    }
+
+    public function testExpiredTokensAreListed(): void
+    {
+        $expired = $this->mint('customer', 'lapsed', array(Scope::MAIL_READ), 1);
+        $this->db->execute(
+            'UPDATE api_token SET created_at = ?, expires_at = ? WHERE token_id = ?',
+            array(time() - 7200, time() - 3600, $expired['tokenId'])
+        );
+
+        $result = $this->execute(
+            '{ viewer { apiTokens { id expiresAt } } }', array(), $this->identityFor('customer')
+        );
+
+        self::assertArrayNotHasKey('errors', $result, json_encode($result));
+        self::assertSame(
+            array($this->encodedId($expired)), array_column($result['data']['viewer']['apiTokens'], 'id')
+        );
+        self::assertNotNull($result['data']['viewer']['apiTokens'][0]['expiresAt']);
+    }
+
+    public function testANarrowTokenListsItsAccountsTokensThroughTheWholePipeline(): void
+    {
+        // Issued with DOMAINS_WRITE only, so this is also the "no scope
+        // needed" case, and the panel-less path a script takes.
+        $other = $this->mint('customer', 'older', array(Scope::MAIL_READ));
+        $issued = $this->issue()['data']['tokenIssue'];
+        $response = $this->send(
+            '{ viewer { token { id } apiTokens { id name } } }',
+            array('HTTP_AUTHORIZATION' => 'Bearer ' . $issued['token'])
+        );
+
+        self::assertSame(200, $response->getStatusCode(), (string)$response->getBody());
+
+        $body = $this->body($response);
+
+        self::assertArrayNotHasKey('errors', $body, json_encode($body));
+        self::assertSame($issued['apiToken']['id'], $body['data']['viewer']['token']['id']);
+        self::assertSame(
+            array($issued['apiToken']['id'], $this->encodedId($other)),
+            array_column($body['data']['viewer']['apiTokens'], 'id')
+        );
+        self::assertStringNotContainsString(
+            explode('_', $issued['token'], 3)[2], (string)$response->getBody()
+        );
+    }
+
+    public function testAnAccountWithNoTokensListsNone(): void
+    {
+        // A panel session's identity: no token id, and nothing minted.
+        $result = $this->execute(
+            '{ viewer { apiTokens { id } } }', array(), $this->identityFor('sibling')
+        );
+
+        self::assertArrayNotHasKey('errors', $result, json_encode($result));
+        self::assertSame(array(), $result['data']['viewer']['apiTokens']);
+    }
+
     // ---- what the middleware change must not have loosened ---------------
 
     public function testAnUnauthenticatedViewerQueryIsStillRefused(): void
@@ -1314,6 +1473,29 @@ class TokenMutationsTest extends IntegrationTestCase
             array('id' => $encodedId),
             $this->identityFor('customer')
         );
+    }
+
+    /**
+     * A token for one of the fixture's accounts, straight through
+     * TokenService, so that accounts without a password can hold one too.
+     *
+     * @param string[] $scopes
+     * @return array{token: string, tokenId: int, expiresAt: int|null}
+     */
+    private function mint(
+        string $who, string $name, array $scopes, ?int $ttlDays = 30, ?string $ipAllowlist = null
+    ): array {
+        return TokenService::fromPanel()->issue(
+            $this->identityFor($who)->getAdminId(), $name, $scopes, $ttlDays, $ipAllowlist
+        );
+    }
+
+    /**
+     * @param array{token: string, tokenId: int, expiresAt: int|null} $issued
+     */
+    private function encodedId(array $issued): string
+    {
+        return GlobalId::encode('ApiToken', $issued['tokenId']);
     }
 
     /**

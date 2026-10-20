@@ -146,6 +146,14 @@ type Viewer {
   scope: a token may always see itself, and only itself.
   """
   token: ApiToken
+  """
+  The authenticated account's own API tokens, newest first, so a stale or
+  leaked one can be found and passed to `tokenRevoke`. Never another account's
+  tokens, and metadata only: no field of ApiToken carries a secret. Expired
+  tokens are included; revoked ones only when `includeRevoked` is true. Needs
+  no scope, like `token` and `tokenRevoke`, and answers for a panel session too.
+  """
+  apiTokens(includeRevoked: Boolean = false): [ApiToken!]!
 }
 
 """

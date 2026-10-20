@@ -709,6 +709,8 @@ type Viewer {
   reseller: Reseller
   "The API token this request authenticated with; null for a panel session. Needs no scope."
   token: ApiToken
+  "The account's own tokens, newest first; revoked ones only with includeRevoked. Needs no scope."
+  apiTokens(includeRevoked: Boolean = false): [ApiToken!]!
 }
 
 enum Scope {

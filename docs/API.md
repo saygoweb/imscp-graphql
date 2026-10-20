@@ -106,6 +106,20 @@ It needs no scope — a token may always see itself, and only itself — and it
 is `null` when the request was not authenticated by an API token (a panel
 session). Its `id` is the one `tokenRevoke(id:)` takes.
 
+To find a stale or leaked token, list the account's own tokens through
+`viewer.apiTokens`, newest first:
+
+```graphql
+{ viewer { apiTokens { id name prefix scopes createdAt expiresAt lastUsedAt revokedAt } } }
+```
+
+It returns only the authenticated account's tokens, never another account's,
+and only their metadata: no field of `ApiToken` carries the secret. Expired
+tokens are included, since a token that lapsed unnoticed is worth seeing;
+revoked ones are left out unless you ask with `apiTokens(includeRevoked: true)`.
+Like `viewer.token` it needs no scope, and it answers for a panel session as
+well. Pass the `id` of a token you no longer need to `tokenRevoke(id:)`.
+
 A reseller can withdraw a customer's API access entirely, under *Reseller /
 Customers / API access*; withdrawing revokes every token that customer holds.
 A reseller can also revoke all of a customer's tokens without touching their

@@ -45,9 +45,10 @@ class ResolverCoverageTest extends TestCase
         'PlanQuotas', 'PlanStorage', 'PlanFeatures', 'ResellerQuotas',
         // TokenIssueResult.apiToken. The token is shaped by the mutation that
         // minted it, so it arrives as a ready array inside the result and
-        // needs no edge. Viewer.token is the one read of a token, and it is
-        // an edge: testViewerTokenHasItsOwnResolver() holds it to that, since
-        // this list would otherwise excuse it.
+        // needs no edge. Viewer.token and Viewer.apiTokens are the reads of a
+        // token, and they are edges: testViewerTokenHasItsOwnResolver() and
+        // testViewerApiTokensHasItsOwnResolver() hold them to that, since this
+        // list would otherwise excuse them.
         'ApiToken'
     );
 
@@ -109,6 +110,21 @@ class ResolverCoverageTest extends TestCase
         }
 
         self::assertArrayHasKey('Viewer.token', $map);
+    }
+
+    public function testViewerApiTokensHasItsOwnResolver(): void
+    {
+        // The same trap as Viewer.token: ApiToken is excused above, and the
+        // fallback would read a missing `apiTokens` key as null, which for a
+        // non-null list is an error on every request rather than a silent
+        // null - but only once somebody asks for it.
+        $map = array();
+
+        foreach ($this->container()->resolverMaps() as $one) {
+            $map += $one;
+        }
+
+        self::assertArrayHasKey('Viewer.apiTokens', $map);
     }
 
     public function testEveryResolverKeyNamesAFieldThatExists(): void

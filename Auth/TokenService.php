@@ -428,7 +428,7 @@ class TokenService
     {
         $stmt = call_user_func(
             $this->query,
-            'SELECT * FROM api_token WHERE admin_id = ? ORDER BY created_at DESC',
+            'SELECT * FROM api_token WHERE admin_id = ? ORDER BY created_at DESC, token_id DESC',
             array($adminId)
         );
 

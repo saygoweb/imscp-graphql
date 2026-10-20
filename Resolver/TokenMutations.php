@@ -34,7 +34,8 @@ use iMSCP\Plugin\SGW_GraphQL\Support\GlobalId;
 use InvalidArgumentException;
 
 /**
- * `tokenIssue` and `tokenRevoke` (spec section 5.3), and `Viewer.token`.
+ * `tokenIssue` and `tokenRevoke` (spec section 5.3), `Viewer.token` and
+ * `Viewer.apiTokens`.
  *
  * `tokenIssue` is the only field in the schema that may be called without a
  * credential, so every line of issue() below is about what it must not do.
@@ -46,8 +47,9 @@ use InvalidArgumentException;
  * object between six accounts and asks who reaches it, and a token has no
  * reader but its owner - see test/authz/CatalogueCoverageTest.
  *
- * `Viewer.token` lives here rather than in ViewerResolver because it is the
- * same ApiToken, shaped by the same shape(), read through the same tokenOf().
+ * `Viewer.token` and `Viewer.apiTokens` live here rather than in
+ * ViewerResolver because they are the same ApiToken, shaped by the same
+ * shape(), read through the same TokenService::listFor().
  */
 final class TokenMutations
 {
@@ -131,7 +133,8 @@ final class TokenMutations
         return array(
             'Mutation.tokenIssue'  => array($this, 'resolveTokenIssue'),
             'Mutation.tokenRevoke' => array($this, 'resolveTokenRevoke'),
-            'Viewer.token'         => array($this, 'resolveViewerToken')
+            'Viewer.token'         => array($this, 'resolveViewerToken'),
+            'Viewer.apiTokens'     => array($this, 'resolveViewerApiTokens')
         );
     }
 
@@ -310,6 +313,44 @@ final class TokenMutations
         $token = $this->tokenOf($caller->getAdminId(), $caller->getTokenId());
 
         return $token === null ? null : $this->shape($token);
+    }
+
+    /**
+     * The caller's own tokens, newest first: live and expired ones, and
+     * revoked ones too when `includeRevoked` is true.
+     *
+     * Keyed by the identity's admin id alone, so it answers for a panel
+     * session as well as for a token, and there is no argument that could
+     * name another account. No scope is required, for the reason
+     * `tokenRevoke` needs none: finding a stale or leaked token is the first
+     * half of revoking it, and a credential narrowed to MAIL_READ must still
+     * be able to do both. Metadata only - shape() has no secret and no hash
+     * to give.
+     *
+     * Expired tokens are kept in the default answer on purpose: they still
+     * count as rows the account holds, and seeing one that lapsed unnoticed is
+     * part of what the list is for.
+     *
+     * @param mixed $source
+     * @param mixed $context
+     * @return array<int, array<string, mixed>>
+     * @throws ApiException
+     */
+    public function resolveViewerApiTokens($source, array $args, $context, ResolveInfo $info): array
+    {
+        $caller = TypeResolver::identity($context);
+        $includeRevoked = (bool)($args['includeRevoked'] ?? false);
+        $shaped = array();
+
+        foreach ($this->tokens->listFor($caller->getAdminId()) as $token) {
+            if (!$includeRevoked && $token->getRevokedAt() !== null) {
+                continue;
+            }
+
+            $shaped[] = $this->shape($token);
+        }
+
+        return $shaped;
     }
 
     /**
