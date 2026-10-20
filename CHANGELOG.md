@@ -16,6 +16,12 @@ All notable changes to this plugin are documented here. The format follows
 
 ### Added
 
+- **`Viewer.token`**: the `ApiToken` the request authenticated with, so a
+  client can read its own token's `expiresAt` and renew it in time, as
+  `{ viewer { token { id name expiresAt } } }`. It needs no scope, since a
+  token may always see itself, and it never returns another account's token.
+  It is null when the request was not authenticated by an API token, such as
+  a panel session.
 - **`CustomerFilter.domainNameContains`**: find customers by part of their
   main domain name, as in "find domains like 'elijah'". It is a
   case-insensitive substring match, with `%`, `_` and `\` taken literally, as

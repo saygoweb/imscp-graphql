@@ -1021,6 +1021,80 @@ class TokenMutationsTest extends IntegrationTestCase
         self::assertNotNull($result['data']['tokenRevoke']['revokedAt']);
     }
 
+    // ---- Viewer.token ---------------------------------------------------
+
+    public function testATokenReadsItsOwnRecordThroughTheViewer(): void
+    {
+        // The whole pipeline, with the minted bearer token: what a client that
+        // wants to know when to renew actually sends. The token was issued
+        // with DOMAINS_WRITE only, so this is also the "no scope needed" case.
+        $issued = $this->issue()['data']['tokenIssue'];
+        $response = $this->send(
+            '{ viewer { token { id name prefix scopes expiresAt revokedAt } } }',
+            array('HTTP_AUTHORIZATION' => 'Bearer ' . $issued['token'])
+        );
+
+        self::assertSame(200, $response->getStatusCode(), (string)$response->getBody());
+
+        $body = $this->body($response);
+
+        self::assertArrayNotHasKey('errors', $body, json_encode($body));
+
+        $token = $body['data']['viewer']['token'];
+
+        self::assertSame($issued['apiToken']['id'], $token['id']);
+        self::assertSame('ci', $token['name']);
+        self::assertSame($issued['apiToken']['prefix'], $token['prefix']);
+        self::assertSame(array(Scope::DOMAINS_WRITE), $token['scopes']);
+        self::assertSame($issued['expiresAt'], $token['expiresAt']);
+        self::assertNull($token['revokedAt']);
+    }
+
+    public function testTheViewerTokenIsNullWithoutATokenId(): void
+    {
+        // A panel session authenticates with no token id; the fixture's
+        // unscoped identity is the same shape.
+        $result = $this->execute(
+            '{ viewer { username token { id } } }', array(), $this->identityFor('customer')
+        );
+
+        self::assertArrayNotHasKey('errors', $result, json_encode($result));
+        self::assertSame(Fixture::PREFIX . 'customer', $result['data']['viewer']['username']);
+        self::assertNull($result['data']['viewer']['token']);
+    }
+
+    public function testTheViewerTokenIsNeverAnotherAccountsToken(): void
+    {
+        // An identity whose token id names a row of another account - which
+        // AuthenticateMiddleware never builds, but the lookup must not trust
+        // that - reads nothing rather than somebody else's token.
+        $issued = $this->issue()['data']['tokenIssue'];
+        $tokenId = GlobalId::decode($issued['apiToken']['id'], 'ApiToken')->getId();
+        $customer = $this->identityFor('customer');
+
+        foreach (array('sibling', 'reseller', 'admin') as $who) {
+            $other = $this->identityFor($who);
+            $result = $this->execute('{ viewer { token { id } } }', array(), new Identity(
+                $other->getAdminId(), $other->getUsername(), $other->getAdminType(),
+                $other->getCreatedBy(), $other->getEmail(), array(), $tokenId
+            ));
+
+            self::assertArrayNotHasKey('errors', $result, json_encode($result));
+            self::assertNull(
+                $result['data']['viewer']['token'],
+                $who . ' read a token that is not theirs: ' . json_encode($result)
+            );
+        }
+
+        // And the owner, presenting the same id, does read it.
+        $own = $this->execute('{ viewer { token { id } } }', array(), new Identity(
+            $customer->getAdminId(), $customer->getUsername(), $customer->getAdminType(),
+            $customer->getCreatedBy(), $customer->getEmail(), array(), $tokenId
+        ));
+
+        self::assertSame($issued['apiToken']['id'], $own['data']['viewer']['token']['id'] ?? null);
+    }
+
     // ---- what the middleware change must not have loosened ---------------
 
     public function testAnUnauthenticatedViewerQueryIsStillRefused(): void

@@ -133,6 +133,14 @@ type Viewer {
 
   "Set when role is RESELLER."
   reseller: Reseller
+
+  """
+  The API token this request authenticated with, so a client can read its own
+  credential's expiry (`expiresAt`) and renew it in time. Null when the request
+  was not authenticated by an API token, such as a panel session. Needs no
+  scope: a token may always see itself, and only itself.
+  """
+  token: ApiToken
 }
 
 """

@@ -95,6 +95,17 @@ are both `NOT_FOUND`.
 The secret in `token` is returned exactly once, here. No query returns it, no
 field of `ApiToken` carries it, and only a SHA-256 of it was ever stored.
 
+A token can read its own record through `viewer.token`, for example to learn
+when it expires and renew it in time:
+
+```graphql
+{ viewer { token { id name scopes expiresAt lastUsedAt } } }
+```
+
+It needs no scope — a token may always see itself, and only itself — and it
+is `null` when the request was not authenticated by an API token (a panel
+session). Its `id` is the one `tokenRevoke(id:)` takes.
+
 A reseller can withdraw a customer's API access entirely, under *Reseller /
 Customers / API access*; withdrawing revokes every token that customer holds.
 A reseller can also revoke all of a customer's tokens without touching their
