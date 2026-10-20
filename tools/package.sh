@@ -132,12 +132,13 @@ echo "  installed, no dev dependencies"
 # out.
 STRAYS=$(find "$STAGE/$NAME" \
     \( -name '.claude' -o -name '.serena' -o -name '.superpowers' \
-       -o -name 'worktrees' -o -name '*.tgz' \) -print)
+       -o -name 'worktrees' -o -name '*.tgz' \
+       -o -path "$STAGE/$NAME/scripts" \) -print)
 
 if [ -n "$STRAYS" ]; then
     echo "$STRAYS" | sed "s|^$STAGE/|  |" >&2
     fail "the staged tree carries paths that must not ship (scratch directories
-       or a previous archive). Add them to upload-exclude.txt."
+       or a previous archive, or the operator scripts/). Add them to upload-exclude.txt."
 fi
 
 echo "Contents:"

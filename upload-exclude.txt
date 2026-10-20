@@ -5,6 +5,7 @@
 ./docs
 ./test
 ./tools
+./scripts
 ./composer.lock
 ./.claude
 ./worktrees
