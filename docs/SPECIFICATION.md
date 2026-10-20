@@ -707,6 +707,8 @@ type Viewer {
   customer: Customer
   "Set when role is RESELLER."
   reseller: Reseller
+  "The API token this request authenticated with; null for a panel session. Needs no scope."
+  token: ApiToken
 }
 
 enum Scope {

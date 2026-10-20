@@ -44,8 +44,10 @@ class ResolverCoverageTest extends TestCase
         'CustomerQuotas', 'CustomerFeatures', 'Autoresponder', 'PlanAllowance',
         'PlanQuotas', 'PlanStorage', 'PlanFeatures', 'ResellerQuotas',
         // TokenIssueResult.apiToken. The token is shaped by the mutation that
-        // minted it - there is no query that returns one, by design - so it
-        // arrives as a ready array inside the result and needs no edge.
+        // minted it, so it arrives as a ready array inside the result and
+        // needs no edge. Viewer.token is the one read of a token, and it is
+        // an edge: testViewerTokenHasItsOwnResolver() holds it to that, since
+        // this list would otherwise excuse it.
         'ApiToken'
     );
 
@@ -93,6 +95,20 @@ class ResolverCoverageTest extends TestCase
         }
 
         self::assertSame(array(), $missing);
+    }
+
+    public function testViewerTokenHasItsOwnResolver(): void
+    {
+        // The viewer's shape has no `token` key, so without a resolver of its
+        // own the fallback would answer null for every token-authenticated
+        // request - which is also a valid answer, and so would pass unseen.
+        $map = array();
+
+        foreach ($this->container()->resolverMaps() as $one) {
+            $map += $one;
+        }
+
+        self::assertArrayHasKey('Viewer.token', $map);
     }
 
     public function testEveryResolverKeyNamesAFieldThatExists(): void

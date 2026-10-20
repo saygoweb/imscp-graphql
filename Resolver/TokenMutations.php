@@ -34,7 +34,7 @@ use iMSCP\Plugin\SGW_GraphQL\Support\GlobalId;
 use InvalidArgumentException;
 
 /**
- * `tokenIssue` and `tokenRevoke` (spec section 5.3).
+ * `tokenIssue` and `tokenRevoke` (spec section 5.3), and `Viewer.token`.
  *
  * `tokenIssue` is the only field in the schema that may be called without a
  * credential, so every line of issue() below is about what it must not do.
@@ -45,14 +45,18 @@ use InvalidArgumentException;
  * not in the authorisation matrix for that reason: the matrix hands one
  * object between six accounts and asks who reaches it, and a token has no
  * reader but its owner - see test/authz/CatalogueCoverageTest.
+ *
+ * `Viewer.token` lives here rather than in ViewerResolver because it is the
+ * same ApiToken, shaped by the same shape(), read through the same tokenOf().
  */
 final class TokenMutations
 {
     /**
      * The identifier type tag for a token.
      *
-     * Not a NodeType: a token is not a Node - it is reachable from no query,
-     * it has no ownership rule for OwnershipResolver to answer, and giving it
+     * Not a NodeType: a token is not a Node - no query reaches one by
+     * identifier (`Viewer.token` is only ever the caller's own), it has no
+     * ownership rule for OwnershipResolver to answer, and giving it
      * a tag NodeType knows would let it be handed to node(id:) and to every
      * Guard::target() call in the tree. GlobalId is only an encoding, so this
      * uses that directly and keeps the tag out of the vocabulary that grants
@@ -126,7 +130,8 @@ final class TokenMutations
     {
         return array(
             'Mutation.tokenIssue'  => array($this, 'resolveTokenIssue'),
-            'Mutation.tokenRevoke' => array($this, 'resolveTokenRevoke')
+            'Mutation.tokenRevoke' => array($this, 'resolveTokenRevoke'),
+            'Viewer.token'         => array($this, 'resolveViewerToken')
         );
     }
 
@@ -283,6 +288,28 @@ final class TokenMutations
         $current = $this->tokenOf($caller->getAdminId(), $token->getTokenId());
 
         return $this->shape($current === null ? $token : $current);
+    }
+
+    /**
+     * The token this request authenticated with, or null.
+     *
+     * Null for any request that did not present a token: a panel session
+     * carries no token id. No scope is required - whatever a credential is
+     * narrowed to, it may always read itself, and nothing else: the lookup is
+     * keyed by the identity's own admin id and token id, so there is no
+     * argument here that could name somebody else's row.
+     *
+     * @param mixed $source
+     * @param mixed $context
+     * @return array<string, mixed>|null
+     * @throws ApiException
+     */
+    public function resolveViewerToken($source, array $args, $context, ResolveInfo $info): ?array
+    {
+        $caller = TypeResolver::identity($context);
+        $token = $this->tokenOf($caller->getAdminId(), $caller->getTokenId());
+
+        return $token === null ? null : $this->shape($token);
     }
 
     /**
