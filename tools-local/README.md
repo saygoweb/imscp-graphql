@@ -1,7 +1,7 @@
-# scripts/
+# tools-local/
 
 Operator tooling run from a workstation against a deployed panel. Nothing here
-is part of the plugin, and nothing here ever ships: `scripts/` is excluded from
+is part of the plugin, and nothing here ever ships: `tools-local/` is excluded from
 the release archive (`upload-exclude.txt`, checked again by `tools/package.sh`),
 from `tools/deploy.sh`'s sync, and from Composer's classmap.
 
