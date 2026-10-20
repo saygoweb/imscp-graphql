@@ -14,10 +14,17 @@
 #
 #   tools-local/mint-admin-token.sh --endpoint https://panel.example.com:8443/api/graphql \
 #       --env-file docker/.env [--var IMSCP_ADMIN_TOKEN] [--name dev-readonly] \
-#       [--days 90] [--scopes ACCOUNT_READ,DOMAINS_READ,...]
+#       [--days 90] [--scopes read|all|ACCOUNT_READ,DOMAINS_READ,...]
 #
-# The default scopes are every *_READ scope, so a token minted without
-# thinking about it cannot write. Pass --scopes to widen it deliberately.
+# --scopes takes a comma-separated list, or a shorthand:
+#   read   every *_READ scope (the default)
+#   all    every scope, read and write
+# The shorthands expand from `enum Scope` in this checkout's
+# schema/schema.graphql, the schema the plugin is built from, so they follow
+# scopes as they are added. (The server's own list can't be asked for first:
+# introspection needs a token, and minting one is what this script is for.)
+# The default is read, so a token minted without thinking about it cannot
+# write. Pass --scopes all to widen it deliberately.
 # The env file must already hold an uncommented `VAR=` line; that line's value
 # is replaced and nothing else in the file changes.
 set -euo pipefail
@@ -27,7 +34,8 @@ ENV_FILE=
 VAR=IMSCP_ADMIN_TOKEN
 NAME=dev-readonly
 DAYS=90
-SCOPES=ACCOUNT_READ,DOMAINS_READ,MAIL_READ,FTP_READ,SQL_READ,DNS_READ,CUSTOMERS_READ,RESELLERS_READ
+SCOPES=read
+SCHEMA=$(cd "$(dirname "$0")/.." && pwd)/schema/schema.graphql
 
 die() { echo "$(basename "$0"): $*" >&2; exit 1; }
 
@@ -39,7 +47,7 @@ while [ $# -gt 0 ]; do
         --name) NAME=${2:-}; shift 2 ;;
         --days) DAYS=${2:-}; shift 2 ;;
         --scopes) SCOPES=${2:-}; shift 2 ;;
-        -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) die "unknown option '$1' (see --help)" ;;
     esac
 done
@@ -49,6 +57,19 @@ done
 [ -f "$ENV_FILE" ] || die "$ENV_FILE does not exist"
 grep -q "^${VAR}=" "$ENV_FILE" || die "$ENV_FILE has no uncommented ${VAR}= line to fill"
 command -v python3 >/dev/null || die "python3 is required"
+
+# The Scope enum's values, one per line, read from the schema file.
+scope_enum() {
+    [ -f "$SCHEMA" ] || die "$SCHEMA not found; pass --scopes as an explicit list"
+    awk '/^enum Scope[ {]/{in_enum=1; next} in_enum && /^}/{exit} in_enum && /^[[:space:]]+[A-Z_]+[[:space:]]*$/{print $1}' "$SCHEMA"
+}
+
+case "$(printf '%s' "$SCOPES" | tr '[:upper:]' '[:lower:]')" in
+    all)  SCOPES=$(scope_enum | paste -sd, -) ;;
+    read) SCOPES=$(scope_enum | grep '_READ$' | paste -sd, -) ;;
+esac
+[ -n "$SCOPES" ] || die "no scopes resolved from $SCHEMA"
+echo "Scopes: $SCOPES"
 
 read -r -p "i-MSCP admin username: " user
 read -r -s -p "i-MSCP admin password: " pass
