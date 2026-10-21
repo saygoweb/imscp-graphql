@@ -29,6 +29,7 @@ use iMSCP\Plugin\SGW_GraphQL\Http\GraphQLHandler;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\ViewerResolver;
 use iMSCP\Plugin\SGW_GraphQL\Schema\ResolverMap;
 use iMSCP\Plugin\SGW_GraphQL\Schema\SchemaFactory;
+use iMSCP\Plugin\SGW_GraphQL\Service\ErrorLog;
 use PHPUnit\Framework\TestCase;
 use Slim\Http\Environment;
 use Slim\Http\Request;
@@ -84,7 +85,9 @@ class GraphQLHandlerTest extends TestCase
         ], $options));
     }
 
-    private function post(string $query, ?array $variables = null, bool $withIdentity = true): Response
+    private function post(
+        string $query, ?array $variables = null, bool $withIdentity = true, array $options = []
+    ): Response
     {
         $body = json_encode(array_filter(
             ['query' => $query, 'variables' => $variables],
@@ -106,7 +109,7 @@ class GraphQLHandlerTest extends TestCase
             $request = $request->withAttribute('identity', $this->identity());
         }
 
-        return ($this->handler())($request, new Response(), []);
+        return ($this->handler($options))($request, new Response(), []);
     }
 
     public function testItAnswersTheViewerQuery(): void
@@ -522,5 +525,30 @@ class GraphQLHandlerTest extends TestCase
         $response = $this->post('mutation { subdomainDelete(id: "x") { id } }');
 
         self::assertNotSame(429, $response->getStatusCode());
+    }
+
+    public function testAnErrorResponseIsWrittenToTheErrorLog(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'sgw-error-log');
+        unlink($path);
+        $schema = (new SchemaFactory(
+            dirname(__DIR__, 3) . '/schema/schema.graphql', null, new ResolverMap((new ViewerResolver('1.0.0'))->map())
+        ))->create();
+        $log = new ErrorLog($path, $schema, static function () {
+            return 0;
+        });
+
+        try {
+            $this->post('{ viewer { noSuchField } }', null, true, ['errorLog' => $log]);
+            $this->post('{ viewer { username } }', null, true, ['errorLog' => $log]);
+
+            $lines = file($path, FILE_IGNORE_NEW_LINES);
+
+            self::assertCount(1, $lines, 'a success logs nothing');
+            self::assertStringContainsString('[BAD_USER_INPUT] admin=7 token=42', $lines[0]);
+            self::assertStringContainsString('noSuchField', $lines[0]);
+        } finally {
+            @unlink($path);
+        }
     }
 }

@@ -596,7 +596,7 @@ final class Audit
      * one to run, and record() is not told which that was - so this is a
      * label, and fieldNames() below is the part that is exhaustive.
      */
-    private static function operationName(?DocumentNode $document): ?string
+    public static function operationName(?DocumentNode $document): ?string
     {
         if ($document === null) {
             return null;
@@ -622,7 +622,7 @@ final class Audit
      * operations would be an audit trail with a hole in exactly the shape an
      * attacker would choose.
      */
-    private static function fieldNames(?DocumentNode $document): ?string
+    public static function fieldNames(?DocumentNode $document): ?string
     {
         if ($document === null) {
             return null;

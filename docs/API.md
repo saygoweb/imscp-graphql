@@ -566,6 +566,29 @@ never touching the row that write itself just made. An administrator reads
 these rows from the panel itself, under *System tools / API log* — there is no
 GraphQL field that returns one.
 
+## The error log
+
+Every error the API answers with is also written, one line per error, to the
+file `error_log` in `config.php` names: `data/logs/sgw_graphql.log` by default,
+relative to the panel's `gui/` directory (so `/var/www/imscp/gui/data/logs/` on
+a stock install); an absolute path is used as it is, and `''` turns the log
+off. Each line carries the time (UTC), `extensions.code`, the account, token,
+entry point and source address, the operation name and top-level fields, the
+error's path and message, its other extensions (`retryAfterSeconds`, a
+`correlationId`, ...) and the variables, redacted exactly as the audit row's
+are and cut to 2 KiB:
+
+```
+[2026-10-21 01:26:03] [CONFLICT] admin=1 token=12 via=http ip=34.212.49.11 operation=- fields=domainAliasCreate path=domainAliasCreate: The backend has not finished with this object yet. {"state":"pending","retryAfterSeconds":5} variables={"input":{...}}
+```
+
+It is written whatever `audit` is set to, and is where the *message* is: the
+audit row keeps only the code, which does not say which of an operation's
+CONFLICTs a client hit. It is not under `/var/log/imscp`, which belongs to the
+backend daemon and is not writable by the panel's pool. The file is rotated to
+one `.1` copy when it passes 10 MiB. As with the audit row, a failure to write
+it never fails the request; it is reported to PHP's own `error_log`.
+
 ## The schema
 
 ```

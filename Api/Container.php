@@ -60,6 +60,7 @@ use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Security\OwnershipResolver;
 use iMSCP\Plugin\SGW_GraphQL\Service\ApcuStore;
 use iMSCP\Plugin\SGW_GraphQL\Service\Audit;
+use iMSCP\Plugin\SGW_GraphQL\Service\ErrorLog;
 use iMSCP\Plugin\SGW_GraphQL\Service\Core;
 use iMSCP\Plugin\SGW_GraphQL\Service\CustomerService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DetachedCore;
@@ -147,6 +148,9 @@ final class Container
 
     /** @var Audit|null */
     private $audit;
+
+    /** @var ErrorLog|null|false false once worked out that there is none. */
+    private $errorLog;
 
     /** @var SchemaFactory|null */
     private $schemaFactory;
@@ -865,6 +869,37 @@ final class Container
     }
 
     /**
+     * The file every error response is logged to, or null when `error_log`
+     * is empty. A stored configuration from before the key existed has no
+     * `error_log` at all, and gets the shipped path rather than no log.
+     *
+     * A relative path is the panel's: it is read against GUI_ROOT_DIR, so the
+     * shipped `data/logs/sgw_graphql.log` lands beside the panel's own logs
+     * wherever the panel is installed. With no panel, and so no GUI_ROOT_DIR,
+     * a relative path has nowhere to land and there is no log.
+     */
+    public function errorLog(): ?ErrorLog
+    {
+        if ($this->errorLog === null) {
+            $path = (string)($this->config['error_log'] ?? ErrorLog::DEFAULT_PATH);
+
+            if ($path !== '' && $path[0] !== '/') {
+                $path = defined('GUI_ROOT_DIR') ? GUI_ROOT_DIR . '/' . $path : '';
+            }
+
+            $this->errorLog = $path === '' ? false : new ErrorLog(
+                $path,
+                $this->schemaFactory()->create(),
+                static function () {
+                    return time();
+                }
+            );
+        }
+
+        return $this->errorLog === false ? null : $this->errorLog;
+    }
+
+    /**
      * decode_idna(), or identity when there is no panel.
      *
      * @return callable fn(string): string
@@ -1068,7 +1103,8 @@ final class Container
             // because it is the only layer that has the document, the
             // variables and the result envelope at once - and its `finally`
             // is what makes a request that threw on its way out audited too.
-            'audit'               => $this->audit()
+            'audit'               => $this->audit(),
+            'errorLog'            => $this->errorLog()
         ));
     }
 

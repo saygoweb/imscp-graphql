@@ -38,6 +38,7 @@ use iMSCP\Plugin\SGW_GraphQL\Schema\SchemaFactory;
 use iMSCP\Plugin\SGW_GraphQL\Service\Audit;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\TypeResolver;
 use iMSCP\Plugin\SGW_GraphQL\Service\AuditContext;
+use iMSCP\Plugin\SGW_GraphQL\Service\ErrorLog;
 use iMSCP\Plugin\SGW_GraphQL\Support\ApiException;
 use iMSCP\Plugin\SGW_GraphQL\Support\ErrorCode;
 use iMSCP\Plugin\SGW_GraphQL\Support\ErrorFactory;
@@ -335,6 +336,34 @@ final class GraphQLHandler
             throw $e;
         } finally {
             $this->audit($parsed, $variables, $output, $auditContext);
+            $this->logErrors($parsed, $variables, $output, $auditContext);
+        }
+    }
+
+    /**
+     * The error log's lines for this request, if this installation keeps one.
+     *
+     * ErrorLog::record() swallows its own failures, as Audit::record() does;
+     * this catch is the same second belt as audit()'s.
+     *
+     * @param array<string, mixed> $variables
+     * @param array<string, mixed> $result
+     *
+     * @return void
+     */
+    private function logErrors(
+        ?DocumentNode $document, array $variables, array $result, AuditContext $context
+    ): void {
+        $log = $this->options['errorLog'] ?? null;
+
+        if (!$log instanceof ErrorLog) {
+            return;
+        }
+
+        try {
+            $log->record($document, $variables, $result, $context);
+        } catch (Throwable $e) {
+            unset($e);
         }
     }
 
