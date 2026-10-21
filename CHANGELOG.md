@@ -8,6 +8,16 @@ All notable changes to this plugin are documented here. The format follows
 
 ### Changed
 
+- **Admin *System tools* menu:** the single *API* page is now two, *API
+  config* (`/admin/api_config.php`, the effective configuration) and *API
+  log* (`/admin/api_audit.php`, the request log). Both drop the blue info
+  boxes for the plain heading and table the core admin pages use.
+- **Row actions** (Revoke on the API tokens pages; Withdraw, Grant and Revoke
+  all on the reseller's API access page) are links with an icon and confirm
+  through the panel's own dialog, as core's delete actions do, rather than
+  jQuery UI buttons that clashed with the icon. They still POST with a CSRF
+  token.
+
 - **`customerCreate.username`** is optional and defaults to the main domain in
   ASCII (punycode) form. A username equal to that form is accepted at any
   length, as stock i-MSCP does (it never runs `validates_username` on the
@@ -247,7 +257,7 @@ packaging. `apiVersion` answers `2.0.0`.
   `audit_retention_days` (90 by default) and pruned from roughly one write in
   a hundred; a failed write is reported to the panel's log rather than
   failing the request (decision D27). Read from the panel itself, under
-  *System tools / API* — there is no GraphQL field that returns a row.
+  *System tools / API log* — there is no GraphQL field that returns a row.
 - **Query complexity, per list.** Every `*Connection` field, and every plain
   list the schema has no `page` argument for, declares a complexity
   proportional to what it will actually fetch (spec §10.2) — a page of 200

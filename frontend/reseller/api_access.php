@@ -141,7 +141,7 @@ function generatePage(TemplateEngine $tpl, $resellerId)
             'TOGGLE_ACTION'  => $allowed ? 'withdraw' : 'grant',
             'TOGGLE_ICON'    => $allowed ? 'delete' : 'ok',
             'TOGGLE_LABEL'   => tohtml($allowed ? tr('Withdraw') : tr('Grant')),
-            'TOGGLE_CONFIRM' => tojs($allowed
+            'TOGGLE_CONFIRM' => tohtml($allowed
                 ? tr('Withdraw API access? This revokes every token that customer holds.')
                 : tr('Grant API access to this customer?'))
         ));
@@ -185,7 +185,7 @@ $tpl->assign(array(
     'TR_LIVE_TOKENS'         => tohtml(tr('Live tokens')),
     'TR_ACTION'              => tohtml(tr('Actions')),
     'TR_REVOKE_ALL'          => tohtml(tr('Revoke all')),
-    'TR_REVOKE_ALL_CONFIRM'  => tojs(tr('Revoke every token this customer holds? This does not change their API access.'))
+    'TR_REVOKE_ALL_CONFIRM'  => tohtml(tr('Revoke every token this customer holds? This does not change their API access.'))
 ));
 
 generateNavigation($tpl);

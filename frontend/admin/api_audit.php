@@ -21,12 +21,9 @@ namespace SGW_GraphQL;
 
 use iMSCP\Event\EventAggregator;
 use iMSCP\Event\Events;
-use iMSCP\Registry;
 use iMSCP\TemplateEngine;
 use PDO;
 
-use function SGW_GraphQL\Frontend\configKeys;
-use function SGW_GraphQL\Frontend\formatConfigValue;
 use function SGW_GraphQL\Frontend\formatWhen;
 use function SGW_GraphQL\Frontend\safeText;
 
@@ -34,22 +31,6 @@ require_once __DIR__ . '/../common.php';
 
 /** How many `api_audit` rows one page shows. */
 const AUDIT_PAGE_SIZE = 50;
-
-/**
- * @param TemplateEngine $tpl
- * @param \iMSCP\Plugin\AbstractPlugin $plugin
- * @return void
- */
-function generateConfigSection(TemplateEngine $tpl, $plugin)
-{
-    foreach (configKeys() as $key) {
-        $tpl->assign(array(
-            'CONFIG_KEY'   => tohtml($key),
-            'CONFIG_VALUE' => safeText(formatConfigValue($plugin->getConfigParam($key)))
-        ));
-        $tpl->parse('CONFIG_ITEM', '.config_item');
-    }
-}
 
 /**
  * One page of `api_audit`, newest first.
@@ -144,7 +125,6 @@ function generateAuditSection(TemplateEngine $tpl, $page)
 check_login('admin');
 EventAggregator::getInstance()->dispatch(Events::onAdminScriptStart);
 
-$plugin = Registry::get('pluginManager')->pluginGet('SGW_GraphQL');
 $page = isset($_GET['page']) ? intval($_GET['page']) : 1;
 
 $tpl = new TemplateEngine();
@@ -152,16 +132,12 @@ $tpl->define_dynamic(array(
     'layout'          => 'shared/layouts/ui.tpl',
     'page'            => '../../plugins/SGW_GraphQL/themes/default/view/admin/api_audit.tpl',
     'page_message'    => 'layout',
-    'config_item'     => 'page',
     'no_audit_block'  => 'page',
     'audit_list'      => 'page',
     'audit_item'      => 'audit_list'
 ));
 $tpl->assign(array(
-    'TR_PAGE_TITLE'       => tohtml(tr('Admin / System tools / API')),
-    'TR_CONFIG_TITLE'     => tohtml(tr('Effective configuration')),
-    'TR_CONFIG_KEY'       => tohtml(tr('Key')),
-    'TR_CONFIG_VALUE'     => tohtml(tr('Value')),
+    'TR_PAGE_TITLE'       => tohtml(tr('Admin / System tools / API log')),
     'TR_AUDIT_TITLE'      => tohtml(tr('Request log')),
     'TR_NO_AUDIT'         => tohtml(tr('Nothing has been logged yet.')),
     'TR_AT'               => tohtml(tr('When')),
@@ -178,7 +154,6 @@ $tpl->assign(array(
 ));
 
 generateNavigation($tpl);
-generateConfigSection($tpl, $plugin);
 generateAuditSection($tpl, $page);
 generatePageMessage($tpl);
 
