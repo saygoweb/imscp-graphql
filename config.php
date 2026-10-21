@@ -158,6 +158,13 @@ return array(
     'audit'                   => 'mutations',   // none | mutations | all
     'audit_retention_days'    => 90,
 
+    // Every error the API answers with - code, message, account, operation
+    // and the redacted variables - one line each. Relative to the panel's
+    // gui/ directory; an absolute path is used as it is; '' turns it off.
+    // Not /var/log/imscp: that is the backend daemon's, and the panel's pool
+    // cannot write there. Rotated to one .1 file at 10 MiB.
+    'error_log'               => 'data/logs/sgw_graphql.log',
+
     // Error detail in responses. Never enable on a production panel.
     'debug'                   => false,
 

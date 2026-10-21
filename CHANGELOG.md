@@ -26,6 +26,11 @@ All notable changes to this plugin are documented here. The format follows
 
 ### Added
 
+- **Error log:** every error response is written, one line each, to
+  `gui/data/logs/sgw_graphql.log` (new `error_log` key in `config.php`) with
+  its code, message, extensions, account, operation and redacted variables,
+  whatever `audit` is set to. The API log page keeps only the error code, which
+  could not tell one CONFLICT from another.
 - **`Viewer.apiTokens(includeRevoked: Boolean = false)`**: the authenticated
   account's own API tokens, newest first, so a stale or leaked one can be
   found and revoked, as

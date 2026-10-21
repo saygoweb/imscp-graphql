@@ -132,7 +132,7 @@ function configKeys(): array
         'rate_limit_queries', 'rate_limit_mutations', 'rate_limit_token_issue',
         'trusted_clients', 'rate_limit_queries_trusted',
         'rate_limit_mutations_trusted', 'audit', 'audit_retention_days',
-        'debug', 'validate_ftp_home_dir'
+        'error_log', 'debug', 'validate_ftp_home_dir'
     );
 }
 

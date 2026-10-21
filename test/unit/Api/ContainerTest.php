@@ -29,6 +29,7 @@ use iMSCP\Plugin\SGW_GraphQL\Http\RateLimitMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Http\TlsMiddleware;
 use iMSCP\Plugin\SGW_GraphQL\Resolver\TypeResolver;
 use LogicException;
+use iMSCP\Plugin\SGW_GraphQL\Service\ErrorLog;
 use PHPUnit\Framework\TestCase;
 use Slim\Http\Environment;
 use Slim\Http\Request;
@@ -122,6 +123,25 @@ class ContainerTest extends TestCase
         self::assertSame(
             TypeResolver::PAGE_MAX, $this->handlerOptions([])['maxPageSize']
         );
+    }
+
+    public function testAnAbsoluteErrorLogPathGivesTheHandlerAnErrorLog(): void
+    {
+        self::assertInstanceOf(
+            ErrorLog::class, $this->handlerOptions(['error_log' => '/tmp/sgw_graphql.log'])['errorLog']
+        );
+    }
+
+    public function testAnEmptyErrorLogPathTurnsTheLogOff(): void
+    {
+        self::assertNull($this->handlerOptions(['error_log' => ''])['errorLog']);
+    }
+
+    public function testARelativeErrorLogPathWithNoPanelHasNowhereToLand(): void
+    {
+        // The unit suite runs without the panel, so GUI_ROOT_DIR is not defined.
+        self::assertFalse(defined('GUI_ROOT_DIR'));
+        self::assertNull($this->handlerOptions(['error_log' => 'data/logs/sgw_graphql.log'])['errorLog']);
     }
 
     /**
