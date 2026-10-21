@@ -1,3 +1,19 @@
+<script>
+    // Each action is a link, as on the core pages, that confirms through the
+    // panel's own dialog and then submits its row's POST form.
+    $(function () {
+        $("a.post_action").on("click", function () {
+            var form = $(this).closest("form")[0];
+            this.blur();
+            return jQuery.imscp.confirm($("<div>").text($(this).attr("data-confirm")).html(), function (yes) {
+                if (yes) {
+                    // Not form.submit(): a control named "submit" would shadow it.
+                    HTMLFormElement.prototype.submit.call(form);
+                }
+            });
+        });
+    });
+</script>
 <div class="info">{TR_INTRO}</div>
 
 <!-- BDP: new_token_block -->
@@ -42,8 +58,7 @@
                 <input type="hidden" name="action" value="revoke">
                 <input type="hidden" name="id" value="{TOKEN_ID}">
                 <input type="hidden" name="csrf" value="{CSRF_TOKEN}">
-                <button type="submit" class="icon i_delete"
-                        onclick="return confirm('{TR_REVOKE_CONFIRM}');">{TR_REVOKE}</button>
+                <a href="#" class="icon i_delete post_action" data-confirm="{TR_REVOKE_CONFIRM}">{TR_REVOKE}</a>
             </form>
             <!-- EDP: revoke_action -->
         </td>

@@ -217,7 +217,7 @@ class SGW_GraphQLTest extends TestCase
         );
 
         self::assertSame(
-            array('/admin/api_audit.php'),
+            array('/admin/api_config.php', '/admin/api_audit.php'),
             $this->navigationFor(
                 $stock, 'admin', array('/admin/system_info.php')
             )->addedUris()

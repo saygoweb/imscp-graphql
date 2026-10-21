@@ -280,7 +280,7 @@ $tpl->assign(array(
     'TR_LAST_USED'         => tohtml(tr('Last used')),
     'TR_ACTION'            => tohtml(tr('Actions')),
     'TR_REVOKE'            => tohtml(tr('Revoke')),
-    'TR_REVOKE_CONFIRM'    => tojs(tr('Revoke this token? Anything using it will stop working immediately.')),
+    'TR_REVOKE_CONFIRM'    => tohtml(tr('Revoke this token? Anything using it will stop working immediately.')),
     'TR_CREATE'            => tohtml(tr('Create a token')),
     'TR_LIFETIME'          => tohtml(tr('Lifetime')),
     'TR_DAYS'              => tohtml(tr('days')),

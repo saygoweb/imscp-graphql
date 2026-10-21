@@ -283,6 +283,7 @@ class SGW_GraphQL extends AbstractPlugin
             '/client/api_explorer.php'   => $pluginDir . '/frontend/client/api_explorer.php',
             '/reseller/api_explorer.php' => $pluginDir . '/frontend/reseller/api_explorer.php',
             '/admin/api_explorer.php'    => $pluginDir . '/frontend/admin/api_explorer.php',
+            '/admin/api_config.php'      => $pluginDir . '/frontend/admin/api_config.php',
             '/admin/api_audit.php'       => $pluginDir . '/frontend/admin/api_audit.php'
         ),
             $this->devToolRoutes(),
@@ -589,7 +590,12 @@ class SGW_GraphQL extends AbstractPlugin
         // Spec section 16: the admin pages live under System tools.
         if (($page = $navigation->findOneBy('uri', '/admin/system_info.php'))) {
             $page->addPage(array(
-                'label'       => tr('API'),
+                'label'       => tr('API config'),
+                'uri'         => '/admin/api_config.php',
+                'title_class' => 'webtools'
+            ));
+            $page->addPage(array(
+                'label'       => tr('API log'),
                 'uri'         => '/admin/api_audit.php',
                 'title_class' => 'webtools'
             ));

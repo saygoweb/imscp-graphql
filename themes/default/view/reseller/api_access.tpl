@@ -1,3 +1,19 @@
+<script>
+    // Each action is a link, as on the core pages, that confirms through the
+    // panel's own dialog and then submits its row's POST form.
+    $(function () {
+        $("a.post_action").on("click", function () {
+            var form = $(this).closest("form")[0];
+            this.blur();
+            return jQuery.imscp.confirm($("<div>").text($(this).attr("data-confirm")).html(), function (yes) {
+                if (yes) {
+                    // Not form.submit(): a control named "submit" would shadow it.
+                    HTMLFormElement.prototype.submit.call(form);
+                }
+            });
+        });
+    });
+</script>
 <div class="info">{TR_INTRO}</div>
 
 <!-- BDP: no_customers_block -->
@@ -25,16 +41,14 @@
                 <input type="hidden" name="action" value="{TOGGLE_ACTION}">
                 <input type="hidden" name="id" value="{ADMIN_ID}">
                 <input type="hidden" name="csrf" value="{CSRF_TOKEN}">
-                <button type="submit" class="icon i_{TOGGLE_ICON}"
-                        onclick="return confirm('{TOGGLE_CONFIRM}');">{TOGGLE_LABEL}</button>
+                <a href="#" class="icon i_{TOGGLE_ICON} post_action" data-confirm="{TOGGLE_CONFIRM}">{TOGGLE_LABEL}</a>
             </form>
             <!-- BDP: revoke_all_action -->
             <form method="post" action="api_access.php" style="display:inline">
                 <input type="hidden" name="action" value="revoke_all">
                 <input type="hidden" name="id" value="{ADMIN_ID}">
                 <input type="hidden" name="csrf" value="{CSRF_TOKEN}">
-                <button type="submit" class="icon i_delete"
-                        onclick="return confirm('{TR_REVOKE_ALL_CONFIRM}');">{TR_REVOKE_ALL}</button>
+                <a href="#" class="icon i_delete post_action" data-confirm="{TR_REVOKE_ALL_CONFIRM}">{TR_REVOKE_ALL}</a>
             </form>
             <!-- EDP: revoke_all_action -->
         </td>

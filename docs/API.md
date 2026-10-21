@@ -563,7 +563,7 @@ no field here for a client to call; it exists for whoever administers the
 panel. Rows older than `audit_retention_days` (90 by default; less than one
 keeps every row indefinitely) are pruned from roughly one write in a hundred,
 never touching the row that write itself just made. An administrator reads
-these rows from the panel itself, under *System tools / API* — there is no
+these rows from the panel itself, under *System tools / API log* — there is no
 GraphQL field that returns one.
 
 ## The schema
