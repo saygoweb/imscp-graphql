@@ -1,0 +1,15 @@
+# The Clover reports are written inside the CI container, where the checkout
+# is mounted at /var/www/imscp-plugins/imscp-graphql; map that back to the
+# repository root.
+fixes:
+  - "/var/www/imscp-plugins/imscp-graphql/::"
+
+coverage:
+  status:
+    # Report coverage, but do not fail a pull request over it.
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true

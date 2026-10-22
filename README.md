@@ -1,5 +1,8 @@
 # i-MSCP GraphQL Plugin
 
+[![Test](https://github.com/saygoweb/imscp-graphql/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/saygoweb/imscp-graphql/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/saygoweb/imscp-graphql/branch/main/graph/badge.svg)](https://codecov.io/gh/saygoweb/imscp-graphql)
+
 A GraphQL API for i-MSCP. A customer, reseller or administrator authenticates
 as themselves and performs, over HTTP, the operations the panel would let them
 perform in its web interface — and only those.

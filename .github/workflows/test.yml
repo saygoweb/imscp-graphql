@@ -1,10 +1,15 @@
 name: Test
 
 # Runs the tests on an installed i-MSCP server, booted from the CI image that
-# saygoweb/imscp publishes; see that repository's
-# .github/workflows/plugin-test.yml. Locally, the same run is
+# saygoweb/imscp publishes, and uploads the coverage to Codecov. Locally, the
+# same run is
 #
 #   ../imscp/docker/ci/plugin-test.sh --setup 'php7.4 /var/www/imscp/gui/bin/composer.phar install --no-interaction --no-progress' .. imscp-graphql -- 'sh tools/test.sh'
+#
+# These are the steps of saygoweb/imscp's reusable plugin-test.yml, written out
+# here rather than called: a reusable workflow's job ends with its container,
+# and the coverage report it leaves behind would never reach an upload step.
+# Keep the two in step.
 
 on:
   pull_request:
@@ -16,10 +21,65 @@ on:
 permissions:
   contents: read
   packages: read
+  # Codecov authenticates the upload by OIDC, so no token secret is needed.
+  id-token: write
 
 jobs:
   test:
-    uses: saygoweb/imscp/.github/workflows/plugin-test.yml@main
-    with:
-      setup: php7.4 /var/www/imscp/gui/bin/composer.phar install --no-interaction --no-progress
-      test: sh tools/test.sh
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    env:
+      IMAGE: ghcr.io/saygoweb/imscp-ci:bookworm
+      PLUGIN_DIR: plugins/${{ github.event.repository.name }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: plugins/${{ github.event.repository.name }}
+
+      - uses: actions/checkout@v7
+        with:
+          repository: saygoweb/imscp
+          path: imscp
+          sparse-checkout: docker/ci
+
+      - name: Composer cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/composer-cache
+          key: composer-${{ hashFiles(format('plugins/{0}/composer.lock', github.event.repository.name)) }}
+          restore-keys: composer-
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull the CI image
+        run: docker pull "$IMAGE"
+
+      # PCOV, the coverage driver, is not in the image; sury, which the image
+      # already uses for PHP 7.4, has it.
+      - name: Test
+        env:
+          COMPOSER_CACHE_DIR: ${{ runner.temp }}/composer-cache
+          IMSCP_CI_IMAGE: ${{ env.IMAGE }}
+          SETUP: >-
+            apt-get update -qq &&
+            apt-get install -y -qq php7.4-pcov &&
+            php7.4 /var/www/imscp/gui/bin/composer.phar install --no-interaction --no-progress
+        run: |
+          imscp/docker/ci/plugin-test.sh --setup "$SETUP" \
+              plugins "${{ github.event.repository.name }}" -- 'COVERAGE=1 sh tools/test.sh'
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          root_dir: ${{ env.PLUGIN_DIR }}
+          working-directory: ${{ env.PLUGIN_DIR }}
+          files: coverage/unit.xml,coverage/integration.xml
+          disable_search: true
+          fail_ci_if_error: false
