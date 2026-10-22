@@ -455,6 +455,29 @@ final class CustomerService
         $withdrawsDns = $allowances !== null
             && $allowances->feature('customDns') === '_no_'
             && (string)$customer->domain('domain_dns') === 'yes';
+
+        // Unlike domain_edit.php:920-927, which deletes the customer's own
+        // records when the feature goes, the API refuses while any remain:
+        // the client deletes them first. Records already 'todelete' are gone
+        // as far as the client is concerned, so they do not count; the
+        // DELETE below still clears them, as the panel would.
+        if ($withdrawsDns) {
+            $records = (int)$kit->db()->value(
+                "
+                    SELECT COUNT(*) FROM domain_dns
+                    WHERE domain_id = ? AND owned_by = 'custom_dns_feature' AND domain_dns_status <> 'todelete'
+                ",
+                array($domainId)
+            );
+
+            if ($records > 0) {
+                throw Guard::conflict(sprintf(
+                    'The customer still has %d custom DNS record(s). Delete them before turning customDns off.',
+                    $records
+                ));
+            }
+        }
+
         // domain_edit.php:905-919: the daemon is needed when the IP, the mail
         // feature, PHP, CGI or the web folder protection changed. $needsDaemon
         // additionally covers B2: a password, because the admin UPDATE below

@@ -793,14 +793,58 @@ class CustomerServiceTest extends ServiceTestCase
         self::assertSame('SQL databases limit is disabled.', $e->getMessage());
     }
 
-    public function testWithdrawingCustomDnsRemovesTheCustomersOwnRecords(): void
+    public function testWithdrawingCustomDnsIsRefusedWhileTheCustomerHasRecords(): void
     {
-        // domain_edit.php:920-927: the records go, the plugin-owned ones stay.
+        // Unlike domain_edit.php:920-927, the API does not delete the
+        // customer's records for them: it refuses until they are gone.
         $this->db->execute("UPDATE domain SET domain_dns = 'yes' WHERE domain_id = ?", array($this->fixture->domainId()));
-        $this->insert('domain_dns', array(
+        $customId = $this->insert('domain_dns', array(
             'domain_id' => $this->fixture->domainId(), 'alias_id' => 0, 'domain_dns' => "sgwt.\t3600",
             'domain_class' => 'IN', 'domain_type' => 'A', 'domain_text' => '203.0.113.9',
             'owned_by' => 'custom_dns_feature', 'domain_dns_status' => 'ok'
+        ));
+        $records = (int)$this->db->value(
+            "SELECT COUNT(*) FROM domain_dns WHERE domain_id = ? AND owned_by = 'custom_dns_feature'",
+            array($this->fixture->domainId())
+        );
+
+        $e = $this->refused(ErrorCode::CONFLICT, function (): void {
+            $this->service()->update(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+                array('allowances' => array('customDns' => false))
+            );
+        });
+
+        self::assertSame(
+            sprintf(
+                'The customer still has %d custom DNS record(s). Delete them before turning customDns off.',
+                $records
+            ),
+            $e->getMessage()
+        );
+        self::assertSame(
+            'yes',
+            $this->db->value('SELECT domain_dns FROM domain WHERE domain_id = ?', array($this->fixture->domainId()))
+        );
+        self::assertSame(
+            1, (int)$this->db->value('SELECT COUNT(*) FROM domain_dns WHERE domain_dns_id = ?', array($customId))
+        );
+    }
+
+    public function testWithdrawingCustomDnsGoesAheadOnceTheCustomersRecordsAreGone(): void
+    {
+        // Plugin-owned records do not block it and stay; records already
+        // 'todelete' do not block it either, and are cleared as the panel
+        // would.
+        $this->db->execute("UPDATE domain SET domain_dns = 'yes' WHERE domain_id = ?", array($this->fixture->domainId()));
+        $this->db->execute(
+            "UPDATE domain_dns SET domain_dns_status = 'todelete' WHERE domain_id = ? AND owned_by = 'custom_dns_feature'",
+            array($this->fixture->domainId())
+        );
+        $this->insert('domain_dns', array(
+            'domain_id' => $this->fixture->domainId(), 'alias_id' => 0, 'domain_dns' => "sgwt.\t3600",
+            'domain_class' => 'IN', 'domain_type' => 'A', 'domain_text' => '203.0.113.9',
+            'owned_by' => 'custom_dns_feature', 'domain_dns_status' => 'todelete'
         ));
         $keptId = $this->insert('domain_dns', array(
             'domain_id' => $this->fixture->domainId(), 'alias_id' => 0, 'domain_dns' => "plugin.\t3600",
@@ -813,6 +857,10 @@ class CustomerServiceTest extends ServiceTestCase
             array('allowances' => array('customDns' => false))
         );
 
+        self::assertSame(
+            'no',
+            $this->db->value('SELECT domain_dns FROM domain WHERE domain_id = ?', array($this->fixture->domainId()))
+        );
         self::assertSame(
             0,
             (int)$this->db->value(

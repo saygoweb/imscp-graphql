@@ -335,6 +335,7 @@ input and return shapes.
 
 - `customerCreate` — creates a customer and its main domain in one call; an administrator must name the reseller, a reseller may only name its own; exactly one of `hostingPlanId` and `allowances`.
 - `customerUpdate` — partial: an absent field keeps its value; `allowances` is merged over what the customer has today, `hostingPlanId` replaces the lot.
+  Turning `customDns` off is `CONFLICT` while the customer still has custom DNS records (`ownedBy` `custom_dns_feature`, not already being deleted): delete them with `dnsRecordDelete` first. Plugin-owned records do not block it.
 - `customerDelete` — schedules the customer and everything it owns for deletion.
 - `customerSetState` — `ENABLED` from `DISABLED` and back; any other transition, or a customer that is not settled, is `CONFLICT`.
 - `customerSetApiAccess` — withdrawing access refuses the account's next API request and revokes every token it holds.
