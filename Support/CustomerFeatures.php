@@ -90,6 +90,11 @@ final class CustomerFeatures
             'customDns'     => $domain['domain_dns'] != 'no'
                 && $config['NAMED_PACKAGE'] != 'Servers::noserver',
             'externalMail'  => $domain['domain_external_mail'] == 'yes',
+
+            // Not one of customerHasFeature()'s names: the panel gates nothing
+            // on it in the client UI. It is read off the row exactly as the
+            // reseller's Edit domain page reads it (domain_edit.php:594).
+            'webFolderProtection' => $domain['web_folder_protection'] == 'yes',
             'backup'        => $config['BACKUP_DOMAINS'] != 'no'
                 && $domain['allowbackup'] != '',
             'ssl'           => $config['ENABLE_SSL'] == 1,

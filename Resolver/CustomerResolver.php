@@ -69,6 +69,7 @@ final class CustomerResolver
             d.domain_disk_mail, d.domain_disk_sql, d.domain_traffic_limit,
             d.mail_quota,
             d.domain_php, d.domain_cgi, d.domain_dns, d.domain_external_mail,
+            d.web_folder_protection,
             d.allowbackup, d.phpini_perm_system, d.phpini_perm_allow_url_fopen,
             d.phpini_perm_display_errors, d.phpini_perm_disable_functions
         FROM admin AS a

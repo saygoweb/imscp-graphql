@@ -6,6 +6,12 @@ All notable changes to this plugin are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`Customer.features.webFolderProtection`** reads `domain.web_folder_protection`,
+  the setting `customerUpdate`'s `allowances.webFolderProtection` already
+  wrote. Until now the API could set it but not read it back.
+
 ### Changed
 
 - **Admin *System tools* menu:** the single *API* page is now two, *API

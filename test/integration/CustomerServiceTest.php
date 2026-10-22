@@ -604,6 +604,19 @@ class CustomerServiceTest extends ServiceTestCase
         self::assertContains(array('updateResellerCounters', $this->fixture->resellerId()), $this->core->calls);
     }
 
+    public function testWebFolderProtectionCanBeTurnedOffAndSchedulesTheDomain(): void
+    {
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('allowances' => array('webFolderProtection' => false))
+        );
+
+        $domain = $this->db->row('SELECT * FROM domain WHERE domain_admin_id = ?', array($this->fixture->customerId()));
+        self::assertSame('no', $domain['web_folder_protection']);
+        self::assertSame('tochange', $domain['domain_status']);
+        self::assertContains(array('sendRequest'), $this->core->calls);
+    }
+
     /**
      * C4: traffic, disk and mailQuota are BigInt - "serialised as a decimal
      * string" (schema.graphql:24) - and the schema has no parseValue for it,
