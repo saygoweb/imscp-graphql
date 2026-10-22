@@ -74,11 +74,13 @@ jobs:
           imscp/docker/ci/plugin-test.sh --setup "$SETUP" \
               plugins "${{ github.event.repository.name }}" -- 'COVERAGE=1 sh tools/test.sh'
 
+      # No root_dir: the CLI resolves it against working-directory, so the
+      # same path given to both lists no repository files, and Codecov then
+      # matches nothing in the reports (REPORT_EMPTY).
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
-          root_dir: ${{ env.PLUGIN_DIR }}
           working-directory: ${{ env.PLUGIN_DIR }}
           files: coverage/unit.xml,coverage/integration.xml
           disable_search: true
