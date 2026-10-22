@@ -44,10 +44,14 @@ final class DomainService
     /** @var VhostInput */
     private $vhostInput;
 
-    public function __construct(Toolkit $kit)
+    /** @var MailExchangeCheck */
+    private $mailExchange;
+
+    public function __construct(Toolkit $kit, MailExchangeCheck $mailExchange)
     {
         $this->kit = $kit;
         $this->vhostInput = new VhostInput($kit);
+        $this->mailExchange = $mailExchange;
     }
 
     public function update(Identity $caller, string $id, array $input): ObjectRef
@@ -67,6 +71,9 @@ final class DomainService
         $values = $externalMail === null || $this->vhostInput->namesVhost($input)
             ? $this->vhostInput->update($account, $row, $input)
             : null;
+        // After the input is checked, before anything is written: it asks
+        // public DNS, which is the slow part.
+        $this->mailExchange->requireMailHere($row, $externalMail);
         $domainId = (int)$target->getKey();
 
         $params = $values === null ? null : array(

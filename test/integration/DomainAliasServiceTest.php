@@ -29,7 +29,7 @@ class DomainAliasServiceTest extends ServiceTestCase
 {
     private function service(): DomainAliasService
     {
-        return new DomainAliasService($this->kit);
+        return new DomainAliasService($this->kit, $this->mailExchange());
     }
 
     private function domainId(): string
@@ -243,6 +243,34 @@ class DomainAliasServiceTest extends ServiceTestCase
             array('External mail feature has been activated for ' . $this->fixture->aliasName() . ' by sgwtcustomer'),
             array_column($this->core->logs, 0)
         );
+    }
+
+    public function testTurningExternalMailOffForAnAliasWhoseMxIsElsewhereIsAConflict(): void
+    {
+        $this->db->execute("UPDATE domain_aliasses SET external_mail = 'on' WHERE alias_id = ?", array($this->fixture->aliasId()));
+        $name = $this->fixture->aliasName();
+        $this->mx->addresses['mail.' . $name] = array('192.0.2.25');
+
+        $e = $this->refused(ErrorCode::CONFLICT, function () {
+            $this->service()->update($this->caller('customer'), $this->aliasId(), array('externalMail' => false));
+        });
+
+        self::assertStringContainsString(
+            'External mail was not turned off for ' . $name . ': its MX host mail.' . $name . ' resolves to 192.0.2.25',
+            $e->getMessage()
+        );
+        self::assertSame('on', $this->aliasRow($this->fixture->aliasId())['external_mail']);
+        self::assertSame(0, $this->core->requests);
+    }
+
+    public function testTurningExternalMailOffForAnAliasWhoseMxIsHere(): void
+    {
+        $this->db->execute("UPDATE domain_aliasses SET external_mail = 'on' WHERE alias_id = ?", array($this->fixture->aliasId()));
+
+        $this->service()->update($this->caller('customer'), $this->aliasId(), array('externalMail' => false));
+
+        self::assertSame('off', $this->aliasRow($this->fixture->aliasId())['external_mail']);
+        self::assertSame(array($this->fixture->aliasName(), 'mail.' . $this->fixture->aliasName()), $this->mx->asked);
     }
 
     public function testExternalMailOnAnAliasNeedsTheAllowance(): void

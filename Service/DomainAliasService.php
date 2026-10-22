@@ -49,10 +49,14 @@ final class DomainAliasService
     /** @var VhostInput */
     private $vhostInput;
 
-    public function __construct(Toolkit $kit)
+    /** @var MailExchangeCheck */
+    private $mailExchange;
+
+    public function __construct(Toolkit $kit, MailExchangeCheck $mailExchange)
     {
         $this->kit = $kit;
         $this->vhostInput = new VhostInput($kit);
+        $this->mailExchange = $mailExchange;
     }
 
     public function create(Identity $caller, array $input): ObjectRef
@@ -199,6 +203,9 @@ final class DomainAliasService
         $values = $externalMail === null || $this->vhostInput->namesVhost($input)
             ? $this->vhostInput->update($account, $row, $input)
             : null;
+        // After the input is checked, before anything is written: it asks
+        // public DNS, which is the slow part.
+        $this->mailExchange->requireMailHere($row, $externalMail);
         $aliasId = (int)$target->getKey();
 
         $params = $values === null ? null : array(

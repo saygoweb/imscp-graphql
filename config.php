@@ -174,5 +174,17 @@ return array(
     // which costs a connection per check and fails while ProFTPD restarts.
     // Off, the backend creates or refuses the directory itself and says so in
     // provisioning.message.
-    'validate_ftp_home_dir'   => true
+    'validate_ftp_home_dir'   => true,
+
+    // Where turning a domain's or alias's external mail off asks for its MX
+    // record. Turned off, this box takes the domain's mail as its own, so the
+    // API refuses (CONFLICT, saying why) unless the preferred MX resolves to
+    // one of this box's addresses. Public resolvers, not the box's own: the
+    // box answers from the zone the panel generated, whatever the registrar
+    // delegates to. DNS-over-HTTPS JSON endpoints, asked in turn until one
+    // answers; none answering is a refusal too. array() turns the check off.
+    'mx_check_resolvers'      => array(
+        'https://cloudflare-dns.com/dns-query',
+        'https://dns.google/resolve'
+    )
 );

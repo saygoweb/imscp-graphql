@@ -30,6 +30,17 @@ All notable changes to this plugin are documented here. The format follows
   the panel's *Edit domain* page does. Records already being deleted and
   plugin-owned records do not block it.
 
+- **Turning `externalMail` off** in `domainUpdate` and `domainAliasUpdate` is
+  refused with `CONFLICT` unless public DNS has the host's preferred MX (lowest
+  preference) resolving to one of this server's addresses (`server_ips` or
+  `BASE_SERVER_PUBLIC_IP`). The message names the MX host and the addresses it
+  resolved to, or says there was no MX, a null MX, or no resolver answered.
+  Turned off, the server would take the domain's mail as its own while the
+  rest of the internet still delivers it elsewhere. The MX is asked over
+  DNS-over-HTTPS (new `mx_check_resolvers` key in `config.php`, Cloudflare then
+  Google by default; `array()` turns the check off), not the box's own named,
+  which answers from the zone the panel generated.
+
 ### Added
 
 - **External mail feature per domain and alias** (#22): `externalMail` on

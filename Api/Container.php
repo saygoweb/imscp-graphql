@@ -65,12 +65,16 @@ use iMSCP\Plugin\SGW_GraphQL\Service\Core;
 use iMSCP\Plugin\SGW_GraphQL\Service\CustomerService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DetachedCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\DetachedDirectoryProbe;
+use iMSCP\Plugin\SGW_GraphQL\Service\DetachedMailExchangeLookup;
 use iMSCP\Plugin\SGW_GraphQL\Service\DirectoryProbe;
 use iMSCP\Plugin\SGW_GraphQL\Service\DnsService;
 use iMSCP\Plugin\SGW_GraphQL\Service\DomainAliasService;
+use iMSCP\Plugin\SGW_GraphQL\Service\DohMailExchangeLookup;
 use iMSCP\Plugin\SGW_GraphQL\Service\DomainService;
 use iMSCP\Plugin\SGW_GraphQL\Service\FtpService;
 use iMSCP\Plugin\SGW_GraphQL\Service\HostingPlanService;
+use iMSCP\Plugin\SGW_GraphQL\Service\MailExchangeCheck;
+use iMSCP\Plugin\SGW_GraphQL\Service\MailExchangeLookup;
 use iMSCP\Plugin\SGW_GraphQL\Service\MailService;
 use iMSCP\Plugin\SGW_GraphQL\Service\MariaDbSqlServer;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
@@ -132,6 +136,9 @@ final class Container
 
     /** @var SqlServer|null */
     private $sqlServer;
+
+    /** @var MailExchangeLookup|null null when mx_check_resolvers names none. */
+    private $mailExchangeLookup;
 
     /**
      * @var callable|null fn(Db): SqlServer - production only. Built on first
@@ -198,6 +205,7 @@ final class Container
         $this->core = $core;
         $this->probe = $probe;
         $this->sqlServer = $sqlServer;
+        $this->mailExchangeLookup = new DetachedMailExchangeLookup();
     }
 
     public static function fromPlugin(SGW_GraphQL $plugin): self
@@ -254,6 +262,9 @@ final class Container
         $container->sqlServerFactory = static function (Db $db) {
             return MariaDbSqlServer::fromPanel($db);
         };
+        // A config that predates the key is checked, not skipped.
+        $resolvers = (array)$plugin->getConfigParam('mx_check_resolvers', DohMailExchangeLookup::PUBLIC_RESOLVERS);
+        $container->mailExchangeLookup = $resolvers === array() ? null : new DohMailExchangeLookup($resolvers);
         $container->collectsExtensions = true;
 
         return $container;
@@ -315,13 +326,18 @@ final class Container
      * @param ExtensionRegistry|null $extensions Defaults to none. No event is
      *                                       dispatched to fill it: a test
      *                                       states the extensions it means.
+     * @param MailExchangeLookup|null $mailExchangeLookup Defaults to a
+     *                                       DetachedMailExchangeLookup that
+     *                                       throws on use: a test that turns
+     *                                       external mail off states what
+     *                                       public DNS answers.
      */
     public static function forTesting(
         string $pluginDir, array $config, callable $query, callable $accountLoader,
         callable $apiAccessChecker, ?Db $db = null, array $panelConfig = array(),
         ?Core $core = null, ?DirectoryProbe $probe = null, ?SqlServer $sqlServer = null,
         ?RateLimiter $rateLimiter = null, ?Audit $audit = null,
-        ?ExtensionRegistry $extensions = null
+        ?ExtensionRegistry $extensions = null, ?MailExchangeLookup $mailExchangeLookup = null
     ): self {
         $container = new self(
             $pluginDir, $config, $query, $accountLoader, $apiAccessChecker,
@@ -339,6 +355,7 @@ final class Container
         $container->rateLimiter = $rateLimiter;
         $container->audit = $audit;
         $container->registry = $extensions;
+        $container->mailExchangeLookup = $mailExchangeLookup ?? new DetachedMailExchangeLookup();
 
         return $container;
     }
@@ -557,6 +574,7 @@ final class Container
         // The write side. Services share one Toolkit, and resolvers read back
         // through the same loader and read resolvers as the queries above.
         $kit = $this->toolkit();
+        $mailExchange = new MailExchangeCheck($kit, $this->mailExchangeLookup);
 
         // Kept for extensionContext(): an extension reads through the same
         // loader and returns the same references as this plugin's resolvers.
@@ -575,8 +593,8 @@ final class Container
             'ResellerResolver'    => $resellers->map(),
             'QueryResolver'       => $query->map(),
             'VirtualHostMutations' => (new VirtualHostMutations(
-                $loader, new SubdomainService($kit), new DomainAliasService($kit),
-                new DomainService($kit), $virtualHosts, $toUnicode
+                $loader, new SubdomainService($kit), new DomainAliasService($kit, $mailExchange),
+                new DomainService($kit, $mailExchange), $virtualHosts, $toUnicode
             ))->map(),
             'MailMutations' => (new MailMutations($loader, new MailService($kit), $mail))->map(),
             'FtpMutations' => (new FtpMutations($loader, new FtpService($kit), $ftpSql))->map(),
@@ -588,7 +606,7 @@ final class Container
             'DnsMutations' => (new DnsMutations($loader, new DnsService($kit), $dns))->map(),
             'CustomerMutations' => (new CustomerMutations(
                 $loader, new CustomerService($kit), new HostingPlanService($kit),
-                new DomainAliasService($kit), $customers, $resellers, $virtualHosts, $toUnicode
+                new DomainAliasService($kit, $mailExchange), $customers, $resellers, $virtualHosts, $toUnicode
             ))->map(),
             'ResellerMutations' => (new ResellerMutations(
                 $loader, new ResellerService($kit), $resellers, $toUnicode

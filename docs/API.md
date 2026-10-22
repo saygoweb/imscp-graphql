@@ -294,11 +294,12 @@ input and return shapes.
 **Virtual hosts**
 
 - `domainUpdate` — the customer's main domain: forwarding, document root, wildcard and external mail.
+  Turning `externalMail` off is `CONFLICT` unless public DNS has the domain's preferred MX resolving to this server; the message says what it found.
 - `subdomainCreate` — hangs a subdomain off a domain or domain alias.
 - `subdomainUpdate` — document root, forwarding, wildcard.
 - `subdomainDelete` — schedules the subdomain for deletion, with its FTP users, mail accounts, certificates and protected areas.
 - `domainAliasCreate` — a customer's own is `ORDERED` until their reseller approves it; a reseller's or administrator's is `PENDING`.
-- `domainAliasUpdate` — document root, forwarding, wildcard, external mail.
+- `domainAliasUpdate` — document root, forwarding, wildcard, external mail; turning external mail off is held to the same MX check as `domainUpdate`.
 - `domainAliasDelete` — an `ORDERED` alias is withdrawn at once; any other is scheduled for deletion with everything under it.
 
 **Mail**
