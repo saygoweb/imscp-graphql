@@ -21,9 +21,9 @@
 return array(
     'author'      => 'Cambell Prince',
     'email'       => 'cambell.prince@gmail.com',
-    'version'     => '1.2.10',
+    'version'     => '1.2.11',
     'require_api' => '1.5.1',
-    'date'        => '2026-10-21',
+    'date'        => '2026-10-22',
     'name'        => 'SGW_GraphQL',
     'desc'        => 'A GraphQL API for i-MSCP, authenticated as the panel user.',
     'url'         => 'https://github.com/saygoweb/imscp-graphql'
