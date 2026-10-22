@@ -11,6 +11,12 @@ All notable changes to this plugin are documented here. The format follows
 - **`Customer.features.webFolderProtection`** reads `domain.web_folder_protection`,
   the setting `customerUpdate`'s `allowances.webFolderProtection` already
   wrote. Until now the API could set it but not read it back.
+- **`Reseller.allocated`** (`ResellerAllocations`: `disk`, `traffic`, in
+  bytes): what the reseller has handed out to its customers, the
+  `reseller_props.current_disk_amnt` / `current_traff_amnt` ledger that
+  `customerCreate` and `customerUpdate` check a new disk or traffic limit
+  against. `Reseller.storage` sums actual usage, so a client could not
+  mirror that check before.
 
 ### Changed
 

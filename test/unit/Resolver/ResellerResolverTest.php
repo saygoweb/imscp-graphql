@@ -265,7 +265,7 @@ class ResellerResolverTest extends TestCase
 
         self::assertSame(array(
             'HostingPlan.features', 'HostingPlan.quotas', 'HostingPlan.reseller',
-            'HostingPlan.storage', 'Reseller.apiAccess', 'Reseller.customers',
+            'HostingPlan.storage', 'Reseller.allocated', 'Reseller.apiAccess', 'Reseller.customers',
             'Reseller.hostingPlans', 'Reseller.ipAddresses', 'Reseller.quotas',
             'Reseller.storage', 'Viewer.contact', 'Viewer.customer',
             'Viewer.reseller'

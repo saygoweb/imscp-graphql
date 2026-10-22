@@ -162,6 +162,22 @@ class ResellerResolverTest extends IntegrationTestCase
         self::assertNull($storage['mailQuota']);
     }
 
+    public function testAllocatedIsTheLedgerCountersInBytes(): void
+    {
+        // The counters, not a sum over customers: the fixture's customers
+        // carry disk and traffic limits, and none of them is 60 or 70 MiB.
+        $this->db->execute(
+            'UPDATE reseller_props SET current_disk_amnt = 60, current_traff_amnt = 70 WHERE reseller_id = ?',
+            array($this->fixture->resellerId())
+        );
+
+        $allocated = $this->resolver->resolveAllocated(
+            $this->reseller(), array(), $this->context('reseller'), $this->info()
+        );
+
+        self::assertSame(array('disk' => '62914560', 'traffic' => '73400320'), $allocated);
+    }
+
     public function testACustomerMayReadTheirResellersIdentityAndNothingElse(): void
     {
         $reseller = $this->reseller();
@@ -170,7 +186,7 @@ class ResellerResolverTest extends IntegrationTestCase
         self::assertSame('sgwtreseller', $reseller['username']);
         self::assertSame('Test', $reseller['contact']['firstName']);
 
-        foreach (array('resolveQuotas', 'resolveStorage', 'resolveIpAddresses',
+        foreach (array('resolveQuotas', 'resolveStorage', 'resolveAllocated', 'resolveIpAddresses',
             'resolveApiAccess', 'resolveHostingPlans') as $method
         ) {
             try {
