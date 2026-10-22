@@ -37,6 +37,7 @@ class CustomerFeaturesTest extends TestCase
             'domain_cgi'                    => 'yes',
             'domain_dns'                    => 'yes',
             'domain_external_mail'          => 'yes',
+            'web_folder_protection'         => 'yes',
             'allowbackup'                   => 'dmn|sql|mail',
             'phpini_perm_system'            => 'yes',
             'phpini_perm_allow_url_fopen'   => 'yes',
@@ -68,7 +69,8 @@ class CustomerFeaturesTest extends TestCase
         self::assertSame(
             array(
                 'php' => true, 'phpEditor' => true, 'cgi' => true,
-                'customDns' => true, 'externalMail' => true, 'backup' => true,
+                'customDns' => true, 'externalMail' => true,
+                'webFolderProtection' => true, 'backup' => true,
                 'ssl' => true, 'webStats' => true, 'supportSystem' => true
             ),
             $this->features()->toArray()

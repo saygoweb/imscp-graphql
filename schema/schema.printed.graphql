@@ -345,6 +345,13 @@ type CustomerFeatures {
   cgi: Boolean!
   customDns: Boolean!
   externalMail: Boolean!
+
+  """
+  Whether the backend makes the customer's web folders immutable
+  (domain.web_folder_protection). Set through `customerUpdate`'s allowances.
+  """
+  webFolderProtection: Boolean!
+
   backup: Boolean!
   ssl: Boolean!
   webStats: Boolean!

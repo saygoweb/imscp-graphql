@@ -219,6 +219,7 @@ class CustomerResolverTest extends IntegrationTestCase
         self::assertTrue($features['cgi']);
         self::assertTrue($features['customDns']);
         self::assertTrue($features['externalMail']);
+        self::assertTrue($features['webFolderProtection']);
         self::assertTrue($features['backup']);
         self::assertTrue($features['ssl']);
         self::assertTrue($features['webStats']);
