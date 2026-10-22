@@ -293,12 +293,12 @@ input and return shapes.
 
 **Virtual hosts**
 
-- `domainUpdate` — the customer's main domain: forwarding, document root and wildcard.
+- `domainUpdate` — the customer's main domain: forwarding, document root, wildcard and external mail.
 - `subdomainCreate` — hangs a subdomain off a domain or domain alias.
 - `subdomainUpdate` — document root, forwarding, wildcard.
 - `subdomainDelete` — schedules the subdomain for deletion, with its FTP users, mail accounts, certificates and protected areas.
 - `domainAliasCreate` — a customer's own is `ORDERED` until their reseller approves it; a reseller's or administrator's is `PENDING`.
-- `domainAliasUpdate` — document root, forwarding, wildcard.
+- `domainAliasUpdate` — document root, forwarding, wildcard, external mail.
 - `domainAliasDelete` — an `ORDERED` alias is withdrawn at once; any other is scheduled for deletion with everything under it.
 
 **Mail**

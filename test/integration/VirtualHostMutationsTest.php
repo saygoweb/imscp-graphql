@@ -62,6 +62,25 @@ class VirtualHostMutationsTest extends AuthzTestCase
         self::assertSame(1, $this->core->requests);
     }
 
+    public function testExternalMailReadsBackOnTheUpdatedDomain(): void
+    {
+        $result = $this->execute(
+            'mutation($id: ID!) {
+                domainUpdate(id: $id, input: { externalMail: true }) {
+                    externalMail provisioning { raw }
+                }
+            }',
+            array('id' => $this->domainId()),
+            $this->fixture->identity('customer')
+        );
+
+        self::assertArrayNotHasKey('errors', $result, json_encode($result));
+        self::assertSame(
+            array('externalMail' => true, 'provisioning' => array('raw' => 'tochange')),
+            $result['data']['domainUpdate']
+        );
+    }
+
     public function testAMutationsObjectIsReadAfterItsWriteNotFromAnEarlierLoad(): void
     {
         // Decision D18. The first field loads the domain's subdomain list into

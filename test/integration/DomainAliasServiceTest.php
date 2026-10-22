@@ -229,6 +229,34 @@ class DomainAliasServiceTest extends ServiceTestCase
         self::assertSame(array(array('sgwtcustomer', '/alias/htdocs', '/site')), $this->probe->asked);
     }
 
+    public function testTurningExternalMailOnForAnAlias(): void
+    {
+        $this->service()->update($this->caller('customer'), $this->aliasId(), array('externalMail' => true));
+
+        $row = $this->aliasRow($this->fixture->aliasId());
+        self::assertSame('on', $row['external_mail']);
+        self::assertSame('tochange', $row['alias_status']);
+        self::assertSame('no', $row['wildcard_alias'], 'the vhost columns are not touched');
+        self::assertSame(array(), $this->core->eventNames(), 'mail_external.php fires no edit events');
+        self::assertSame(1, $this->core->requests);
+        self::assertSame(
+            array('External mail feature has been activated for ' . $this->fixture->aliasName() . ' by sgwtcustomer'),
+            array_column($this->core->logs, 0)
+        );
+    }
+
+    public function testExternalMailOnAnAliasNeedsTheAllowance(): void
+    {
+        $this->db->execute("UPDATE domain SET domain_external_mail = 'no' WHERE domain_id = ?", array($this->fixture->domainId()));
+
+        $e = $this->refused(ErrorCode::FEATURE_UNAVAILABLE, function () {
+            $this->service()->update($this->caller('customer'), $this->aliasId(), array('externalMail' => true));
+        });
+
+        self::assertSame('externalMail', $e->getExtensions()['feature']);
+        self::assertSame('off', $this->aliasRow($this->fixture->aliasId())['external_mail']);
+    }
+
     public function testAnOrderedAliasCannotBeUpdated(): void
     {
         $this->db->execute("UPDATE domain_aliasses SET alias_status = 'ordered' WHERE alias_id = ?", array($this->fixture->aliasId()));

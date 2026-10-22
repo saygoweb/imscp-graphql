@@ -33,7 +33,7 @@ not assumed. See [Appendix A](#appendix-a--what-was-measured).
 
 | Actor | May create, update and delete |
 | --- | --- |
-| Customer | Subdomains, alias subdomains, domain aliases (subject to the ordering rules), mail accounts, mail catch-alls, mail autoresponders, FTP users, SQL databases, SQL users, custom DNS records; and may edit their own main domain's forwarding and document root |
+| Customer | Subdomains, alias subdomains, domain aliases (subject to the ordering rules), mail accounts, mail catch-alls, mail autoresponders, FTP users, SQL databases, SQL users, custom DNS records; and may edit their own main domain's forwarding and document root, and turn the external mail feature on or off for their domain and its aliases |
 | Reseller | Customers (which is to say: accounts, their main domain, their limits and their features), hosting plans, and the approval of alias orders; plus everything a customer may do, on their own customers |
 | Administrator | Resellers; plus everything a reseller may do |
 

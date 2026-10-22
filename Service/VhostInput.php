@@ -132,7 +132,7 @@ final class VhostInput
         $hasRoot = isset($input['documentRoot']);
         $hasWildcard = isset($input['wildcard']);
 
-        if (!$hasForwarding && !$hasRoot && !$hasWildcard) {
+        if (!$this->namesVhost($input)) {
             throw Guard::badInput('input', 'The update names nothing to change.');
         }
 
@@ -161,6 +161,50 @@ final class VhostInput
             'type'         => $forwarding['type'],
             'host'         => $forwarding['host'],
             'wildcard'     => $hasWildcard ? VhostRules::wildcard((bool)$input['wildcard']) : VhostRules::wildcard((bool)$row['wildcard'])
+        );
+    }
+
+    /**
+     * Whether the input names any of the fields update() reads.
+     *
+     * @param array<string, mixed> $input
+     */
+    public function namesVhost(array $input): bool
+    {
+        return array_key_exists('forwarding', $input) || isset($input['documentRoot']) || isset($input['wildcard']);
+    }
+
+    /**
+     * input.externalMail as the external_mail column's value, or null when
+     * the update does not name it.
+     *
+     * CORE-DEBT(C3): transcribed from gui/public/client/mail_external.php:195-197
+     *   (the customer must have the feature). The page offers the toggle only
+     *   on a settled host (generateItem(), :92); the caller checks that.
+     *
+     * @param array<string, mixed> $input
+     * @throws \iMSCP\Plugin\SGW_GraphQL\Support\ApiException FEATURE_UNAVAILABLE
+     */
+    public function externalMail(CustomerAccount $account, array $input): ?string
+    {
+        if (!isset($input['externalMail'])) {
+            return null;
+        }
+
+        Guard::requireFeature((string)$account->domain('domain_external_mail') === 'yes', 'externalMail');
+
+        return $input['externalMail'] ? 'on' : 'off';
+    }
+
+    /**
+     * The page's own message (mail_external.php:69,74), with the host named:
+     * it has one row per host, the log does not.
+     */
+    public function externalMailLog(string $externalMail, string $name, Identity $caller): string
+    {
+        return sprintf(
+            'External mail feature has been %s for %s by %s',
+            $externalMail === 'on' ? 'activated' : 'deactivated', $name, $caller->getUsername()
         );
     }
 
