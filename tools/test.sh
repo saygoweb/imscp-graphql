@@ -79,6 +79,11 @@ if [ -d /var/www/imscp ]; then
             fi
             cover unit unit,schema
             cover integration integration,authz
+            # PHPUnit writes absolute paths, which are the container's and
+            # match nothing in the repository; make them relative to it.
+            if [ -n "${COVERAGE:-}" ]; then
+                sed -i "s|name=\"$SRC/|name=\"|" coverage/*.xml
+            fi
         else
             php7.4 vendor/bin/phpunit --configuration test/phpunit.xml "$@"
         fi
