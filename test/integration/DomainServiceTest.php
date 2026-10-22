@@ -21,6 +21,7 @@ namespace iMSCP\Plugin\SGW_GraphQL\Test\Integration;
  */
 
 use iMSCP\Plugin\SGW_GraphQL\Service\DomainService;
+use iMSCP\Plugin\SGW_GraphQL\Service\MailExchangeCheck;
 use iMSCP\Plugin\SGW_GraphQL\Support\ErrorCode;
 use iMSCP\Plugin\SGW_GraphQL\Support\GlobalId;
 use iMSCP\Plugin\SGW_GraphQL\Support\NodeType;
@@ -29,7 +30,7 @@ class DomainServiceTest extends ServiceTestCase
 {
     private function service(): DomainService
     {
-        return new DomainService($this->kit);
+        return new DomainService($this->kit, $this->mailExchange());
     }
 
     private function id(): string
@@ -133,6 +134,137 @@ class DomainServiceTest extends ServiceTestCase
         ), array_column($this->core->logs, 0));
     }
 
+    public function testTurningExternalMailOffAsksPublicDnsForTheMx(): void
+    {
+        $this->externalMailOn();
+
+        $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => false));
+
+        $name = $this->fixture->domainName();
+        self::assertSame(array($name, 'mail.' . $name), $this->mx->asked);
+        self::assertSame('off', $this->externalMail());
+    }
+
+    public function testTurningExternalMailOffWhileTheMxIsElsewhereIsAConflict(): void
+    {
+        $this->externalMailOn();
+        $name = $this->fixture->domainName();
+        $this->mx->mx[$name] = array(array('host' => 'aspmx.l.google.com', 'preference' => 1));
+        $this->mx->addresses['aspmx.l.google.com'] = array('142.250.4.27');
+
+        $e = $this->refused(ErrorCode::CONFLICT, function () {
+            $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => false));
+        });
+
+        self::assertStringContainsString(
+            'External mail was not turned off for ' . $name . ': its MX host aspmx.l.google.com resolves to '
+                . '142.250.4.27, not to this server (',
+            $e->getMessage()
+        );
+        self::assertStringContainsString(self::BASE_SERVER_PUBLIC_IP, $e->getMessage());
+        self::assertStringContainsString('Point the MX record at this server first', $e->getMessage());
+        self::assertSame('on', $this->externalMail());
+        self::assertSame(0, $this->core->requests);
+        self::assertSame(array(), $this->core->logs);
+    }
+
+    public function testNoMxRecordIsAConflict(): void
+    {
+        $this->externalMailOn();
+        $this->mx->mx[$this->fixture->domainName()] = array();
+
+        $e = $this->refused(ErrorCode::CONFLICT, function () {
+            $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => false));
+        });
+
+        self::assertStringContainsString('public DNS has no MX record for it', $e->getMessage());
+        self::assertSame('on', $this->externalMail());
+    }
+
+    public function testAnMxHostThatDoesNotResolveIsAConflict(): void
+    {
+        $this->externalMailOn();
+        $this->mx->addresses['mail.' . $this->fixture->domainName()] = array();
+
+        $e = $this->refused(ErrorCode::CONFLICT, function () {
+            $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => false));
+        });
+
+        self::assertStringContainsString('does not resolve in public DNS', $e->getMessage());
+    }
+
+    public function testANullMxIsAConflict(): void
+    {
+        $this->externalMailOn();
+        $this->mx->mx[$this->fixture->domainName()] = array(array('host' => '', 'preference' => 0));
+
+        $e = $this->refused(ErrorCode::CONFLICT, function () {
+            $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => false));
+        });
+
+        self::assertStringContainsString('null MX', $e->getMessage());
+    }
+
+    public function testUnreachablePublicDnsIsAConflict(): void
+    {
+        $this->externalMailOn();
+        $this->mx->down = true;
+
+        $e = $this->refused(ErrorCode::CONFLICT, function () {
+            $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => false));
+        });
+
+        self::assertStringContainsString('no public DNS resolver answered', $e->getMessage());
+        self::assertSame('on', $this->externalMail());
+    }
+
+    public function testOnlyThePreferredMxMustBeHere(): void
+    {
+        $this->externalMailOn();
+        $name = $this->fixture->domainName();
+        $this->mx->mx[$name] = array(
+            array('host' => 'backup.example.net', 'preference' => 20),
+            array('host' => 'mail.' . $name, 'preference' => 10)
+        );
+        $this->mx->addresses['backup.example.net'] = array('198.51.100.7');
+
+        $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => false));
+
+        self::assertSame('off', $this->externalMail());
+        self::assertNotContains('backup.example.net', $this->mx->asked);
+    }
+
+    public function testAnMxOnAnyOfTheBoxsServerIpsIsHere(): void
+    {
+        $this->externalMailOn();
+        $ip = (string)$this->db->value('SELECT ip_number FROM server_ips ORDER BY ip_id LIMIT 1');
+        $this->mx->addresses['mail.' . $this->fixture->domainName()] = array($ip);
+
+        $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => false));
+
+        self::assertSame('off', $this->externalMail());
+    }
+
+    public function testTurningExternalMailOnOrOffAgainAsksNothing(): void
+    {
+        $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => false));
+        $this->db->execute("UPDATE domain SET domain_status = 'ok' WHERE domain_id = ?", array($this->fixture->domainId()));
+        $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => true));
+
+        self::assertSame(array(), $this->mx->asked);
+    }
+
+    public function testNoResolversConfiguredSkipsTheCheck(): void
+    {
+        $this->externalMailOn();
+        $this->mx->down = true;
+
+        (new DomainService($this->kit, new MailExchangeCheck($this->kit, null)))
+            ->update($this->caller('customer'), $this->id(), array('externalMail' => false));
+
+        self::assertSame('off', $this->externalMail());
+    }
+
     public function testExternalMailNeedsTheAllowance(): void
     {
         $this->db->execute("UPDATE domain SET domain_external_mail = 'no' WHERE domain_id = ?", array($this->fixture->domainId()));
@@ -190,5 +322,15 @@ class DomainServiceTest extends ServiceTestCase
         $this->service()->update($this->caller('reseller'), $this->id(), array('wildcard' => true));
 
         self::assertStringEndsWith('were updated by sgwtreseller', $this->core->logs[0][0]);
+    }
+
+    private function externalMailOn(): void
+    {
+        $this->db->execute("UPDATE domain SET external_mail = 'on' WHERE domain_id = ?", array($this->fixture->domainId()));
+    }
+
+    private function externalMail(): string
+    {
+        return (string)$this->db->value('SELECT external_mail FROM domain WHERE domain_id = ?', array($this->fixture->domainId()));
     }
 }

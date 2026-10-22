@@ -1553,7 +1553,14 @@ return array(
 
     // Directory existence checks - FTP home directories and document roots
     // alike - open an FTP connection per call (§3.2).
-    'validate_ftp_home_dir'       => true
+    'validate_ftp_home_dir'       => true,
+
+    // DNS-over-HTTPS resolvers asked for a host's MX before its external
+    // mail is turned off; array() skips the check.
+    'mx_check_resolvers'          => array(
+        'https://cloudflare-dns.com/dns-query',
+        'https://dns.google/resolve'
+    )
 );
 ```
 

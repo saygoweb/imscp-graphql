@@ -29,11 +29,13 @@ use iMSCP\Plugin\SGW_GraphQL\Repository\Db;
 use iMSCP\Plugin\SGW_GraphQL\Repository\VirtualHosts;
 use iMSCP\Plugin\SGW_GraphQL\Security\Guard;
 use iMSCP\Plugin\SGW_GraphQL\Security\OwnershipResolver;
+use iMSCP\Plugin\SGW_GraphQL\Service\MailExchangeCheck;
 use iMSCP\Plugin\SGW_GraphQL\Service\PanelCore;
 use iMSCP\Plugin\SGW_GraphQL\Service\Toolkit;
 use iMSCP\Plugin\SGW_GraphQL\Service\Writer;
 use iMSCP\Plugin\SGW_GraphQL\Support\ApiException;
 use iMSCP\Plugin\SGW_GraphQL\Test\Double\FakeDirectoryProbe;
+use iMSCP\Plugin\SGW_GraphQL\Test\Double\FakeMailExchangeLookup;
 use iMSCP\Plugin\SGW_GraphQL\Test\Double\RecordingCore;
 
 /**
@@ -42,6 +44,9 @@ use iMSCP\Plugin\SGW_GraphQL\Test\Double\RecordingCore;
  */
 abstract class ServiceTestCase extends IntegrationTestCase
 {
+    /** A documentation address (RFC 5737), so no server_ips row has it. */
+    const BASE_SERVER_PUBLIC_IP = '203.0.113.10';
+
     /** @var Db */
     protected $db;
 
@@ -54,6 +59,9 @@ abstract class ServiceTestCase extends IntegrationTestCase
     /** @var FakeDirectoryProbe */
     protected $probe;
 
+    /** @var FakeMailExchangeLookup */
+    protected $mx;
+
     /** @var Toolkit */
     protected $kit;
 
@@ -63,6 +71,7 @@ abstract class ServiceTestCase extends IntegrationTestCase
         $this->fixture = new Fixture($this->db);
         $this->fixture->seed();
         $this->probe = new FakeDirectoryProbe();
+        $this->mx = new FakeMailExchangeLookup(self::BASE_SERVER_PUBLIC_IP);
         $this->reconfigure(array());
     }
 
@@ -91,7 +100,8 @@ abstract class ServiceTestCase extends IntegrationTestCase
             'BACKUP_DOMAINS'                  => 'yes',
             'ENABLE_SSL'                      => 1,
             'IMSCP_SUPPORT_SYSTEM'            => 1,
-            'HARD_MAIL_SUSPENSION'            => 1
+            'HARD_MAIL_SUSPENSION'            => 1,
+            'BASE_SERVER_PUBLIC_IP'           => self::BASE_SERVER_PUBLIC_IP
         );
     }
 
@@ -138,6 +148,12 @@ abstract class ServiceTestCase extends IntegrationTestCase
     protected function caller(string $who, array $scopes = array()): Identity
     {
         return $this->fixture->identity($who, $scopes);
+    }
+
+    /** The MX check, asking $this->mx. */
+    protected function mailExchange(): MailExchangeCheck
+    {
+        return new MailExchangeCheck($this->kit, $this->mx);
     }
 
     /**

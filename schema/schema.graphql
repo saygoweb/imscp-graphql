@@ -884,6 +884,8 @@ input DomainUpdateInput {
   """
   Turns the external mail feature on or off for this host. Needs the
   customer's externalMail allowance (FEATURE_UNAVAILABLE otherwise).
+  Turning it off is CONFLICT unless public DNS has the host's preferred MX
+  resolving to this server; the message says why.
   """
   externalMail: Boolean
 }
@@ -924,6 +926,8 @@ input DomainAliasUpdateInput {
   """
   Turns the external mail feature on or off for this host. Needs the
   customer's externalMail allowance (FEATURE_UNAVAILABLE otherwise).
+  Turning it off is CONFLICT unless public DNS has the host's preferred MX
+  resolving to this server; the message says why.
   """
   externalMail: Boolean
 }
