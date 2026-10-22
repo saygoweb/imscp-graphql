@@ -69,7 +69,8 @@ final class ResellerResolver
             p.max_ftp_cnt, p.current_ftp_cnt,
             p.max_sql_db_cnt, p.current_sql_db_cnt,
             p.max_sql_user_cnt, p.current_sql_user_cnt,
-            p.max_disk_amnt, p.max_traff_amnt, p.reseller_ips
+            p.max_disk_amnt, p.current_disk_amnt,
+            p.max_traff_amnt, p.current_traff_amnt, p.reseller_ips
         FROM admin AS a
         JOIN reseller_props AS p ON p.reseller_id = a.admin_id
     ';
@@ -139,6 +140,7 @@ final class ResellerResolver
         return array(
             'Reseller.quotas'       => array($this, 'resolveQuotas'),
             'Reseller.storage'      => array($this, 'resolveStorage'),
+            'Reseller.allocated'    => array($this, 'resolveAllocated'),
             'Reseller.ipAddresses'  => array($this, 'resolveIpAddresses'),
             'Reseller.apiAccess'    => array($this, 'resolveApiAccess'),
             'Reseller.customers'    => array($this, 'resolveCustomers'),
@@ -460,6 +462,24 @@ final class ResellerResolver
                 'mailQuota'    => null
             );
         });
+    }
+
+    /**
+     * Read from the counters, not summed: these are the figures
+     * LimitRules::reason() checks a customer's new disk or traffic limit
+     * against (ResellerAccount::usedOf()), and a client mirroring that check
+     * needs exactly them. Both are MiB, like the limits beside them.
+     */
+    public function resolveAllocated($source, array $args, $context, ResolveInfo $info): array
+    {
+        self::requireOwnScope($context, (int)$source['__key'], Scope::ACCOUNT_READ);
+
+        $row = $source['__row'];
+
+        return array(
+            'disk'    => TypeResolver::bigInt(max(0, (int)$row['current_disk_amnt']) * self::MIB),
+            'traffic' => TypeResolver::bigInt(max(0, (int)$row['current_traff_amnt']) * self::MIB)
+        );
     }
 
     public function resolveIpAddresses($source, array $args, $context, ResolveInfo $info): SyncPromise

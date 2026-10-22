@@ -627,6 +627,19 @@ type ResellerQuotas {
 }
 
 """
+Bytes. The sums of the reseller's customers' disk and traffic limits, kept by
+the panel in reseller_props (current_disk_amnt, current_traff_amnt). Unless
+the reseller is unlimited (storage.diskLimit or trafficLimit null), a
+customer's new limit must be no more than that limit less this, plus the
+customer's own current limit (nothing, for a new customer). Never null: 0 when
+nothing has been handed out.
+"""
+type ResellerAllocations {
+  disk: BigInt!
+  traffic: BigInt!
+}
+
+"""
 A reseller. A customer may read the identity of their own reseller — id,
 username and contact details — and nothing else: every other field answers
 FORBIDDEN for a caller who is not that reseller or an administrator.
@@ -643,6 +656,13 @@ type Reseller implements Node & Provisioned {
 
   "Reseller or administrator only. All figures in bytes."
   storage: Storage!
+
+  """
+  Reseller or administrator only. What the reseller has handed out to its
+  customers, as opposed to what they use: the ledger customerCreate and
+  customerUpdate check a new disk or traffic limit against.
+  """
+  allocated: ResellerAllocations!
 
   "Reseller or administrator only."
   ipAddresses: [IpAddress!]!
