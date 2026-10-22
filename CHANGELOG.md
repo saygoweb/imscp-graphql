@@ -24,6 +24,12 @@ All notable changes to this plugin are documented here. The format follows
   domain it names a customer by); any other username is still held to the
   panel's 2-30 character rule.
 
+- **Turning `customDns` off** in `customerUpdate` is refused with `CONFLICT`
+  while the customer still has custom DNS records of their own, and the
+  message says to delete them first. It no longer deletes them silently, as
+  the panel's *Edit domain* page does. Records already being deleted and
+  plugin-owned records do not block it.
+
 ### Added
 
 - **External mail feature per domain and alias** (#22): `externalMail` on
