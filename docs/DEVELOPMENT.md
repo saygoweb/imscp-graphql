@@ -367,6 +367,13 @@ tools/test.sh --filter GlobalId
 The integration suite skips itself where there is no panel, so the unit suite
 stays runnable anywhere PHP 7.4 is.
 
+CI measures coverage and uploads it to
+[Codecov](https://codecov.io/gh/saygoweb/imscp-graphql). On the server, with
+PCOV installed (`apt-get install php7.4-pcov`), `COVERAGE=1 sh tools/test.sh`
+makes the same full run and writes a Clover report per PHPUnit process to
+`coverage/`. What counts as source is the `<coverage>` block in
+`test/phpunit.xml`.
+
 `test/api/smoke.sh` is different in kind: it drives the *deployed* endpoint
 over HTTPS exactly as a real client would, rather than exercising the code in
 isolation. It needs the plugin already installed and enabled on a running box

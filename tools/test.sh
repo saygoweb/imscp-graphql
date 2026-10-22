@@ -7,6 +7,10 @@
 #   server:  tools/test.sh [phpunit-args...]
 #                                 runs the lint script under both PHP versions
 #                                 and then the PHPUnit suite.
+#   coverage: COVERAGE=1 tools/test.sh
+#                                 the full run on the server, with PCOV
+#                                 installed, writing a Clover report per PHPUnit
+#                                 process to coverage/ for CI to upload.
 #   host:    tools/test.sh [phpunit-args...]
 #                                 re-enters itself on the server, because the
 #                                 host has neither PHP 7.4 nor the panel the
@@ -56,8 +60,25 @@ if [ -d /var/www/imscp ]; then
             # the process level instead. A focused run — an explicit
             # --testsuite or --filter — only ever touches one side, so it
             # stays a single invocation, below.
-            php7.4 vendor/bin/phpunit --configuration test/phpunit.xml --testsuite unit,schema
-            php7.4 vendor/bin/phpunit --configuration test/phpunit.xml --testsuite integration,authz
+            #
+            # With COVERAGE set, each process writes its own Clover report and
+            # Codecov merges them. PCOV is the driver; CI installs it
+            # (php7.4-pcov) in the workflow's setup step.
+            if [ -n "${COVERAGE:-}" ]; then
+                rm -rf coverage
+                mkdir -p coverage
+                cover() {
+                    php7.4 -d pcov.enabled=1 -d pcov.directory="$SRC" \
+                        vendor/bin/phpunit --configuration test/phpunit.xml \
+                        --coverage-clover "coverage/$1.xml" --testsuite "$2"
+                }
+            else
+                cover() {
+                    php7.4 vendor/bin/phpunit --configuration test/phpunit.xml --testsuite "$2"
+                }
+            fi
+            cover unit unit,schema
+            cover integration integration,authz
         else
             php7.4 vendor/bin/phpunit --configuration test/phpunit.xml "$@"
         fi

@@ -13,3 +13,5 @@
 ./.superpowers
 ./log
 ./SGW_GraphQL.tgz
+./coverage
+./codecov.yml

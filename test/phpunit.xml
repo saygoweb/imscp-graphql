@@ -28,4 +28,24 @@
             <directory>authz</directory>
         </testsuite>
     </testsuites>
+    <!--
+        What a coverage run (tools/test.sh with COVERAGE set) measures: the
+        plugin's own source, not its tests, tooling or dependencies.
+    -->
+    <coverage>
+        <include>
+            <directory suffix=".php">../Api</directory>
+            <directory suffix=".php">../Auth</directory>
+            <directory suffix=".php">../Extension</directory>
+            <directory suffix=".php">../Http</directory>
+            <directory suffix=".php">../Repository</directory>
+            <directory suffix=".php">../Resolver</directory>
+            <directory suffix=".php">../Schema</directory>
+            <directory suffix=".php">../Security</directory>
+            <directory suffix=".php">../Service</directory>
+            <directory suffix=".php">../Support</directory>
+            <directory suffix=".php">../frontend</directory>
+            <file>../SGW_GraphQL.php</file>
+        </include>
+    </coverage>
 </phpunit>

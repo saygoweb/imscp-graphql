@@ -16,3 +16,4 @@ test/.phpunit.result.cache
 # it is excluded here and in test/lint/all.sh.
 .claude/
 worktrees/
+coverage/
