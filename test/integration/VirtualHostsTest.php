@@ -138,6 +138,23 @@ class VirtualHostsTest extends IntegrationTestCase
         self::assertTrue($rows[$this->fixture->aliasId()][0]['wildcard']);
     }
 
+    public function testExternalMailIsABooleanOnADomainAndAnAliasOnly(): void
+    {
+        $this->db->execute("UPDATE domain_aliasses SET external_mail = 'on' WHERE alias_id = ?", array($this->fixture->aliasId()));
+
+        $found = $this->vhosts->byKeys(array(
+            array(VirtualHosts::KIND_DMN, $this->fixture->domainId()),
+            array(VirtualHosts::KIND_SUB, $this->fixture->subdomainId()),
+            array(VirtualHosts::KIND_ALS, $this->fixture->aliasId()),
+            array(VirtualHosts::KIND_ALSSUB, $this->fixture->aliasSubdomainId())
+        ));
+
+        self::assertFalse($found[VirtualHosts::KIND_DMN . ':' . $this->fixture->domainId()]['externalMail']);
+        self::assertNull($found[VirtualHosts::KIND_SUB . ':' . $this->fixture->subdomainId()]['externalMail']);
+        self::assertTrue($found[VirtualHosts::KIND_ALS . ':' . $this->fixture->aliasId()]['externalMail']);
+        self::assertNull($found[VirtualHosts::KIND_ALSSUB . ':' . $this->fixture->aliasSubdomainId()]['externalMail']);
+    }
+
     public function testByKeysLooksUpOneVhostOfEachKind(): void
     {
         $found = $this->vhosts->byKeys(array(

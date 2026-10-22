@@ -403,7 +403,7 @@ class VirtualHosts
                         d.url_forward AS url_forward, d.type_forward AS type_forward,
                         d.host_forward AS host_forward,
                         d.wildcard_alias AS wildcard, d.domain_status AS status,
-                        d.domain_ip_id AS ip_id
+                        d.domain_ip_id AS ip_id, d.external_mail AS external_mail
                     FROM domain AS d
                     WHERE $where
                     ORDER BY d.domain_name
@@ -420,7 +420,8 @@ class VirtualHosts
                         s.subdomain_type_forward AS type_forward,
                         s.subdomain_host_forward AS host_forward,
                         s.subdomain_wildcard_alias AS wildcard,
-                        s.subdomain_status AS status, NULL AS ip_id
+                        s.subdomain_status AS status, NULL AS ip_id,
+                        NULL AS external_mail
                     FROM subdomain AS s
                     JOIN domain AS d ON d.domain_id = s.domain_id
                     WHERE $where
@@ -436,7 +437,7 @@ class VirtualHosts
                         al.url_forward AS url_forward, al.type_forward AS type_forward,
                         al.host_forward AS host_forward,
                         al.wildcard_alias AS wildcard, al.alias_status AS status,
-                        al.alias_ip_id AS ip_id
+                        al.alias_ip_id AS ip_id, al.external_mail AS external_mail
                     FROM domain_aliasses AS al
                     JOIN domain AS d ON d.domain_id = al.domain_id
                     WHERE $where
@@ -454,7 +455,8 @@ class VirtualHosts
                         sa.subdomain_alias_type_forward AS type_forward,
                         sa.subdomain_alias_host_forward AS host_forward,
                         sa.subdomain_alias_wildcard_alias AS wildcard,
-                        sa.subdomain_alias_status AS status, NULL AS ip_id
+                        sa.subdomain_alias_status AS status, NULL AS ip_id,
+                        NULL AS external_mail
                     FROM subdomain_alias AS sa
                     JOIN domain_aliasses AS al ON al.alias_id = sa.alias_id
                     JOIN domain AS d ON d.domain_id = al.domain_id
@@ -499,7 +501,9 @@ class VirtualHosts
             'hostForward'  => (string)$row['host_forward'],
             'wildcard'     => $row['wildcard'] === 'yes',
             'status'       => (string)$row['status'],
-            'ipId'         => $row['ip_id'] === null ? null : (int)$row['ip_id']
+            'ipId'         => $row['ip_id'] === null ? null : (int)$row['ip_id'],
+            // Only a domain and an alias have the column; null for a subdomain.
+            'externalMail' => $row['external_mail'] === null ? null : $row['external_mail'] === 'on'
         );
     }
 }

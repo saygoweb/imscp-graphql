@@ -195,10 +195,14 @@ final class DomainAliasService
         $row = $kit->vhost(NodeType::DOMAIN_ALIAS, $target->getKey());
         Guard::requireState($row['status'], array(Provisioning::STATE_OK));
 
-        $values = $this->vhostInput->update($account, $row, $input);
+        $externalMail = $this->vhostInput->externalMail($account, $input);
+        $values = $externalMail === null || $this->vhostInput->namesVhost($input)
+            ? $this->vhostInput->update($account, $row, $input)
+            : null;
+        $aliasId = (int)$target->getKey();
 
-        $params = array(
-            'domainAliasId' => (int)$target->getKey(),
+        $params = $values === null ? null : array(
+            'domainAliasId' => $aliasId,
             'mountPoint'    => $row['mountPoint'],
             'documentRoot'  => $values['documentRoot'],
             'forwardUrl'    => $values['url'],
@@ -207,31 +211,50 @@ final class DomainAliasService
             'wildcardAlias' => $values['wildcard']
         );
 
-        // CORE-DEBT(C3): transcribed from gui/public/client/alias_edit.php:303-341.
-        $kit->writer()->run(function () use ($kit, $core, $params, $values) {
-            $core->dispatch(Events::onBeforeEditDomainAlias, $params);
+        $kit->writer()->run(function () use ($kit, $core, $params, $values, $externalMail, $aliasId) {
+            // CORE-DEBT(C3): transcribed from gui/public/client/alias_edit.php:303-341.
+            if ($values !== null) {
+                $core->dispatch(Events::onBeforeEditDomainAlias, $params);
 
-            $kit->db()->execute(
-                '
-                    UPDATE domain_aliasses
-                    SET alias_document_root = ?, url_forward = ?, type_forward = ?, host_forward = ?,
-                        wildcard_alias = ?, alias_status = ?
-                    WHERE alias_id = ?
-                ',
-                array(
-                    $values['documentRoot'], $values['url'], $values['type'], $values['host'],
-                    $values['wildcard'], 'tochange', $params['domainAliasId']
-                )
-            );
+                $kit->db()->execute(
+                    '
+                        UPDATE domain_aliasses
+                        SET alias_document_root = ?, url_forward = ?, type_forward = ?, host_forward = ?,
+                            wildcard_alias = ?, alias_status = ?
+                        WHERE alias_id = ?
+                    ',
+                    array(
+                        $values['documentRoot'], $values['url'], $values['type'], $values['host'],
+                        $values['wildcard'], 'tochange', $aliasId
+                    )
+                );
 
-            $core->dispatch(Events::onAfterEditDomainAlias, $params);
+                $core->dispatch(Events::onAfterEditDomainAlias, $params);
+            }
+
+            // CORE-DEBT(C3): transcribed from updateExternalMailFeature(),
+            //   gui/public/client/mail_external.php:40-75, which fires no
+            //   events of its own.
+            if ($externalMail !== null) {
+                $kit->db()->execute(
+                    "UPDATE domain_aliasses SET alias_status = 'tochange', external_mail = ? WHERE alias_id = ?",
+                    array($externalMail, $aliasId)
+                );
+            }
         });
 
         $core->sendRequest();
-        $core->writeLog(
-            sprintf('%s updated properties of the %s domain alias', $caller->getUsername(), $core->toUnicode((string)$row['name'])),
-            E_USER_NOTICE
-        );
+
+        if ($values !== null) {
+            $core->writeLog(
+                sprintf('%s updated properties of the %s domain alias', $caller->getUsername(), $core->toUnicode((string)$row['name'])),
+                E_USER_NOTICE
+            );
+        }
+
+        if ($externalMail !== null) {
+            $core->writeLog($this->vhostInput->externalMailLog($externalMail, $core->toUnicode((string)$row['name']), $caller), E_USER_NOTICE);
+        }
 
         return new ObjectRef(NodeType::DOMAIN_ALIAS, $target->getKey());
     }

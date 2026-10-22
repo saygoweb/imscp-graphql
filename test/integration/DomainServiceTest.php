@@ -97,6 +97,63 @@ class DomainServiceTest extends ServiceTestCase
         self::assertSame('input.forwarding.url', $e->getExtensions()['field']);
     }
 
+    public function testTurningExternalMailOnAloneFiresNoEditEvents(): void
+    {
+        $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => true));
+
+        $row = $this->db->row(
+            'SELECT external_mail, domain_status, wildcard_alias FROM domain WHERE domain_id = ?',
+            array($this->fixture->domainId())
+        );
+        self::assertSame(array('external_mail' => 'on', 'domain_status' => 'tochange', 'wildcard_alias' => 'no'), $row);
+        self::assertSame(array(), $this->core->eventNames(), 'mail_external.php fires no edit events');
+        self::assertSame(1, $this->core->requests);
+        self::assertSame(
+            array('External mail feature has been activated for ' . $this->fixture->domainName() . ' by sgwtcustomer'),
+            array_column($this->core->logs, 0)
+        );
+    }
+
+    public function testExternalMailAndAnotherFieldInOneUpdate(): void
+    {
+        $this->db->execute("UPDATE domain SET external_mail = 'on' WHERE domain_id = ?", array($this->fixture->domainId()));
+
+        $this->service()->update($this->caller('customer'), $this->id(), array('wildcard' => true, 'externalMail' => false));
+
+        $row = $this->db->row(
+            'SELECT external_mail, domain_status, wildcard_alias FROM domain WHERE domain_id = ?',
+            array($this->fixture->domainId())
+        );
+        self::assertSame(array('external_mail' => 'off', 'domain_status' => 'tochange', 'wildcard_alias' => 'yes'), $row);
+        self::assertSame(array('onBeforeEditDomain', 'onAfterEditDomain'), $this->core->eventNames());
+        self::assertSame(1, $this->core->requests);
+        self::assertSame(array(
+            'The ' . $this->fixture->domainName() . ' domain properties were updated by sgwtcustomer',
+            'External mail feature has been deactivated for ' . $this->fixture->domainName() . ' by sgwtcustomer'
+        ), array_column($this->core->logs, 0));
+    }
+
+    public function testExternalMailNeedsTheAllowance(): void
+    {
+        $this->db->execute("UPDATE domain SET domain_external_mail = 'no' WHERE domain_id = ?", array($this->fixture->domainId()));
+
+        $e = $this->refused(ErrorCode::FEATURE_UNAVAILABLE, function () {
+            $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => true));
+        });
+
+        self::assertSame('externalMail', $e->getExtensions()['feature']);
+        self::assertSame(0, $this->core->requests);
+    }
+
+    public function testExternalMailOnAnUnsettledDomainIsAConflict(): void
+    {
+        $this->db->execute("UPDATE domain SET domain_status = 'tochange' WHERE domain_id = ?", array($this->fixture->domainId()));
+
+        $this->refused(ErrorCode::CONFLICT, function () {
+            $this->service()->update($this->caller('customer'), $this->id(), array('externalMail' => true));
+        });
+    }
+
     public function testAnUnsettledDomainIsAConflict(): void
     {
         $this->db->execute("UPDATE domain SET domain_status = 'tochange' WHERE domain_id = ?", array($this->fixture->domainId()));

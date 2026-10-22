@@ -120,6 +120,7 @@ final class VirtualHostResolver
             'mountPoint'   => $row['mountPoint'],
             'documentRoot' => $row['documentRoot'],
             'wildcard'     => $row['wildcard'],
+            'externalMail' => $row['externalMail'],
             'label'        => $row['label'],
             'forwarding'   => self::forwarding($row),
             'provisioning' => TypeResolver::provisioning($row['status']),

@@ -51,7 +51,8 @@ class VirtualHostResolverTest extends TestCase
             'hostForward'  => 'Off',
             'wildcard'     => false,
             'status'       => 'ok',
-            'ipId'         => 3
+            'ipId'         => 3,
+            'externalMail' => true
         ), $overrides);
     }
 
@@ -167,6 +168,7 @@ class VirtualHostResolverTest extends TestCase
         self::assertSame(12, $shape['__domainId']);
         self::assertSame(3, $shape['__ipId']);
         self::assertSame(VirtualHosts::KIND_DMN, $shape['__kind']);
+        self::assertTrue($shape['externalMail']);
     }
 
     public function testASubdomainCarriesItsLabelAndItsParent(): void

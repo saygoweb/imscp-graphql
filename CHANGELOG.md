@@ -26,6 +26,14 @@ All notable changes to this plugin are documented here. The format follows
 
 ### Added
 
+- **External mail feature per domain and alias** (#22): `externalMail` on
+  `DomainUpdateInput` and `DomainAliasUpdateInput` turns it on or off, as the
+  panel's *External mail* page does, and `Domain.externalMail` /
+  `DomainAlias.externalMail` read it. It needs the customer's `externalMail`
+  allowance (`FEATURE_UNAVAILABLE` otherwise) and a settled host; the host goes
+  to `tochange` and the daemon moves it between Postfix's local and relay
+  domains. Like the panel page, an update that names only `externalMail` fires
+  no edit events.
 - **Error log:** every error response is written, one line each, to
   `gui/data/logs/sgw_graphql.log` (new `error_log` key in `config.php`) with
   its code, message, extensions, account, operation and redacted variables,

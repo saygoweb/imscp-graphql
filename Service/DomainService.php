@@ -29,9 +29,9 @@ use iMSCP\Plugin\SGW_GraphQL\Support\ObjectRef;
 use iMSCP\Plugin\SGW_GraphQL\Support\Provisioning;
 
 /**
- * The customer's own main domain: forwarding, document root and wildcard
- * (spec section 1.1). Everything else about a domain is the reseller's, in
- * plan 4.
+ * The customer's own main domain: forwarding, document root, wildcard and
+ * external mail (spec section 1.1). Everything else about a domain is the
+ * reseller's, in plan 4.
  *
  * CORE-DEBT(C3): the rules are gui/public/client/domain_edit.php:179-344.
  *   Retire when DomainService lands in core (spec section 21, C3 row 7).
@@ -63,10 +63,14 @@ final class DomainService
         $row = $kit->vhost(NodeType::DOMAIN, $target->getKey());
         Guard::requireState($row['status'], array(Provisioning::STATE_OK));
 
-        $values = $this->vhostInput->update($account, $row, $input);
+        $externalMail = $this->vhostInput->externalMail($account, $input);
+        $values = $externalMail === null || $this->vhostInput->namesVhost($input)
+            ? $this->vhostInput->update($account, $row, $input)
+            : null;
+        $domainId = (int)$target->getKey();
 
-        $params = array(
-            'domainId'      => (int)$target->getKey(),
+        $params = $values === null ? null : array(
+            'domainId'      => $domainId,
             'domainName'    => $row['name'],
             'mountPoint'    => '/',
             'documentRoot'  => $values['documentRoot'],
@@ -76,34 +80,52 @@ final class DomainService
             'wildcardAlias' => $values['wildcard']
         );
 
-        $kit->writer()->run(function () use ($kit, $core, $params, $values) {
-            $core->dispatch(Events::onBeforeEditDomain, $params);
+        $kit->writer()->run(function () use ($kit, $core, $params, $values, $externalMail, $domainId) {
+            if ($values !== null) {
+                $core->dispatch(Events::onBeforeEditDomain, $params);
 
-            $kit->db()->execute(
-                '
-                    UPDATE domain
-                    SET document_root = ?, url_forward = ?, type_forward = ?, host_forward = ?,
-                        wildcard_alias = ?, domain_status = ?
-                    WHERE domain_id = ?
-                ',
-                array(
-                    $values['documentRoot'], $values['url'], $values['type'], $values['host'],
-                    $values['wildcard'], 'tochange', $params['domainId']
-                )
-            );
+                $kit->db()->execute(
+                    '
+                        UPDATE domain
+                        SET document_root = ?, url_forward = ?, type_forward = ?, host_forward = ?,
+                            wildcard_alias = ?, domain_status = ?
+                        WHERE domain_id = ?
+                    ',
+                    array(
+                        $values['documentRoot'], $values['url'], $values['type'], $values['host'],
+                        $values['wildcard'], 'tochange', $domainId
+                    )
+                );
 
-            $core->dispatch(Events::onAfterEditDomain, $params);
+                $core->dispatch(Events::onAfterEditDomain, $params);
+            }
+
+            // CORE-DEBT(C3): transcribed from updateExternalMailFeature(),
+            //   gui/public/client/mail_external.php:40-75, which fires no
+            //   events of its own.
+            if ($externalMail !== null) {
+                $kit->db()->execute(
+                    "UPDATE domain SET domain_status = 'tochange', external_mail = ? WHERE domain_id = ?",
+                    array($externalMail, $domainId)
+                );
+            }
         });
 
         $core->sendRequest();
 
-        // The page's format string takes the domain name first; it passes the
-        // username twice (domain_edit.php:336-339), which is not worth an
-        // issue of its own.
-        $core->writeLog(
-            sprintf('The %s domain properties were updated by %s', $core->toUnicode((string)$row['name']), $caller->getUsername()),
-            E_USER_NOTICE
-        );
+        if ($values !== null) {
+            // The page's format string takes the domain name first; it passes the
+            // username twice (domain_edit.php:336-339), which is not worth an
+            // issue of its own.
+            $core->writeLog(
+                sprintf('The %s domain properties were updated by %s', $core->toUnicode((string)$row['name']), $caller->getUsername()),
+                E_USER_NOTICE
+            );
+        }
+
+        if ($externalMail !== null) {
+            $core->writeLog($this->vhostInput->externalMailLog($externalMail, $core->toUnicode((string)$row['name']), $caller), E_USER_NOTICE);
+        }
 
         return new ObjectRef(NodeType::DOMAIN, $target->getKey());
     }

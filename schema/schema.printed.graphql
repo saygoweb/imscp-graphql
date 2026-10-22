@@ -235,6 +235,13 @@ type Domain implements Node & Provisioned & VirtualHost {
   documentRoot: String!
   forwarding: Forwarding
   wildcard: Boolean!
+
+  """
+  Whether mail for this host is relayed to a mail server elsewhere (the
+  panel's external mail feature) rather than delivered to mailboxes here.
+  """
+  externalMail: Boolean!
+
   provisioning: Provisioning!
   customer: Customer!
   ipAddress: IpAddress!
@@ -272,6 +279,13 @@ type DomainAlias implements Node & Provisioned & VirtualHost {
   documentRoot: String!
   forwarding: Forwarding
   wildcard: Boolean!
+
+  """
+  Whether mail for this host is relayed to a mail server elsewhere (the
+  panel's external mail feature) rather than delivered to mailboxes here.
+  """
+  externalMail: Boolean!
+
   provisioning: Provisioning!
   domain: Domain!
   customer: Customer!
@@ -779,7 +793,7 @@ type Mutation {
   "Revokes one of the caller's own tokens. Revoking a revoked token succeeds."
   tokenRevoke(id: ID!): ApiToken!
 
-  "Forwarding, document root and wildcard of a customer's main domain."
+  "Forwarding, document root, wildcard and external mail of a customer's main domain."
   domainUpdate(id: ID!, input: DomainUpdateInput!): Domain!
 
   subdomainCreate(input: SubdomainCreateInput!): Subdomain!
@@ -968,6 +982,12 @@ input DomainUpdateInput {
   documentRoot: String
   forwarding: ForwardingInput
   wildcard: Boolean
+
+  """
+  Turns the external mail feature on or off for this host. Needs the
+  customer's externalMail allowance (FEATURE_UNAVAILABLE otherwise).
+  """
+  externalMail: Boolean
 }
 
 input SubdomainCreateInput {
@@ -983,7 +1003,7 @@ input SubdomainCreateInput {
   wildcard: Boolean = false
 }
 
-"As DomainUpdateInput."
+"As DomainUpdateInput, without externalMail: a subdomain's mail follows its parent."
 input SubdomainUpdateInput {
   documentRoot: String
   forwarding: ForwardingInput
@@ -1006,6 +1026,12 @@ input DomainAliasUpdateInput {
   documentRoot: String
   forwarding: ForwardingInput
   wildcard: Boolean
+
+  """
+  Turns the external mail feature on or off for this host. Needs the
+  customer's externalMail allowance (FEATURE_UNAVAILABLE otherwise).
+  """
+  externalMail: Boolean
 }
 
 input MailAccountCreateInput {
