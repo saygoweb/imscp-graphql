@@ -46,7 +46,6 @@ class CustomerServiceTest extends ServiceTestCase
             'allowances' => array(
                 'subdomains' => 2, 'domainAliases' => 1, 'mailAccounts' => 5, 'ftpUsers' => 2,
                 'sqlDatabases' => 1, 'sqlUsers' => 1, 'traffic' => 1024 * 1048576, 'disk' => 512 * 1048576,
-                // A6: a mail quota cannot be unlimited against a finite disk limit.
                 'mailQuota' => 104857600, 'php' => true, 'cgi' => false, 'customDns' => false,
                 'externalMail' => false, 'backup' => array(), 'phpEditor' => false
             ),

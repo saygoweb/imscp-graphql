@@ -86,16 +86,12 @@ final class Allowances
 
         // A6: CORE-DEBT(C3): transcribed from user_add2.php:454-473. Both
         // sides are bytes now, so this is the same comparison the panel
-        // makes in MiB - a finite disk limit ($diskBytes > 0) bounds the
-        // mail quota, and disallows an unlimited one.
+        // makes in MiB - a finite disk limit ($diskBytes > 0) bounds a
+        // finite mail quota. An unlimited one (0) is allowed under it, as the
+        // panel allows it since i-MSCP 1.6.3: mail is then bounded only by
+        // the disk limit, which the panel reports against rather than enforces.
         if ($diskBytes > 0 && $mailQuota > $diskBytes) {
             throw Guard::badInput('input.allowances.mailQuota', 'A mail quota cannot be larger than the disk limit.');
-        }
-
-        if ($diskBytes > 0 && $mailQuota === 0) {
-            throw Guard::badInput(
-                'input.allowances.mailQuota', 'A mail quota cannot be unlimited when the disk limit is not.'
-            );
         }
 
         $fields['traffic'] = (string)self::bytesToMib($trafficBytes);
