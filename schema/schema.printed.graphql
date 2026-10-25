@@ -1267,8 +1267,8 @@ other BigInt here - i-MSCP stores `traffic` and `disk` in MiB, and the
 conversion happens at the boundary, the same as it does on the way out of
 `PlanProps::storage()`. A `traffic` or `disk` value that is not a whole number
 of MiB is `BAD_USER_INPUT` rather than silently truncated. A mail quota may not
-exceed a finite disk limit, and may not be unlimited while the disk limit is
-not.
+exceed a finite disk limit. It may be unlimited (0) under one, which leaves mail
+bounded only by the disk limit.
 
 On `customerCreate` and on both hosting plan mutations every limit must be
 named - the six services, `traffic`, `disk` and `mailQuota` - because an absent

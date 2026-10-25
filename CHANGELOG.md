@@ -20,6 +20,13 @@ All notable changes to this plugin are documented here. The format follows
 
 ### Changed
 
+- **An unlimited mail quota under a finite disk limit** (`allowances.mailQuota`
+  0 with `disk` above 0) is accepted by `customerCreate`, `customerUpdate` and
+  both hosting plan mutations, as the panel accepts it since i-MSCP 1.6.3. It
+  was refused with `BAD_USER_INPUT`. Setting a customer's mail quota to 0 also
+  sets its mailboxes' quotas to 0, through the panel's `sync_mailboxes_quota()`
+  (i-MSCP 1.6.5 or later).
+
 - **Admin *System tools* menu:** the single *API* page is now two, *API
   config* (`/admin/api_config.php`, the effective configuration) and *API
   log* (`/admin/api_audit.php`, the request log). Both drop the blue info

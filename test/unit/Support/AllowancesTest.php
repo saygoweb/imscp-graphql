@@ -141,11 +141,11 @@ class AllowancesTest extends TestCase
         });
     }
 
-    public function testAnUnlimitedMailQuotaAgainstAFiniteDiskLimitIsRefused(): void
+    public function testAnUnlimitedMailQuotaUnderAFiniteDiskLimitIsAccepted(): void
     {
-        $this->expectRefusal('input.allowances.mailQuota', function (): void {
-            Allowances::fromInput($this->complete(array('disk' => 1048576, 'mailQuota' => 0)));
-        });
+        $allowances = Allowances::fromInput($this->complete(array('disk' => 1048576, 'mailQuota' => 0)));
+
+        self::assertSame(0, $allowances->storage('mailQuota'));
     }
 
     public function testAMailQuotaNoLargerThanTheDiskLimitIsAccepted(): void
