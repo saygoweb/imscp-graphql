@@ -434,13 +434,20 @@ class CustomerServiceTest extends ServiceTestCase
             )));
         });
         self::assertSame('input.allowances.mailQuota', $e->getExtensions()['field']);
+    }
 
-        $e = $this->refused(ErrorCode::BAD_USER_INPUT, function (): void {
-            $this->service()->create($this->caller('reseller'), $this->input(array(
-                'allowances' => array('disk' => 1048576, 'mailQuota' => 0) + $this->input()['allowances']
-            )));
-        });
-        self::assertSame('input.allowances.mailQuota', $e->getExtensions()['field']);
+    public function testAnUnlimitedMailQuotaUnderTheDiskLimitIsAccepted(): void
+    {
+        // i-MSCP 1.6.3 dropped user_add2.php's refusal of this: mail is then
+        // bounded only by the disk limit.
+        $ref = $this->service()->create($this->caller('reseller'), $this->input(array(
+            'allowances' => array('disk' => 1048576, 'mailQuota' => 0) + $this->input()['allowances']
+        )));
+
+        self::assertNotNull($ref);
+        self::assertSame(
+            0, (int)$this->db->value("SELECT mail_quota FROM domain WHERE domain_name = 'sgwnew.test'")
+        );
     }
 
     public function testNothingIsWrittenWhenARefusalHappens(): void
