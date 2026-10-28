@@ -332,9 +332,6 @@ final class CustomerService
         $customer = $kit->accounts()->customer($target->getKey());
         $reseller = $kit->accounts()->reseller($customer->getResellerId());
 
-        // 5. A customer in transit is not changed (spec section 8.3).
-        Guard::requireState((string)$customer->domain('domain_status'), array(Provisioning::STATE_OK));
-
         // 6. C6: an explicit null names nothing, as phase 3's checkpoint C
         // settled - except where null is itself a value (B8): expiresAt:
         // null is how "never expires" is said, and $given alone would
@@ -360,6 +357,16 @@ final class CustomerService
         if ($named === array()) {
             throw Guard::badInput('input', 'The update names nothing to change.');
         }
+
+        // 5. A customer in transit is not changed (spec section 8.3). An
+        // expiry alone is the exception on a disabled customer: renewing an
+        // expired account comes before enabling it, and the expiry write
+        // needs no daemon.
+        $status = (string)$customer->domain('domain_status');
+        $allowed = array_values($named) === array('expiresAt')
+            ? array(Provisioning::STATE_OK, Provisioning::STATE_DISABLED)
+            : array(Provisioning::STATE_OK);
+        Guard::requireState($status, $allowed);
 
         if (isset($given['allowances']) && isset($given['hostingPlanId'])) {
             throw Guard::badInput('input', 'Give at most one of hostingPlanId and allowances.');
@@ -506,7 +513,7 @@ final class CustomerService
             $kit, $core, $adminId, $domainId, $username, $password, $contact,
             $allowances, $ipId, $expiresAt, $withdrawsDns, $needsDaemon, $domainNeedsDaemon,
             $newDiskLimitMib, $oldDiskLimitMib, $newMailQuotaBytes, $oldMailQuotaBytes,
-            $domainName, $effectiveIpId, $phpIniValues
+            $domainName, $effectiveIpId, $phpIniValues, $status
         ) {
             $db = $kit->db();
             $core->dispatch(Events::onBeforeEditUser, array('userId' => $adminId));
@@ -575,7 +582,8 @@ final class CustomerService
                 }
 
                 $sets[] = 'domain_status = ?';
-                $bind[] = $needsDaemon ? 'tochange' : 'ok';
+                // An expiry alone on a disabled customer leaves it disabled.
+                $bind[] = $needsDaemon ? 'tochange' : ($status === 'disabled' ? 'disabled' : 'ok');
                 $bind[] = $domainId;
 
                 $db->execute('UPDATE domain SET ' . implode(', ', $sets) . ' WHERE domain_id = ?', $bind);
