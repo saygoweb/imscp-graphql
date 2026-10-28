@@ -557,6 +557,72 @@ class CustomerServiceTest extends ServiceTestCase
         self::assertSame(0, (int)$domain['domain_expires']);
     }
 
+    public function testAnExpiryAloneOnADisabledCustomerKeepsItDisabled(): void
+    {
+        $this->db->execute(
+            "UPDATE domain SET domain_status = 'disabled' WHERE domain_id = ?", array($this->fixture->domainId())
+        );
+        $at = gmdate('Y-m-d\TH:i:s\Z', time() + 30 * 86400);
+
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('expiresAt' => $at)
+        );
+
+        $domain = $this->db->row(
+            'SELECT domain_status, domain_expires FROM domain WHERE domain_id = ?', array($this->fixture->domainId())
+        );
+        self::assertSame('disabled', $domain['domain_status']);
+        self::assertSame(strtotime($at), (int)$domain['domain_expires']);
+    }
+
+    public function testNeverExpiresOnADisabledCustomerIsAccepted(): void
+    {
+        $this->db->execute(
+            "UPDATE domain SET domain_status = 'disabled', domain_expires = ? WHERE domain_id = ?",
+            array(time() - 86400, $this->fixture->domainId())
+        );
+
+        $this->service()->update(
+            $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+            array('expiresAt' => null)
+        );
+
+        $domain = $this->db->row(
+            'SELECT domain_status, domain_expires FROM domain WHERE domain_id = ?', array($this->fixture->domainId())
+        );
+        self::assertSame('disabled', $domain['domain_status']);
+        self::assertSame(0, (int)$domain['domain_expires']);
+    }
+
+    public function testAnythingElseOnADisabledCustomerIsStillRefused(): void
+    {
+        $this->db->execute(
+            "UPDATE domain SET domain_status = 'disabled' WHERE domain_id = ?", array($this->fixture->domainId())
+        );
+
+        $this->refused(ErrorCode::FORBIDDEN, function (): void {
+            $this->service()->update(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+                array('expiresAt' => null, 'contact' => array('email' => 'grace@sgwt.test'))
+            );
+        });
+    }
+
+    public function testAnExpiryAloneOnAPendingCustomerIsStillAConflict(): void
+    {
+        $this->db->execute(
+            "UPDATE domain SET domain_status = 'todisable' WHERE domain_id = ?", array($this->fixture->domainId())
+        );
+
+        $this->refused(ErrorCode::CONFLICT, function (): void {
+            $this->service()->update(
+                $this->caller('reseller'), GlobalId::encode(NodeType::CUSTOMER, $this->fixture->customerId()),
+                array('expiresAt' => null)
+            );
+        });
+    }
+
     public function testAnUpdateThatNamesNothingIsRefused(): void
     {
         $this->refused(ErrorCode::BAD_USER_INPUT, function (): void {
