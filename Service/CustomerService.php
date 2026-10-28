@@ -513,7 +513,7 @@ final class CustomerService
             $kit, $core, $adminId, $domainId, $username, $password, $contact,
             $allowances, $ipId, $expiresAt, $withdrawsDns, $needsDaemon, $domainNeedsDaemon,
             $newDiskLimitMib, $oldDiskLimitMib, $newMailQuotaBytes, $oldMailQuotaBytes,
-            $domainName, $effectiveIpId, $phpIniValues, $status
+            $domainName, $effectiveIpId, $phpIniValues
         ) {
             $db = $kit->db();
             $core->dispatch(Events::onBeforeEditUser, array('userId' => $adminId));
@@ -581,9 +581,13 @@ final class CustomerService
                     $bind[] = $expiresAt;
                 }
 
-                $sets[] = 'domain_status = ?';
-                // An expiry alone on a disabled customer leaves it disabled.
-                $bind[] = $needsDaemon ? 'tochange' : ($status === 'disabled' ? 'disabled' : 'ok');
+                // An expiry-only change leaves domain_status untouched, so a
+                // racing customerSetState is not overwritten with a stale value.
+                if ($needsDaemon) {
+                    $sets[] = 'domain_status = ?';
+                    $bind[] = 'tochange';
+                }
+
                 $bind[] = $domainId;
 
                 $db->execute('UPDATE domain SET ' . implode(', ', $sets) . ' WHERE domain_id = ?', $bind);

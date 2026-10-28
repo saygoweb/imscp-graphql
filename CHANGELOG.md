@@ -22,7 +22,7 @@ All notable changes to this plugin are documented here. The format follows
 
 - **`customerUpdate` with `expiresAt` alone** is accepted on a DISABLED
   customer, and leaves it DISABLED. Until now any update of a disabled
-  customer was CONFLICT, so an expired account could not be renewed before
+  customer was refused, so an expired account could not be renewed before
   it was enabled; the nightly `imscp-disable-accounts` job then disabled it
   again.
 - **An unlimited mail quota under a finite disk limit** (`allowances.mailQuota`
