@@ -917,9 +917,10 @@ type Mutation {
 
   """
   Partial: an absent field keeps its value. Reseller and administrator only.
-  A customer that is not settled is CONFLICT, except that `expiresAt` alone
-  is accepted on a DISABLED customer, which stays DISABLED: an expired
-  account is renewed before it is enabled.
+  A customer the backend is still working on is CONFLICT, and a DISABLED one
+  FORBIDDEN, except that `expiresAt` alone is accepted on a DISABLED
+  customer, which stays DISABLED: an expired account is renewed before it
+  is enabled.
   """
   customerUpdate(id: ID!, input: CustomerUpdateInput!): Customer!
 
