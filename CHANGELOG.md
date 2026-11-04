@@ -18,6 +18,15 @@ All notable changes to this plugin are documented here. The format follows
   against. `Reseller.storage` sums actual usage, so a client could not
   mirror that check before.
 
+### Fixed
+
+- **`MailAccount.host` and `DnsRecord.host` are nullable**, and null when the
+  host's row is gone. Deleting a subdomain or alias leaves its mail and DNS
+  rows for the engine to remove, and until it does (or for good, when it
+  fails) such a row failed the whole `mailAccounts` or `dnsRecords` list with
+  "Cannot return null for non-nullable field". Clients should handle a null
+  `host`.
+
 ### Changed
 
 - **`customerUpdate` with `expiresAt` alone** is accepted on a DISABLED

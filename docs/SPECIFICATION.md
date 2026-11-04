@@ -883,8 +883,8 @@ type MailAccount implements Node & Provisioned {
   id: ID!
   address: EmailAddress!
   kind: MailAccountKind!
-  "The vhost this address belongs to."
-  host: VirtualHost!
+  "The vhost this address belongs to. Null when that vhost's row is gone but the address was left behind."
+  host: VirtualHost
   forwardTo: [EmailAddress!]!
   "Null when unlimited."
   quota: BigInt
@@ -944,8 +944,8 @@ type SqlUser implements Node {
 ```graphql
 type DnsRecord implements Node & Provisioned {
   id: ID!
-  "The domain or alias this record hangs off."
-  host: VirtualHost!
+  "The domain or alias this record hangs off. Null when the alias's row is gone but the record was left behind."
+  host: VirtualHost
   "Relative to the host's zone, @ for the zone itself; fully qualified (with a trailing dot) only outside it."
   name: String!
   "Seconds, as stored. Null when the record states none and the zone's default applies."
