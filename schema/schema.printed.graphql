@@ -405,8 +405,12 @@ type MailAccount implements Node & Provisioned {
   address: EmailAddress!
   kind: MailAccountKind!
 
-  "The vhost this address belongs to."
-  host: VirtualHost!
+  """
+  The vhost this address belongs to. Null when that vhost's row is gone: a
+  subdomain or alias deleted while the address was left behind, as when the
+  engine removes the host before its mail or fails to remove the mail.
+  """
+  host: VirtualHost
 
   "Where a forward sends mail, or the addresses a catch-all delivers to. Empty for a mailbox that does not forward."
   forwardTo: [EmailAddress!]!
@@ -478,8 +482,11 @@ type SqlUser implements Node {
 type DnsRecord implements Node & Provisioned {
   id: ID!
 
-  "The domain or alias this record hangs off."
-  host: VirtualHost!
+  """
+  The domain or alias this record hangs off. Null when the alias's row is gone
+  but the record was left behind.
+  """
+  host: VirtualHost
 
   """
   The owner name, in the form DnsRecordCreateInput.name takes: relative to the
